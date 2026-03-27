@@ -1,11 +1,10 @@
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    
+
     const singleFiles = ['platformFile', 'equityFile', 'transactionsFile'];
     const formData = new FormData();
     const uploadSpinner = document.getElementById('uploadSpinner');
-    
-    // Bank/PSP supports multiple files
+
     const bankFiles = document.getElementById('bankFile').files;
     if (bankFiles.length === 0) {
         return alert('Please select at least one Bank/PSP statement.');
@@ -13,8 +12,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     for (let i = 0; i < bankFiles.length; i++) {
         formData.append('bankFile', bankFiles[i]);
     }
-    
-    // Single files
+
     for (const id of singleFiles) {
         const file = document.getElementById(id).files[0];
         if (!file) {
@@ -22,48 +20,41 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         }
         formData.append(id, file);
     }
-    
+
     uploadSpinner.classList.remove('hidden');
     const submitBtn = document.querySelector('#uploadForm button');
     submitBtn.style.opacity = "0.7";
-    
+
     try {
-        const res = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData
-        });
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await res.json();
-        
+
         if (data.status === 'success') {
             document.getElementById('uploadZone').classList.add('hidden');
-            
+
             const mappingZone = document.getElementById('mappingZone');
             const mappingCards = document.getElementById('mappingCards');
-            
-            // Update subtitle with parse summary
+
             mappingZone.querySelector('.subtitle').innerText = data.message;
-            
             mappingCards.innerHTML = '';
             mappingCards.style.gridTemplateColumns = '1fr';
-            
+
             for (const [source, info] of Object.entries(data.sources)) {
-                const colTags = info.columns.map(c => 
+                const colTags = info.columns.map(c =>
                     `<span style="background: rgba(59,130,246,0.15); color: #93c5fd; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">${c}</span>`
                 ).join(' ');
-                
+
                 mappingCards.innerHTML += `
                     <div class="mapping-card" style="flex-direction: column; align-items: flex-start; gap: 10px; border-left-color: #10b981;">
                         <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                             <span class="m-value" style="font-size: 15px;">${source}</span>
                             <span style="color: #64748b; font-size: 12px;">${info.filename}</span>
                         </div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                            ${colTags}
-                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">${colTags}</div>
                     </div>
                 `;
             }
-            
+
             mappingZone.classList.remove('hidden');
         } else {
             alert(data.error);
@@ -79,14 +70,14 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 document.getElementById('runReconBtn').addEventListener('click', async () => {
     const btn = document.getElementById('runReconBtn');
     btn.innerHTML = `<span class="spinner"></span> Joining Datasets...`;
-    
+
     try {
         const res = await fetch('/api/reconcile', { method: 'POST' });
         const data = await res.json();
-        
+
         if (data.status === 'success') {
             document.getElementById('mappingZone').classList.add('hidden');
-            
+
             const s = data.summary;
             document.getElementById('joinKeyInfo').innerText = `Join: ${s.join_keys_used} | Deal No col: ${s.deal_no_column}`;
             document.getElementById('statMatched').innerText = s.total_matched.toLocaleString();
@@ -95,8 +86,10 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             document.getElementById('statCrmTotal').innerText = s.total_crm_rows.toLocaleString();
             document.getElementById('statBankTotal').innerText = s.total_bank_rows.toLocaleString();
             document.getElementById('statFees').innerText = `$${s.unrecon_fees.toLocaleString()}`;
-            
+
             document.getElementById('resultsZone').classList.remove('hidden');
+        } else {
+            alert("Reconciliation error: " + (data.summary?.error || "Unknown error"));
         }
     } catch (err) {
         alert("Mathematical Reconciliation failed.");
@@ -105,7 +98,42 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
     }
 });
 
-// Live FX Rates - fetches via our Flask proxy (real pairs from historical data)
+// Download buttons — fetch from backend and trigger browser save
+document.querySelectorAll('.btn.download').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const isLifecycle = btn.textContent.includes('Lifecycle');
+        const url = isLifecycle ? '/api/download/lifecycle' : '/api/download/balances';
+        const originalText = btn.textContent;
+
+        btn.style.opacity = "0.6";
+        btn.textContent = '⏳ Generating...';
+
+        fetch(url)
+            .then(res => {
+                if (!res.ok) return res.json().then(d => { throw new Error(d.error || 'Download failed'); });
+                return res.blob();
+            })
+            .then(blob => {
+                const objUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = objUrl;
+                a.download = isLifecycle
+                    ? `Lifecycle List ${new Date().toISOString().slice(0, 10)}.xlsx`
+                    : `Balances ${new Date().toISOString().slice(0, 10)}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(objUrl);
+            })
+            .catch(err => alert('Download error: ' + err.message))
+            .finally(() => {
+                btn.style.opacity = "1";
+                btn.textContent = originalText;
+            });
+    });
+});
+
+// Live FX Rates
 (async function loadFxRates() {
     const row = document.getElementById('fxRatesRow');
     try {
@@ -129,7 +157,6 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 `;
             }
 
-            // Now fetch crypto rates
             try {
                 const cryptoRes = await fetch('/api/rates/crypto');
                 const cryptoData = await cryptoRes.json();
@@ -141,7 +168,7 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                     `;
                     const cryptoSorted = Object.entries(cryptoData.rates).sort((a, b) => a[0].localeCompare(b[0]));
                     for (const [coin, price] of cryptoSorted) {
-                        const fmt = price >= 100 ? price.toLocaleString('en-US', {maximumFractionDigits: 0}) : price.toFixed(2);
+                        const fmt = price >= 100 ? price.toLocaleString('en-US', { maximumFractionDigits: 0 }) : price.toFixed(2);
                         row.innerHTML += `
                             <div style="text-align: center; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); padding: 6px 4px; border-radius: 6px;">
                                 <div style="color: #fbbf24; font-weight: 700; font-size: 13px;">$${fmt}</div>
