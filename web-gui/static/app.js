@@ -177,6 +177,41 @@ document.querySelectorAll('.btn.download').forEach(btn => {
     });
 });
 
+// TEST button — loads Jan 2023 data server-side and jumps straight to Stage 3
+document.getElementById('testBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('testBtn');
+    btn.textContent = '⏳ Loading test data...';
+    btn.disabled = true;
+
+    try {
+        const res = await fetch('/api/test', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.status === 'success') {
+            document.getElementById('uploadZone').classList.add('hidden');
+            document.getElementById('mappingZone').classList.add('hidden');
+
+            const s = data.summary;
+            document.getElementById('joinKeyInfo').innerText = `Join: ${s.join_keys_used} | Deal No col: ${s.deal_no_column}`;
+            document.getElementById('statMatched').innerText = s.total_matched.toLocaleString();
+            document.getElementById('statCrmOnly').innerText = s.crm_unmatched.toLocaleString();
+            document.getElementById('statBankOnly').innerText = s.bank_unmatched.toLocaleString();
+            document.getElementById('statCrmTotal').innerText = s.total_crm_rows.toLocaleString();
+            document.getElementById('statBankTotal').innerText = s.total_bank_rows.toLocaleString();
+            document.getElementById('statFees').innerText = `$${s.unrecon_fees.toLocaleString()}`;
+
+            document.getElementById('resultsZone').classList.remove('hidden');
+        } else {
+            alert('Test load failed: ' + (data.summary?.error || JSON.stringify(data)));
+        }
+    } catch (err) {
+        alert('Test load error: ' + err.message);
+    } finally {
+        btn.textContent = '⚡ TEST — Load Jan 2023 Data';
+        btn.disabled = false;
+    }
+});
+
 // Live FX Rates
 (async function loadFxRates() {
     const row = document.getElementById('fxRatesRow');
