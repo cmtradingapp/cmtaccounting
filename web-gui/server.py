@@ -1,6 +1,8 @@
 import os
 import csv
+import re
 import io
+import json
 import pickle
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file
@@ -259,6 +261,84 @@ def upload_files():
     })
 
 
+@app.route('/api/map-columns', methods=['POST'])
+def map_columns():
+    """Use an LLM via OpenRouter to analyze detected columns and suggest join key / output mappings."""
+    api_key = os.environ.get('OPENROUTER_API_KEY')
+    if not api_key:
+        try:
+            with open(r'C:\Users\aleh.c\Documents\openrouter-key.txt', 'r') as _f:
+                api_key = _f.read().strip()
+        except FileNotFoundError:
+            return jsonify({"status": "error", "message": "No API key found. Set OPENROUTER_API_KEY or create C:\\Users\\aleh.c\\Documents\\openrouter-key.txt"}), 500
+
+    try:
+        data = request.json or {}
+        sources = data.get('sources', {})
+
+        sources_text = ""
+        for source_name, info in sources.items():
+            cols = info.get('columns', [])
+            sources_text += f"\n{source_name} ({info.get('filename', '')}):\n  {', '.join(cols)}\n"
+
+        prompt = f"""You are a financial reconciliation expert. Analyze these uploaded file schemas and identify column mappings.
+
+TARGET OUTPUT SCHEMA (52 columns):
+{', '.join(OUTPUT_COLUMNS)}
+
+UPLOADED SOURCE FILES:
+{sources_text}
+
+For each source, identify:
+1. The transaction reference/ID column (used for bank-to-CRM matching)
+2. The amount column
+3. Which source columns map to the output schema columns
+
+Return ONLY valid JSON in this exact format:
+{{
+  "sources": {{
+    "Bank/PSP Statements": {{
+      "ref_col": "exact_column_name_or_null",
+      "amount_col": "exact_column_name_or_null",
+      "mappings": {{"source_column": "Output Column"}}
+    }},
+    "Platform (CRM/MT4)": {{
+      "ref_col": "exact_column_name_or_null",
+      "amount_col": "exact_column_name_or_null",
+      "mappings": {{"source_column": "Output Column"}}
+    }}
+  }},
+  "join_explanation": "brief explanation of the join strategy"
+}}"""
+
+        response = http_requests.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={
+                'model': 'anthropic/claude-haiku-4-5',
+                'max_tokens': 1024,
+                'messages': [{'role': 'user', 'content': prompt}],
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        result_text = response.json()['choices'][0]['message']['content'].strip()
+
+        result_text = re.sub(r'^```(?:json)?\s*', '', result_text)
+        result_text = re.sub(r'\s*```$', '', result_text)
+
+        try:
+            result = json.loads(result_text)
+        except json.JSONDecodeError:
+            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+            result = json.loads(json_match.group()) if json_match else {"join_explanation": result_text, "sources": {}}
+
+        return jsonify({"status": "success", "mapping": result})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route('/api/rates')
 def get_rates():
     target_currencies = 'EUR,GBP,MXN,ZAR,TRY,NGN,KES,TZS,UGX,GHS,ZMW,BWP,CDF,NAD,PHP,IDR,MYR,VND,AED,COP,EGP,CLP,XOF,XAF,PEN,INR,RWF,BRL'
@@ -405,7 +485,6 @@ def reconcile():
                     both['_diff'] = (both[bc] - both[cc]).abs()
                     unrecon_fees = float(both['_diff'].sum())
 
-            # Persist merged state so download endpoints can use it without re-running
             with open(STATE_FILE, 'wb') as f:
                 pickle.dump({
                     'merged': merged, 'crm_df': crm_df, 'bank_df': bank_df,

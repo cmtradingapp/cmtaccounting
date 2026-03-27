@@ -35,14 +35,51 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             const mappingZone = document.getElementById('mappingZone');
             const mappingCards = document.getElementById('mappingCards');
 
+            mappingZone.querySelector('.subtitle').innerText = data.message + ' — Running AI column analysis...';
+            mappingCards.innerHTML = '<div style="color: #94a3b8; padding: 20px; text-align: center;"><span class="spinner"></span> Asking Claude to analyze column schemas...</div>';
+            mappingCards.style.gridTemplateColumns = '1fr';
+            mappingZone.classList.remove('hidden');
+
+            // Call AI mapping endpoint — optional, falls back gracefully if unavailable
+            let aiMapping = null;
+            try {
+                const mapRes = await fetch('/api/map-columns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sources: data.sources })
+                });
+                const mapData = await mapRes.json();
+                if (mapData.status === 'success') aiMapping = mapData.mapping;
+            } catch (_) {
+                // AI mapping is optional — silently fall back to raw column display
+            }
+
             mappingZone.querySelector('.subtitle').innerText = data.message;
             mappingCards.innerHTML = '';
-            mappingCards.style.gridTemplateColumns = '1fr';
 
             for (const [source, info] of Object.entries(data.sources)) {
-                const colTags = info.columns.map(c =>
-                    `<span style="background: rgba(59,130,246,0.15); color: #93c5fd; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">${c}</span>`
-                ).join(' ');
+                const aiSource = aiMapping?.sources?.[source];
+                const refCol = aiSource?.ref_col;
+                const amtCol = aiSource?.amount_col;
+
+                const colTags = info.columns.map(c => {
+                    let style = 'background: rgba(59,130,246,0.15); color: #93c5fd;';
+                    let badge = '';
+                    if (refCol && c === refCol) {
+                        style = 'background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.4);';
+                        badge = ' <span style="font-size:10px;opacity:0.7;">🔑 join key</span>';
+                    } else if (amtCol && c === amtCol) {
+                        style = 'background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3);';
+                        badge = ' <span style="font-size:10px;opacity:0.7;">💰 amount</span>';
+                    }
+                    return `<span style="${style} padding: 3px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">${c}${badge}</span>`;
+                }).join(' ');
+
+                const mappingRows = aiSource?.mappings
+                    ? Object.entries(aiSource.mappings).slice(0, 6).map(([src, out]) =>
+                        `<div style="font-size:11px; color:#64748b; font-family:monospace;">${src} → <span style="color:#a78bfa;">${out}</span></div>`
+                      ).join('')
+                    : '';
 
                 mappingCards.innerHTML += `
                     <div class="mapping-card" style="flex-direction: column; align-items: flex-start; gap: 10px; border-left-color: #10b981;">
@@ -51,11 +88,18 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
                             <span style="color: #64748b; font-size: 12px;">${info.filename}</span>
                         </div>
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">${colTags}</div>
+                        ${mappingRows ? `<div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%;">${mappingRows}</div>` : ''}
                     </div>
                 `;
             }
 
-            mappingZone.classList.remove('hidden');
+            if (aiMapping?.join_explanation) {
+                mappingCards.innerHTML += `
+                    <div style="background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #a78bfa;">
+                        <strong style="color:#c4b5fd;">AI Analysis:</strong> ${aiMapping.join_explanation}
+                    </div>
+                `;
+            }
         } else {
             alert(data.error);
         }
