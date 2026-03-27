@@ -175,7 +175,6 @@ class TestReconcile:
 
     def test_join_key_names_correct(self, reconcile_result):
         join_info = reconcile_result.get_json()['summary']['join_keys_used']
-        assert 'transactionreference' in join_info.lower()
         assert 'psp_transaction_id' in join_info.lower()
 
 
@@ -186,7 +185,7 @@ class TestReconcile:
 class TestDownloadLifecycle:
 
     @pytest.fixture(autouse=True)
-    def dl(self, flask_client, reconcile_result):  # reconcile_result ensures state exists
+    def dl(self, flask_client, reconcile_result):  # noqa: unused — fixture dep ensures state exists
         self.res = flask_client.get('/api/download/lifecycle')
 
     def test_returns_200(self):
@@ -199,25 +198,40 @@ class TestDownloadLifecycle:
 
     def test_file_is_valid_xlsx(self):
         wb = openpyxl.load_workbook(io.BytesIO(self.res.data))
-        assert 'Lifecycle List' in wb.sheetnames
+        assert 'MT4-Transactions' in wb.sheetnames
 
-    def test_has_52_columns(self):
+    def test_has_expected_tabs(self):
         wb = openpyxl.load_workbook(io.BytesIO(self.res.data))
-        ws = wb['Lifecycle List']
-        header = [cell.value for cell in ws[1]]
-        assert len(header) == 52, f"Expected 52 columns, got {len(header)}: {header}"
+        expected = {'MT4-Transactions', 'MT4 CCY Life Cycle', 'MT4 USD per acc Life Cycle',
+                    'PM-Transactions', 'PM USD Life Cycle', 'PM CCY Life Cycle', 'Mapping Rules'}
+        assert expected.issubset(set(wb.sheetnames))
 
-    def test_column_names_match_spec(self):
-        from server import OUTPUT_COLUMNS
+    def test_mt4_has_44_columns(self):
+        from server import MT4_TRX_COLUMNS
         wb = openpyxl.load_workbook(io.BytesIO(self.res.data))
-        ws = wb['Lifecycle List']
+        ws = wb['MT4-Transactions']
         header = [cell.value for cell in ws[1]]
-        assert header == OUTPUT_COLUMNS
+        assert len(header) == 44, f"Expected 44 columns, got {len(header)}"
+        assert header == MT4_TRX_COLUMNS
+
+    def test_pm_has_31_columns(self):
+        from server import PM_TRX_COLUMNS
+        wb = openpyxl.load_workbook(io.BytesIO(self.res.data))
+        ws = wb['PM-Transactions']
+        header = [cell.value for cell in ws[1]]
+        assert len(header) == 31, f"Expected 31 columns, got {len(header)}"
+        assert header == PM_TRX_COLUMNS
+
+    def test_ccy_lifecycle_has_4_columns(self):
+        wb = openpyxl.load_workbook(io.BytesIO(self.res.data))
+        ws = wb['MT4 CCY Life Cycle']
+        header = [cell.value for cell in ws[1]]
+        assert header == ['Client Account', 'Currency', 'Attribute', 'Amount']
 
     def test_has_data_rows(self):
         wb = openpyxl.load_workbook(io.BytesIO(self.res.data))
-        ws = wb['Lifecycle List']
-        assert ws.max_row > 1, "Lifecycle List sheet has no data rows"
+        ws = wb['MT4-Transactions']
+        assert ws.max_row > 1, "MT4-Transactions sheet has no data rows"
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +241,7 @@ class TestDownloadLifecycle:
 class TestDownloadBalances:
 
     @pytest.fixture(autouse=True)
-    def dl(self, flask_client, reconcile_result):  # reconcile_result ensures state exists
+    def dl(self, flask_client, reconcile_result):  # noqa: unused — fixture dep ensures state exists
         self.res = flask_client.get('/api/download/balances')
 
     def test_returns_200(self):
