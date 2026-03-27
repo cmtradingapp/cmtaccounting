@@ -55,31 +55,85 @@ PM_TRX_COLUMNS = [
 ]
 
 
+# ── Currency FK lookup ───────────────────────────────────────────────────────
+# Maps CRM currency_id integer → ISO 4217 currency code.
+# Verified via join of CRM mtorder_id against reference MT4-Transactions.
+CURRENCY_ID_MAP = {
+    1:   'USD',
+    2:   'EUR',
+    3:   'GBP',
+    4:   'AED',
+    5:   'ZAR',
+    6:   'NGN',
+    7:   'IDR',
+    8:   'MXN',
+    9:   'COP',
+    10:  'TZS',
+    11:  'USDT',
+    12:  'KES',
+    13:  'UGX',
+    14:  'GHS',
+    15:  'ZMW',
+    16:  'BWP',
+    17:  'PHP',
+    18:  'MYR',
+    19:  'VND',
+}
+
+
+def _resolve_currency(series):
+    """Convert CRM currency_id integers to ISO currency codes."""
+    def _conv(v):
+        if pd.isna(v):
+            return None
+        try:
+            return CURRENCY_ID_MAP.get(int(float(v)), str(v))
+        except (ValueError, TypeError):
+            return str(v)
+    return series.apply(_conv)
+
+
 # ── TRX Type mapping ────────────────────────────────────────────────────────
 # Maps (CRM payment_method, transactiontype) → MT4 TRX Type attribute.
-# PSP payment methods (Credit card, Wire transfer, Electronic payment,
-# CryptoWallet) produce 2. DP or 2. WD based on transactiontype.
-# Non-PSP methods map directly to a fixed attribute.
+# Derived by joining CRM mtorder_id against reference MT4-Transactions (3,548 rows).
 _PM_TEXT_TO_TRX_TYPE = {
-    # ── fixed-attribute (non-PSP) methods ──────────────────────────────────
-    'transfer':         '4. Transfer',
+    # ── fixed-attribute non-PSP methods ─────────────────────────────────────
+    'transfer':         '4. Transfer',     # TRF entries
     'internal transfer':'4. Transfer',
-    'wire transfer':    '4. Transfer',   # also can be 2. DP/WD if PSP
-    'bonus':            '5. Bonuses',
-    'processing fees':  '5. Fees/Charges',
+    'bonus':            '5. Bonuses',      # BN entries
+    'frf commission':   '5. Bonuses',      # ADJ, maps to Bonuses per reference
+    'processing fees':  '5. Fees/Charges', # PRF entries
     'commission':       '5. Realised Commissions',
-    'frf commission':   '5. Realised Commissions',
     'ib commission':    '5. IB Payment',
-    'adjustment':       '4. Transfer',
+    'adjustment':       '4. Transfer',     # ADJ entries (most common sub-type)
     'fee compensation': '5. Fee Compensation',
     'chargeback':       '5. Fee Compensation',
 }
-# payment_method values that represent actual PSP flows (→ 2. DP / 2. WD)
+# Payment method text values that represent PSP flows (→ 2. DP / 2. WD based on transactiontype)
 _PSP_PAYMENT_METHODS = {
-    'credit card', 'electronic payment', 'cryptowallet', 'cash',
+    'credit card',        # Maps to individual PSP via payment_processor
+    'electronic payment', # Maps to individual PSP via payment_processor
+    'cryptowallet',       # FRX
+    'cash',
+    'wire transfer',      # BT (Banks) — verified as PSP flow in reference
 }
-# Wire transfer can be PSP or internal — we treat as PSP flow
-_PSP_PAYMENT_METHODS.add('wire transfer')
+
+
+# ── Non-PSP method → PM code (fixed mapping) ────────────────────────────────
+_PM_TEXT_TO_CODE = {
+    'transfer':         'TRF',
+    'internal transfer':'TRF',
+    'processing fees':  'PRF',
+    'commission':       'PRF',
+    'frf commission':   'ADJ',
+    'ib commission':    'ADJ',
+    'bonus':            'BN',
+    'adjustment':       'ADJ',
+    'fee compensation': 'ADJ',
+    'chargeback':       'ADJ',
+    'cash':             'ADJ',
+    'wire transfer':    'BT',   # Wire transfers go through Banks (BT)
+}
 
 
 def _map_trx_type(payment_method, transactiontype, is_timing=False):
@@ -298,12 +352,20 @@ def build_lifecycle_df(merged):
 
     out['Tran.Date'] = g('Month, Day, Year of confirmation_time', 'Month, Day, Year of created_time')
     out['Reference'] = g('psp_transaction_id', 'receipt', 'transactionreference')
-    out['Deal No'] = g('mtorder_id')
-    out['Amount'] = pd.to_numeric(g('amount'), errors='coerce')
+    # Deal No: integer → string (no float .0 suffix); UUIDs from MT4 P&L not available
+    deal_no_raw = g('mtorder_id')
+    out['Deal No'] = deal_no_raw.apply(
+        lambda v: str(int(v)) if pd.notna(v) and str(v) not in ('nan', 'None', '') else None
+    )
+    # CRM stores all amounts as positive; apply sign (withdrawals are negative)
+    _sign = g('transactiontype').fillna('').str.lower().apply(
+        lambda t: -1 if 'withdraw' in t else 1
+    )
+    out['Amount'] = pd.to_numeric(g('amount'), errors='coerce') * _sign
     out['Commission'] = 0
     out['Total'] = out['Amount']
-    out['Currency'] = g('currency_id')
-    out['AmntBC'] = pd.to_numeric(g('usdamount'), errors='coerce')
+    out['Currency'] = _resolve_currency(g('currency_id'))
+    out['AmntBC'] = pd.to_numeric(g('usdamount'), errors='coerce') * _sign
     out['CommissionBC'] = 0
     out['TotalBC'] = out['AmntBC']
     out['Reason Code'] = None
@@ -397,7 +459,7 @@ def build_balances_df(merged):
     """Build a Currency/Equity summary from the reconciled data."""
     g = lambda *names: _get_merged_col(merged, *names)
 
-    currency = g('currency_id').fillna('USD')
+    currency = _resolve_currency(g('currency_id')).fillna('USD')
     amount = pd.to_numeric(g('amount'), errors='coerce').fillna(0)
     usd_amount = pd.to_numeric(g('usdamount'), errors='coerce').fillna(0)
 
@@ -424,16 +486,24 @@ def build_balances_df(merged):
 
 
 def build_mt4_transactions_df(merged):
-    """Build the MT4-Transactions tab (44 cols) matching Life Cycle Report-final.xlsx."""
-    # Start from the full 52-col lifecycle df and remap to the 44-col schema
-    lc = build_lifecycle_df(merged)
+    """Build the MT4-Transactions tab (44 cols) matching Life Cycle Report-final.xlsx.
+
+    Only CRM-side rows are included (left_only + both). Bank-only rows belong in
+    PM-Transactions, not here.
+    """
+    # Filter to CRM-side rows only
+    if '_merge' in merged.columns:
+        crm_merged = merged[merged['_merge'] != 'right_only'].copy()
+    else:
+        crm_merged = merged.copy()
+
+    lc = build_lifecycle_df(crm_merged)
     out = pd.DataFrame(index=lc.index)
 
-    # Columns that exist unchanged in both schemas
     shared = [
         'Tran.Date', 'Reference', 'Deal No', 'Amount', 'Commission', 'Total',
         'Currency', 'AmntBC', 'CommissionBC', 'TotalBC', 'Reason Code',
-        'Payment Method', 'Bank', 'Institution', 'Details1', 'Details2',
+        'Bank', 'Institution', 'Details1', 'Details2',
         'Comment', 'Remarks', 'Exch.Diff. %', 'Take To Profit', 'Unrecon. Fees',
         'Match No', 'Recon.Reason Group', 'Recon Reason', 'IsTiming', 'MatchCount',
         'EOD', 'IsEODTran', 'ClientAccount', 'ReasonCodeD', 'CategoryCode',
@@ -443,77 +513,111 @@ def build_mt4_transactions_df(merged):
     for col in shared:
         out[col] = lc[col] if col in lc.columns else None
 
-    # Country_1 = Country.1 (naming difference only)
     out['Country_1'] = lc['Country.1'] if 'Country.1' in lc.columns else None
-
-    # Index = sequential row number (1-based)
     out['Index'] = range(1, len(out) + 1)
 
-    # Payment Method: derive 2-letter PM code from CRM payment_processor
-    proc = _get_merged_col(merged, 'payment_processor').fillna('')
-    pm_code = proc.apply(_map_pm_code)
-    # Fall back to existing Payment Method if mapping didn't produce a code
-    existing_pm = lc['Payment Method'] if 'Payment Method' in lc.columns else pd.Series([None]*len(lc), index=lc.index)
-    out['Payment Method'] = pm_code.where(pm_code.notna(), existing_pm)
+    # Payment Method: 2-letter PM code
+    # 1. Try payment_processor → PM code (for PSP entries)
+    proc = _get_merged_col(crm_merged, 'payment_processor').fillna('')
+    pm_from_proc = proc.apply(_map_pm_code)
 
-    # TRX Type: derive from payment_method + transactiontype using attribute numbering
-    pay_method = _get_merged_col(merged, 'payment_method').fillna('')
-    trx_type_raw = _get_merged_col(merged, 'transactiontype').fillna('')
+    # 2. Fall back to payment_method text → fixed PM code (for non-PSP entries)
+    pay_method_text = _get_merged_col(crm_merged, 'payment_method').fillna('').str.lower().str.strip()
+    pm_from_text = pay_method_text.map(_PM_TEXT_TO_CODE)
+
+    # Prefer processor-derived code; then text-derived; then None
+    out['Payment Method'] = pm_from_proc.where(pm_from_proc.notna(), pm_from_text)
+
+    # TRX Type
+    trx_type_raw = _get_merged_col(crm_merged, 'transactiontype').fillna('')
     is_timing = lc['IsTiming'].fillna(False) if 'IsTiming' in lc.columns else pd.Series([False]*len(lc), index=lc.index)
     out['TRX Type'] = [
         _map_trx_type(pm, tt, it)
-        for pm, tt, it in zip(pay_method, trx_type_raw, is_timing)
+        for pm, tt, it in zip(pay_method_text, trx_type_raw, is_timing)
     ]
 
     return out[MT4_TRX_COLUMNS]
 
 
+def _psp_source_to_pm_name(psp_source_series):
+    """Map _psp_source filenames (e.g. 'bankFile_3.csv') to real PSP names
+    using the Mapping Rules table from the reference file.
+    Falls back to the raw filename if no match found.
+    """
+    mapping_rules = _load_mapping_rules()
+    # Build a code → name lookup
+    if not mapping_rules.empty and 'PM Code' in mapping_rules.columns and 'PM Name' in mapping_rules.columns:
+        code_to_name = mapping_rules.drop_duplicates('PM Code').set_index('PM Code')['PM Name'].to_dict()
+    else:
+        code_to_name = {}
+
+    def _convert(src):
+        if pd.isna(src):
+            return None
+        # Strip upload prefix and extension to get a filename-based PM code guess
+        clean = str(src).replace('bankFile_', '').rsplit('.', 1)[0].strip()
+        # Try direct PM code lookup
+        code = _map_pm_code(clean)
+        if code and code in code_to_name:
+            return code_to_name[code]
+        # Try matching the filename against known processor names
+        clean_lower = re.sub(r'[^a-z0-9]', '', clean.lower())
+        for proc, pm_code in _PROCESSOR_TO_PM_CODE.items():
+            if proc in clean_lower or clean_lower in proc:
+                return code_to_name.get(pm_code, pm_code)
+        return src  # fallback to raw filename
+
+    return psp_source_series.apply(_convert)
+
+
 def build_pm_transactions_df(merged):
-    """Build the PM-Transactions tab (31 cols) from the bank/PSP side rows."""
-    g = lambda *names: _get_merged_col(merged, *names)
+    """Build the PM-Transactions tab (31 cols) from PSP-side rows only.
 
-    # PM-Transactions covers both matched bank rows and bank-only rows
-    # For matched rows, bank columns are available directly (no _bank suffix since
-    # they come from bank_df which wasn't renamed)
-    out = pd.DataFrame(index=merged.index)
+    Only bank-side rows are included (right_only = bank-only, both = matched pair).
+    CRM-only rows (left_only) belong in MT4-Transactions, not here.
+    """
+    # Filter to PSP-side rows only
+    if '_merge' in merged.columns:
+        psp_merged = merged[merged['_merge'].isin(['right_only', 'both'])].copy()
+    else:
+        psp_merged = merged.copy()
 
-    # Sequential index
-    out['Index'] = range(1, len(merged) + 1)
+    g = lambda *names: _get_merged_col(psp_merged, *names)
+    out = pd.DataFrame(index=psp_merged.index)
 
-    # Date — bank files rarely have a clean date; fall back to CRM date
+    out['Index'] = range(1, len(psp_merged) + 1)
+
     out['Tran.Date'] = g('tran.date', 'date', 'created_at', 'Month, Day, Year of confirmation_time',
                          'Month, Day, Year of created_time')
 
     # Reference from bank side
-    # Look for any column that has 'reference' or 'id' in its name (from bank)
     bank_ref = None
-    for col in merged.columns:
+    for col in psp_merged.columns:
         low = col.lower()
         if ('reference' in low or 'transactionid' in low.replace('_', '').replace(' ', '')) \
                 and '_crm' not in low and col not in ('_join_key', '_merge', '_psp_source'):
             bank_ref = col
             break
-    out['Reference'] = merged[bank_ref] if bank_ref else g('psp_transaction_id')
+    out['Reference'] = psp_merged[bank_ref] if bank_ref else g('psp_transaction_id')
 
     # Amount from bank side
-    bank_amt = next((c for c in merged.columns
+    bank_amt = next((c for c in psp_merged.columns
                      if 'amount' in c.lower() and '_crm' not in c and not c.startswith('_')), None)
-    out['Amount']  = pd.to_numeric(merged[bank_amt], errors='coerce') if bank_amt else None
+    amount_numeric = pd.to_numeric(psp_merged[bank_amt], errors='coerce') if bank_amt else None
+    out['Amount'] = amount_numeric
 
-    # Currency: prefer CRM currency_id, fall back to bank-side currency column
-    crm_ccy = g('currency_id')
+    # Currency: prefer resolved CRM currency, fall back to bank-side column
+    crm_ccy = _resolve_currency(g('currency_id'))
     bank_ccy_col = next(
-        (c for c in merged.columns
+        (c for c in psp_merged.columns
          if 'currency' in c.lower() and '_crm' not in c and not c.startswith('_')),
         None
     )
-    bank_ccy = merged[bank_ccy_col].fillna('') if bank_ccy_col else pd.Series([''] * len(merged), index=merged.index)
-    crm_ccy_str = crm_ccy.astype(str)
-    out['Currency'] = crm_ccy.where(crm_ccy.notna() & ~crm_ccy_str.isin(['nan','None','']), bank_ccy)
+    bank_ccy = psp_merged[bank_ccy_col].fillna('') if bank_ccy_col else pd.Series([''] * len(psp_merged), index=psp_merged.index)
+    out['Currency'] = crm_ccy.where(crm_ccy.notna() & (crm_ccy.astype(str) != 'nan'), bank_ccy)
 
-    out['AmntBC']   = g('usdamount')
+    out['AmntBC'] = g('usdamount')
 
-    # Payment method / bank info from CRM (most reliable source)
     out['Payment Method'] = g('payment_method')
     out['Bank']           = g('bank_name', 'payment_processor')
     out['Details1']       = g('mtorder_id').astype(str).replace('None', None).replace('nan', None)
@@ -523,38 +627,42 @@ def build_pm_transactions_df(merged):
     lname = g('last_name').fillna('').astype(str).str.strip()
     out['Remarks'] = (fname + ' ' + lname).str.strip().replace('', None)
 
-    # Columns we can't compute — leave blank
     for col in ['ExcRate', 'Exch.Diff. %', 'ToEmail', 'TranStatus', 'Reference2']:
         out[col] = None
     out['Take To Profit'] = False
+    out['ReasonCodeD']    = None
+    out['MRS Notes']      = None
 
-    # Reconciliation metadata
-    out['ReasonCodeD']       = None
-    out['MRS Notes']         = None
-    out['Recon.Reason Group'] = merged.get('_merge', pd.Series(['left_only'] * len(merged))).map(
-        {'both': 'Matched', 'left_only': 'Unmatched', 'right_only': 'Bank Only'})
-    out['Recon Reason']       = merged.get('_merge', pd.Series(['left_only'] * len(merged))).map(
-        {'both': 'Ref/Ref-Curr-Amnt>nn', 'left_only': 'No Match', 'right_only': 'No CRM Entry'})
+    merge_col = psp_merged.get('_merge', pd.Series(['right_only'] * len(psp_merged), index=psp_merged.index))
+    out['Recon.Reason Group'] = merge_col.map({'both': 'Matched', 'right_only': 'Bank Only'})
+    out['Recon Reason']       = merge_col.map({'both': 'Ref/Ref-Curr-Amnt>nn', 'right_only': 'No CRM Entry'})
 
-    # Match No from lifecycle df
+    # Match No: use same sequential numbering as MT4-Transactions for matched rows
     lc = build_lifecycle_df(merged)
-    out['Match No']            = lc['Match No']
+    lc_psp = lc[lc.index.isin(psp_merged.index)]
+    out['Match No']            = lc_psp['Match No']
     out['ReasonCodeGroupName'] = None
 
-    # All PM-side entries are transfers (confirmed by reference: every row = "4. Transfer")
-    out['TRX Type'] = '4. Transfer'
+    # TRX Type from amount sign: positive = deposit, negative = withdrawal
+    if amount_numeric is not None:
+        out['TRX Type'] = amount_numeric.apply(
+            lambda v: '2. DP' if pd.notna(v) and v > 0 else ('2. WD' if pd.notna(v) and v < 0 else '4. Transfer')
+        )
+    else:
+        out['TRX Type'] = '4. Transfer'
 
-    # PM Name from _psp_source (set during per-PSP reconciliation)
-    psp_source = merged['_psp_source'] if '_psp_source' in merged.columns else pd.Series([None]*len(merged), index=merged.index)
-    out['PM Name'] = psp_source
+    # PM Name: map upload filename → real PSP name via Mapping Rules
+    psp_source = psp_merged['_psp_source'] if '_psp_source' in psp_merged.columns \
+                 else pd.Series([None]*len(psp_merged), index=psp_merged.index)
+    out['PM Name'] = _psp_source_to_pm_name(psp_source)
 
-    # PM-Cur: "{pm_code}-{currency}"  — best effort from source file
-    currency_raw = g('currency_id').fillna('').astype(str).str.strip().str.upper().replace({'NAN': '', 'NONE': ''})
-    pm_code_series = psp_source.apply(
+    # PM-Cur: "{pm_code}-{currency}"
+    currency_str = out['Currency'].fillna('').astype(str).str.upper().replace({'NAN': '', 'NONE': ''})
+    pm_code_s = psp_source.apply(
         lambda s: _map_pm_code(str(s).replace('.csv','').replace('.xlsx','').replace('bankFile_','').strip()) or ''
         if pd.notna(s) else ''
     )
-    out['PM-Cur'] = pm_code_series.str.cat(currency_raw.where(currency_raw != '', other=''), sep='-').str.strip('-').replace('', None)
+    out['PM-Cur'] = pm_code_s.str.cat(currency_str.where(currency_str != '', other=''), sep='-').str.strip('-').replace('', None)
 
     out['Is Balance Currency'] = None
     out['Balance Currency']    = None
@@ -604,8 +712,14 @@ def build_ccy_lifecycle_df(merged, use_usd=False, opening_balances=None):
 
     # Use login (MT4 account ID) — matches ClientAccount in the reference output
     account  = g('login', 'tradingaccountsid').where(crm_mask)
-    currency = g('currency_id').where(crm_mask).astype(str).str.strip().str.upper().replace({'NAN': None, 'NONE': None})
-    raw_amt  = pd.to_numeric(g('usdamount' if use_usd else 'amount'), errors='coerce').where(crm_mask)
+    currency = _resolve_currency(g('currency_id').where(crm_mask))
+
+    # CRM stores amounts as positive for both deposits and withdrawals.
+    # Apply sign: withdrawals and fee-type transactions are negative in the output.
+    trx_direction = g('transactiontype').where(crm_mask).fillna('').str.lower()
+    sign = trx_direction.apply(lambda t: -1 if 'withdraw' in t else 1)
+    raw_amt_unsigned = pd.to_numeric(g('usdamount' if use_usd else 'amount'), errors='coerce').where(crm_mask)
+    raw_amt = raw_amt_unsigned * sign
 
     # Build TRX Type from payment_method + transactiontype using attribute mapping
     pay_method = g('payment_method').where(crm_mask).fillna('')
@@ -780,13 +894,20 @@ def upload_files():
 
     bank_columns_all = []
     bank_filenames = []
+    filename_map = {}  # bankFile_N.ext → original filename
     for i, f in enumerate(bank_files):
         ext = os.path.splitext(f.filename)[1] or '.csv'
-        path = os.path.join(app.config['UPLOAD_FOLDER'], f"bankFile_{i}{ext}")
+        saved_name = f"bankFile_{i}{ext}"
+        path = os.path.join(app.config['UPLOAD_FOLDER'], saved_name)
         f.save(path)
         headers = extract_headers(path)
         bank_columns_all.extend(headers)
         bank_filenames.append(f.filename)
+        filename_map[saved_name] = f.filename
+
+    # Persist the original filename mapping for use in PM Name resolution
+    with open(os.path.join(app.config['UPLOAD_FOLDER'], '_filename_map.json'), 'w') as _fmf:
+        json.dump(filename_map, _fmf)
 
     unique_bank_cols = list(dict.fromkeys(bank_columns_all))
     all_headers['Bank/PSP Statements'] = {
@@ -999,10 +1120,20 @@ def reconcile():
         psp_stats = []
         total_bank_rows = 0
 
+        # Load original filename mapping (set by upload_files or test_load)
+        _fmap_path = os.path.join(upload, '_filename_map.json')
+        _filename_map = {}
+        if os.path.exists(_fmap_path):
+            with open(_fmap_path) as _fmf:
+                _filename_map = json.load(_fmf)
+
         for bp in bank_paths:
             bank_df = _load_psp_file(bp)
             if bank_df is None:
                 continue
+
+            # Use original filename for PM Name resolution; fall back to internal name
+            _src_name = _filename_map.get(os.path.basename(bp), os.path.basename(bp))
 
             total_bank_rows += len(bank_df)
             bank_ref_col = _detect_bank_ref_col(bank_df)
@@ -1012,13 +1143,13 @@ def reconcile():
                 bonly = bank_df.copy()
                 bonly['_join_key'] = None
                 bonly['_merge'] = 'right_only'
-                bonly['_psp_source'] = os.path.basename(bp)
+                bonly['_psp_source'] = _src_name
                 bank_only_frames.append(bonly)
                 continue
 
             bank_df = bank_df.copy()
             bank_df['_join_key'] = normalize_key(bank_df[bank_ref_col])
-            bank_df['_psp_source'] = os.path.basename(bp)
+            bank_df['_psp_source'] = _src_name
 
             # Only attempt to match CRM rows not already claimed by a prior PSP
             crm_available = crm_renamed[
@@ -1029,6 +1160,17 @@ def reconcile():
             inner = crm_available.merge(bank_df, on='_join_key', how='inner')
 
             if len(inner) > 0:
+                # Deduplicate: multiple bank rows can share the same reference
+                # (e.g. TrustPayments settlement batches). Keep only the first
+                # bank match per CRM row to prevent double-counting CRM amounts.
+                crm_id_col = next(
+                    (c for c in inner.columns
+                     if c in ('mtorder_id_crm', 'transactionid_crm', 'mttransactionsid_crm')),
+                    None
+                )
+                if crm_id_col:
+                    inner = inner.drop_duplicates(subset=[crm_id_col])
+
                 inner['_merge'] = 'both'
                 matched_frames.append(inner)
                 all_matched_crm_keys.update(inner['_join_key'].dropna().tolist())
@@ -1177,8 +1319,9 @@ def test_load():
         if f.startswith('bankFile_'):
             os.remove(os.path.join(upload, f))
 
-    # Copy every flat PSP file (skip subdirectories)
+    # Copy every flat PSP file (skip subdirectories), recording original filename
     idx = 0
+    filename_map = {}
     for fname in sorted(os.listdir(psp_dir)):
         fpath = os.path.join(psp_dir, fname)
         if not os.path.isfile(fpath):
@@ -1186,8 +1329,13 @@ def test_load():
         ext = os.path.splitext(fname)[1].lower()
         if ext not in ('.csv', '.xlsx', '.xls'):
             continue
-        shutil.copy(fpath, os.path.join(upload, f'bankFile_{idx}{ext}'))
+        saved_name = f'bankFile_{idx}{ext}'
+        shutil.copy(fpath, os.path.join(upload, saved_name))
+        filename_map[saved_name] = fname  # e.g. "bankFile_3.csv" → "TrustPayments.csv"
         idx += 1
+
+    with open(os.path.join(upload, '_filename_map.json'), 'w') as _f:
+        json.dump(filename_map, _f)
 
     # Unrealised.xlsx = Dec 31 equity = January opening balances
     unreal_path = os.path.join(plat_dir, 'Unrealised.xlsx')
