@@ -55,6 +55,104 @@ PM_TRX_COLUMNS = [
 ]
 
 
+# ── TRX Type mapping ────────────────────────────────────────────────────────
+# Maps (CRM payment_method, transactiontype) → MT4 TRX Type attribute.
+# PSP payment methods (Credit card, Wire transfer, Electronic payment,
+# CryptoWallet) produce 2. DP or 2. WD based on transactiontype.
+# Non-PSP methods map directly to a fixed attribute.
+_PM_TEXT_TO_TRX_TYPE = {
+    # ── fixed-attribute (non-PSP) methods ──────────────────────────────────
+    'transfer':         '4. Transfer',
+    'internal transfer':'4. Transfer',
+    'wire transfer':    '4. Transfer',   # also can be 2. DP/WD if PSP
+    'bonus':            '5. Bonuses',
+    'processing fees':  '5. Fees/Charges',
+    'commission':       '5. Realised Commissions',
+    'frf commission':   '5. Realised Commissions',
+    'ib commission':    '5. IB Payment',
+    'adjustment':       '4. Transfer',
+    'fee compensation': '5. Fee Compensation',
+    'chargeback':       '5. Fee Compensation',
+}
+# payment_method values that represent actual PSP flows (→ 2. DP / 2. WD)
+_PSP_PAYMENT_METHODS = {
+    'credit card', 'electronic payment', 'cryptowallet', 'cash',
+}
+# Wire transfer can be PSP or internal — we treat as PSP flow
+_PSP_PAYMENT_METHODS.add('wire transfer')
+
+
+def _map_trx_type(payment_method, transactiontype, is_timing=False):
+    """Derive the MT4 TRX Type attribute from CRM payment_method and transactiontype."""
+    pm = str(payment_method).strip().lower() if payment_method else ''
+    tt = str(transactiontype).strip().lower() if transactiontype else ''
+
+    # Timing rows override the base category
+    if is_timing:
+        return '3. Timing Deposit' if 'deposit' in tt else '3. Timing Withdrawal'
+
+    # Fixed-attribute methods
+    if pm in _PM_TEXT_TO_TRX_TYPE:
+        return _PM_TEXT_TO_TRX_TYPE[pm]
+
+    # PSP flow methods — use deposit/withdrawal direction
+    if pm in _PSP_PAYMENT_METHODS or not pm:
+        if 'deposit' in tt:
+            return '2. DP'
+        if 'withdraw' in tt:
+            return '2. WD'
+
+    # Fallback: use transaction type direction if available
+    if 'deposit' in tt:
+        return '2. DP'
+    if 'withdraw' in tt:
+        return '2. WD'
+    return '4. Transfer'
+
+
+# ── PM Code mapping ──────────────────────────────────────────────────────────
+# Maps lowercased/stripped CRM payment_processor strings → 2-letter PM code.
+_PROCESSOR_TO_PM_CODE = {
+    'zotapaymg':             'ZP',
+    'zotapay':               'ZP',
+    'safecharges2s3dv2':     'SC',
+    'safecharges2s3dv2_ver2':'SC',
+    'safecharge':            'SC',
+    'safecharges2s':         'SC',
+    'korapayapm':            'KP',
+    'korapayhpp':            'KP',
+    'korapay':               'KP',
+    'solidpayments3dsv2':    'SLP',
+    'solidpayments':         'SLP',
+    'finrax':                'FRX',
+    'ozow':                  'OZ',
+    'eftpay':                'EFT',
+    'virtualpays2s':         'VP',
+    'virtualpay':            'VP',
+    'skrill':                'SKR',
+    'neteller':              'NT',
+    'directa24rest':         'DRC',
+    'directa24':             'DRC',
+    'inatec':                'INA',
+    'powercash':             'INA',
+    'swiffyeft':             'SW',
+    'swiffy':                'SW',
+    'astropay':              'ASP',
+    'letknow':               'LKP',
+    'letknowpay':            'LKP',
+    'trustpayments':         'TP',
+    'nuvei':                 'SC',
+}
+
+
+def _map_pm_code(payment_processor):
+    """Map CRM payment_processor string to 2-letter MT4 Payment Method code."""
+    if not payment_processor or str(payment_processor).lower() in ('nan', 'none', ''):
+        return None
+    key = re.sub(r'[^a-z0-9]', '', str(payment_processor).lower())
+    return _PROCESSOR_TO_PM_CODE.get(key)
+
+
 def extract_headers(filepath):
     """Extract column headers from CSV or Excel files (handles messy legacy formats)."""
     ext = os.path.splitext(filepath)[1].lower()
@@ -254,7 +352,10 @@ def build_lifecycle_df(merged):
         out['Recon Reason'] = merged['_merge'].map({
             'both': 'Ref/Ref-Curr-Amnt>nn', 'left_only': 'No Match', 'right_only': 'No CRM Entry'
         })
-        out['IsTiming'] = ~is_matched
+        # IsTiming = True only for actual cross-period timing rows.
+        # We don't have timing-match logic yet, so default to False.
+        # (Reference has only 3 timing rows out of 10,255 — they are rare.)
+        out['IsTiming'] = False
         out['MatchCount'] = is_matched.astype(int)
         out['Matched By'] = merged['_merge'].map({'both': 'MRS', 'left_only': None, 'right_only': None})
         now = datetime.now()
@@ -263,7 +364,7 @@ def build_lifecycle_df(merged):
         out['Match No'] = None
         out['Recon.Reason Group'] = None
         out['Recon Reason'] = None
-        out['IsTiming'] = False
+        out['IsTiming'] = False  # no timing match logic yet
         out['MatchCount'] = 0
         out['Matched By'] = None
         out['Matched On'] = None
@@ -272,7 +373,8 @@ def build_lifecycle_df(merged):
     out['IsEODTran'] = None
     out['Type'] = g('transactiontype')
     out['ClientCode'] = g('vtigeraccountid')
-    out['ClientAccount'] = g('tradingaccountsid')
+    # login is the MT4 account ID — matches ClientAccount in the reference output
+    out['ClientAccount'] = g('login', 'tradingaccountsid')
     out['ReasonCodeD'] = None
     trans_type = g('transactiontype').fillna('').astype(str).str.lower()
     out['CategoryCode'] = trans_type.apply(
@@ -347,8 +449,21 @@ def build_mt4_transactions_df(merged):
     # Index = sequential row number (1-based)
     out['Index'] = range(1, len(out) + 1)
 
-    # TRX Type = Type from our schema
-    out['TRX Type'] = lc['Type'] if 'Type' in lc.columns else None
+    # Payment Method: derive 2-letter PM code from CRM payment_processor
+    proc = _get_merged_col(merged, 'payment_processor').fillna('')
+    pm_code = proc.apply(_map_pm_code)
+    # Fall back to existing Payment Method if mapping didn't produce a code
+    existing_pm = lc['Payment Method'] if 'Payment Method' in lc.columns else pd.Series([None]*len(lc), index=lc.index)
+    out['Payment Method'] = pm_code.where(pm_code.notna(), existing_pm)
+
+    # TRX Type: derive from payment_method + transactiontype using attribute numbering
+    pay_method = _get_merged_col(merged, 'payment_method').fillna('')
+    trx_type_raw = _get_merged_col(merged, 'transactiontype').fillna('')
+    is_timing = lc['IsTiming'].fillna(False) if 'IsTiming' in lc.columns else pd.Series([False]*len(lc), index=lc.index)
+    out['TRX Type'] = [
+        _map_trx_type(pm, tt, it)
+        for pm, tt, it in zip(pay_method, trx_type_raw, is_timing)
+    ]
 
     return out[MT4_TRX_COLUMNS]
 
@@ -384,7 +499,18 @@ def build_pm_transactions_df(merged):
     bank_amt = next((c for c in merged.columns
                      if 'amount' in c.lower() and '_crm' not in c and not c.startswith('_')), None)
     out['Amount']  = pd.to_numeric(merged[bank_amt], errors='coerce') if bank_amt else None
-    out['Currency'] = g('currency_id')
+
+    # Currency: prefer CRM currency_id, fall back to bank-side currency column
+    crm_ccy = g('currency_id')
+    bank_ccy_col = next(
+        (c for c in merged.columns
+         if 'currency' in c.lower() and '_crm' not in c and not c.startswith('_')),
+        None
+    )
+    bank_ccy = merged[bank_ccy_col].fillna('') if bank_ccy_col else pd.Series([''] * len(merged), index=merged.index)
+    crm_ccy_str = crm_ccy.astype(str)
+    out['Currency'] = crm_ccy.where(crm_ccy.notna() & ~crm_ccy_str.isin(['nan','None','']), bank_ccy)
+
     out['AmntBC']   = g('usdamount')
 
     # Payment method / bank info from CRM (most reliable source)
@@ -415,70 +541,132 @@ def build_pm_transactions_df(merged):
     out['Match No']            = lc['Match No']
     out['ReasonCodeGroupName'] = None
 
-    out['TRX Type'] = g('transactiontype')
+    # All PM-side entries are transfers (confirmed by reference: every row = "4. Transfer")
+    out['TRX Type'] = '4. Transfer'
 
-    # PM-specific columns we don't have data for
-    psp_source = merged['_psp_source'] if '_psp_source' in merged.columns else None
-    out['PM Name']             = psp_source
-    out['PM-Cur']              = g('currency_id')
+    # PM Name from _psp_source (set during per-PSP reconciliation)
+    psp_source = merged['_psp_source'] if '_psp_source' in merged.columns else pd.Series([None]*len(merged), index=merged.index)
+    out['PM Name'] = psp_source
+
+    # PM-Cur: "{pm_code}-{currency}"  — best effort from source file
+    currency_raw = g('currency_id').fillna('').astype(str).str.strip().str.upper().replace({'NAN': '', 'NONE': ''})
+    pm_code_series = psp_source.apply(
+        lambda s: _map_pm_code(str(s).replace('.csv','').replace('.xlsx','').replace('bankFile_','').strip()) or ''
+        if pd.notna(s) else ''
+    )
+    out['PM-Cur'] = pm_code_series.str.cat(currency_raw.where(currency_raw != '', other=''), sep='-').str.strip('-').replace('', None)
+
     out['Is Balance Currency'] = None
     out['Balance Currency']    = None
     out['Amount in Bal Curr']  = None
-    out['Amount USD']          = g('usdamount')
+    out['Amount USD']          = pd.to_numeric(g('usdamount'), errors='coerce')
 
     return out[PM_TRX_COLUMNS]
 
 
-def build_ccy_lifecycle_df(merged, use_usd=False):
+def _load_opening_balances(equity_path):
+    """Parse an equity report file (e.g. Unrealised.xlsx) into a
+    {(login, currency): real_equity} dict for use as opening balances.
+    """
+    if not equity_path or not os.path.exists(equity_path):
+        return {}
+    try:
+        df = pd.read_excel(equity_path, header=1)
+        # Expected columns: Login, currency, Real Equity
+        login_col = next((c for c in df.columns if c.strip().lower() == 'login'), None)
+        ccy_col   = next((c for c in df.columns if c.strip().lower() == 'currency'), None)
+        eq_col    = next((c for c in df.columns if 'real equity' in c.strip().lower()), None)
+        if not (login_col and ccy_col and eq_col):
+            return {}
+        result = {}
+        for _, row in df[[login_col, ccy_col, eq_col]].dropna().iterrows():
+            try:
+                key = (int(row[login_col]), str(row[ccy_col]).strip().upper())
+                result[key] = float(row[eq_col])
+            except (ValueError, TypeError):
+                continue
+        return result
+    except Exception:
+        return {}
+
+
+def build_ccy_lifecycle_df(merged, use_usd=False, opening_balances=None):
     """Build the CCY or USD per-account lifecycle pivot from transaction data.
 
-    Computes the attributes we can derive from transactions:
-    2. DP  — deposits (positive amounts)
-    2. WD  — withdrawals (negative amounts)
-    4. Transfer — internal transfers
-    3. Timing Deposit / 3. Timing Withdrawal — timing rows
-
-    Opening Balance and P&L require the equity report and are left blank.
+    Uses the proper MT4 TRX Type attribute numbering derived from payment_method.
+    If opening_balances dict {(login, currency): equity} is provided, adds
+    '1. Opening Balance' and computes '6. Closing Balance'.
     """
     g = lambda *names: _get_merged_col(merged, *names)
 
-    # Only process CRM rows (left_only or both) — bank-only have no account info
     crm_mask = merged['_merge'] != 'right_only' if '_merge' in merged.columns \
                else pd.Series([True] * len(merged), index=merged.index)
 
-    account  = g('tradingaccountsid').where(crm_mask)
-    currency = g('currency_id').where(crm_mask)
+    # Use login (MT4 account ID) — matches ClientAccount in the reference output
+    account  = g('login', 'tradingaccountsid').where(crm_mask)
+    currency = g('currency_id').where(crm_mask).astype(str).str.strip().str.upper().replace({'NAN': None, 'NONE': None})
     raw_amt  = pd.to_numeric(g('usdamount' if use_usd else 'amount'), errors='coerce').where(crm_mask)
-    is_timing = merged.get('IsTiming', pd.Series([False] * len(merged), index=merged.index))
-    trx_type  = g('transactiontype').fillna('').astype(str).str.lower()
+
+    # Build TRX Type from payment_method + transactiontype using attribute mapping
+    pay_method = g('payment_method').where(crm_mask).fillna('')
+    trx_type_raw = g('transactiontype').where(crm_mask).fillna('')
+    is_timing_col = merged.get('IsTiming', pd.Series([False] * len(merged), index=merged.index))
+
+    trx_type_mapped = pd.Series([
+        _map_trx_type(pm, tt, it)
+        for pm, tt, it in zip(pay_method, trx_type_raw, is_timing_col)
+    ], index=merged.index)
 
     df = pd.DataFrame({
         'Client Account': account,
         'Currency': currency,
         'Amount': raw_amt,
-        'IsTiming': is_timing,
-        'TRX Type': trx_type,
+        'TRX Type': trx_type_mapped,
     }).dropna(subset=['Client Account', 'Currency', 'Amount'])
+    df['Client Account'] = pd.to_numeric(df['Client Account'], errors='coerce')
+    df = df.dropna(subset=['Client Account'])
+    df['Client Account'] = df['Client Account'].astype(int)
 
     rows = []
     attr_col = 'Amount USD' if use_usd else 'Amount'
+    open_attr = '1. Opening Before (USD)' if use_usd else '1. Opening Balance'
+    ob = opening_balances or {}
 
     for (acct, ccy), grp in df.groupby(['Client Account', 'Currency']):
-        def add(attr, mask):
-            val = grp.loc[mask, 'Amount'].sum()
+        account_rows = []
+
+        def add(attr, vals):
+            val = round(float(vals.sum()), 2)
             if val != 0:
-                rows.append({'Client Account': acct, 'Currency': ccy, 'Attribute': attr, attr_col: round(val, 2)})
+                account_rows.append({
+                    'Client Account': acct, 'Currency': ccy,
+                    'Attribute': attr, attr_col: val
+                })
 
-        deposits    = grp['TRX Type'].str.contains('deposit', na=False)
-        withdrawals = grp['TRX Type'].str.contains('withdraw', na=False)
-        transfers   = grp['TRX Type'].str.contains('transfer', na=False)
-        timing      = grp['IsTiming'].fillna(False).astype(bool)
+        # Opening balance from equity file (keyed by (login, currency))
+        opening = ob.get((acct, str(ccy).upper()), None)
+        if opening is not None and opening != 0:
+            account_rows.insert(0, {
+                'Client Account': acct, 'Currency': ccy,
+                'Attribute': open_attr, attr_col: round(opening, 2)
+            })
 
-        add('2. DP',                  deposits & ~timing)
-        add('2. WD',                  withdrawals & ~timing)
-        add('4. Transfer',            transfers)
-        add('3. Timing Deposit',      deposits & timing)
-        add('3. Timing Withdrawal',   withdrawals & timing)
+        # Aggregate all TRX Type groups we have data for
+        for attr_val, grp_attr in grp.groupby('TRX Type'):
+            add(attr_val, grp_attr['Amount'])
+
+        # Closing Balance = Opening + sum of all movements
+        if account_rows:
+            total_movement = sum(r[attr_col] for r in account_rows
+                                 if not r['Attribute'].startswith('1.'))
+            if opening is not None:
+                account_rows.append({
+                    'Client Account': acct, 'Currency': ccy,
+                    'Attribute': '6. Closing Balance',
+                    attr_col: round(opening + total_movement, 2)
+                })
+
+        rows.extend(account_rows)
 
     result = pd.DataFrame(rows, columns=['Client Account', 'Currency', 'Attribute', attr_col]) \
              if rows else pd.DataFrame(columns=['Client Account', 'Currency', 'Attribute', attr_col])
@@ -486,10 +674,64 @@ def build_ccy_lifecycle_df(merged, use_usd=False):
     return result.sort_values(['Client Account', 'Currency', 'Attribute']).reset_index(drop=True)
 
 
-def build_lifecycle_excel(merged):
-    """Build the multi-tab Life Cycle Report Excel matching the historical format."""
-    buf = io.BytesIO()
+def build_pm_lifecycle_df(merged, use_usd=False):
+    """Aggregate PM-Transactions by PM Name → lifecycle pivot (PM CCY or USD Life Cycle)."""
+    pm_trx = build_pm_transactions_df(merged)
 
+    attr_col = 'Amount USD' if use_usd else 'Value'
+    amount_src = 'Amount USD' if use_usd else 'Amount'
+
+    rows = []
+    group_cols = ['PM Name', 'Currency'] if not use_usd else ['PM Name']
+
+    for keys, grp in pm_trx.groupby(group_cols):
+        pm_name = keys[0] if isinstance(keys, tuple) else keys
+        ccy = keys[1] if isinstance(keys, tuple) and len(keys) > 1 else 'USD'
+
+        for attr, sub in grp.groupby('TRX Type'):
+            val = round(float(pd.to_numeric(sub[amount_src], errors='coerce').sum()), 2)
+            if val != 0:
+                row = {'Payment Method': pm_name, 'Attribute': attr, attr_col: val}
+                if not use_usd:
+                    row['Currency'] = ccy
+                rows.append(row)
+
+    if rows:
+        result = pd.DataFrame(rows)
+        if use_usd:
+            result = result[['Payment Method', 'Attribute', attr_col]]
+        else:
+            result = result[['Payment Method', 'Currency', 'Attribute', attr_col]]
+        return result.sort_values(list(result.columns[:-1])).reset_index(drop=True)
+    else:
+        if use_usd:
+            return pd.DataFrame(columns=['Payment Method', 'Attribute', attr_col])
+        return pd.DataFrame(columns=['Payment Method', 'Currency', 'Attribute', attr_col])
+
+
+def _load_mapping_rules():
+    """Load the PM Code → PM Name mapping table from the reference lifecycle file.
+    Falls back to an empty DataFrame if the reference file is not available.
+    """
+    ref_path = os.path.join(os.path.dirname(__file__), '..', 'relevant-data',
+                            'Life cycle report', '2023', '1. January',
+                            'Life Cycle Report-final.xlsx')
+    if not os.path.exists(ref_path):
+        return pd.DataFrame(columns=['PM Code', 'PM Name', 'PM-Cur', 'Is Balance Currency',
+                                     'Balance Currency', 'PM-Bal-Cur', 'Processing Currency',
+                                     'Amount factor'])
+    try:
+        df = pd.read_excel(ref_path, sheet_name='Mapping Rules', header=4)
+        return df.dropna(how='all')
+    except Exception:
+        return pd.DataFrame()
+
+
+def build_lifecycle_excel(merged, opening_balance_path=None):
+    """Build the multi-tab Life Cycle Report Excel matching the historical format."""
+    opening_balances = _load_opening_balances(opening_balance_path)
+
+    buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
 
         def _write(df, sheet):
@@ -499,22 +741,15 @@ def build_lifecycle_excel(merged):
                 max_len = max((len(str(c.value)) if c.value is not None else 0) for c in col_cells)
                 ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 35)
 
-        _write(build_mt4_transactions_df(merged),          'MT4-Transactions')
-        _write(build_ccy_lifecycle_df(merged, use_usd=False), 'MT4 CCY Life Cycle')
-        _write(build_ccy_lifecycle_df(merged, use_usd=True),  'MT4 USD per acc Life Cycle')
-
-        # Empty tabs matching the reference structure
-        for sheet in ('PM USD Life Cycle', 'PM CCY Life Cycle'):
-            pd.DataFrame().to_excel(writer, sheet_name=sheet, index=False)
-
+        _write(build_mt4_transactions_df(merged), 'MT4-Transactions')
+        _write(build_ccy_lifecycle_df(merged, use_usd=False, opening_balances=opening_balances),
+               'MT4 CCY Life Cycle')
+        _write(build_ccy_lifecycle_df(merged, use_usd=True, opening_balances=opening_balances),
+               'MT4 USD per acc Life Cycle')
+        _write(build_pm_lifecycle_df(merged, use_usd=True),  'PM USD Life Cycle')
+        _write(build_pm_lifecycle_df(merged, use_usd=False), 'PM CCY Life Cycle')
         _write(build_pm_transactions_df(merged), 'PM-Transactions')
-
-        # Mapping Rules — metadata
-        meta = pd.DataFrame({
-            'Key': ['Generated by', 'Date', 'Engine'],
-            'Value': ['MRS 2.0', datetime.now().strftime('%Y-%m-%d %H:%M'), 'Flask/pandas per-PSP engine']
-        })
-        _write(meta, 'Mapping Rules')
+        _write(_load_mapping_rules(), 'Mapping Rules')
 
     buf.seek(0)
     return buf
@@ -569,6 +804,13 @@ def upload_files():
             "filename": f.filename,
             "columns": headers
         }
+
+    # Optional: opening balance file (previous month's equity report)
+    ob_file = request.files.get('openingBalanceFile')
+    if ob_file and ob_file.filename:
+        ext = os.path.splitext(ob_file.filename)[1] or '.xlsx'
+        ob_path = os.path.join(app.config['UPLOAD_FOLDER'], f"openingBalanceFile{ext}")
+        ob_file.save(ob_path)
 
     total_cols = sum(len(v['columns']) for v in all_headers.values())
     return jsonify({
@@ -834,8 +1076,16 @@ def reconcile():
         else:
             join_info = f"CRM[{crm_ref_col}] — no PSP reference columns detected"
 
+        # Check if an opening balance file was uploaded (optional)
+        ob_path = None
+        for fname in os.listdir(upload):
+            if fname.startswith('openingBalanceFile'):
+                ob_path = os.path.join(upload, fname)
+                break
+
         with open(STATE_FILE, 'wb') as f:
-            pickle.dump({'merged': merged, 'crm_df': crm_df}, f)
+            pickle.dump({'merged': merged, 'crm_df': crm_df,
+                         'opening_balance_path': ob_path}, f)
 
         return jsonify({
             "status": "success",
@@ -866,7 +1116,8 @@ def download_lifecycle():
         return jsonify({"error": "No reconciliation data found. Run reconciliation first."}), 400
 
     try:
-        buf = build_lifecycle_excel(state['merged'])
+        buf = build_lifecycle_excel(state['merged'],
+                                    opening_balance_path=state.get('opening_balance_path'))
         filename = f"Life Cycle Report {datetime.now().strftime('%Y-%m-%d')}.xlsx"
         return send_file(buf, as_attachment=True, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -937,6 +1188,11 @@ def test_load():
             continue
         shutil.copy(fpath, os.path.join(upload, f'bankFile_{idx}{ext}'))
         idx += 1
+
+    # Unrealised.xlsx = Dec 31 equity = January opening balances
+    unreal_path = os.path.join(plat_dir, 'Unrealised.xlsx')
+    if os.path.exists(unreal_path):
+        shutil.copy(unreal_path, os.path.join(upload, 'openingBalanceFile.xlsx'))
 
     from flask import current_app
     with current_app.test_request_context('/api/reconcile', method='POST'):

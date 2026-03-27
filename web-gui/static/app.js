@@ -21,6 +21,10 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         formData.append(id, file);
     }
 
+    // Optional opening balance file
+    const obFile = document.getElementById('openingBalanceFile')?.files[0];
+    if (obFile) formData.append('openingBalanceFile', obFile);
+
     uploadSpinner.classList.remove('hidden');
     const submitBtn = document.querySelector('#uploadForm button');
     submitBtn.style.opacity = "0.7";
