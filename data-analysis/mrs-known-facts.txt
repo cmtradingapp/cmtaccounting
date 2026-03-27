@@ -1,0 +1,35 @@
+Relevant shortcuts:
+1. PSP - Payment System Processor.
+
+There is a system which is called "Methodos Reconciliation System".
+
+Input which goes into the said system:
+1. Statements from banks and processors (monthly)
+2. Client Equity Reports (From Tableau)
+3. Transactions (From Tableau)
+4. Platforms (CRM or MT4)
+5. Rates (Oanda, weekly)
+
+Output which goes out of this system:
+1. Reconciliation (Not sure, abstract, second point seems to be it)
+2. Lifecycle report.
+
+
+What should be done:
+1. Summarize the contents of the MRS folder methodically to understand how the output is generated exactly.
+2. Summarize lifecycle report folder.
+
+Afterwards:
+1. Generate a summary of summaries and general thoughts on how the end reports are generated specifically.
+
+Unknown yet:
+1. The list of PSPs.
+2. Whether all the PSPs support API request to remove extra friction from accounting department which manages retention.
+
+Possible solution technicalities:
+1. All in all we have lots of CSV and XLS files which we need to analyze right now, but the whole size of everything in this folder is ~1.6GB
+2. We need to somehow parse those CSV/XLS files for comprehensive summary in the (What should be done) clause.
+3. Considerations about making GUI for the product which will replace the system used before.
+
+
+All in all we need to bridge the gap between input and output.

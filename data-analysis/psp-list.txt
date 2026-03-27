@@ -1,0 +1,54 @@
+List of PSPs from the screenshot:
+1. Bitolo
+2. Celluland
+3. Directa24
+4. Dolcepay
+5. DusuPay
+6. KoraPay
+7. Neteller
+8. Nuvei
+9. Ozow
+10. Payment Asia
+11. Payrock
+12. Payunit
+13. Skrill
+14. SolidPayments
+15. Swiffy
+16. Ubankconnect
+17. Virtual Pay
+18. WebPayments
+19. Zotapay
+
+PSPs that support API requests (programmatic integration):
+
+1. Bitolo - Provides unified payment API for merchants.
+2. Celluland (likely Cellulant) - Offers Tingg API for payments.
+3. Directa24 - REST API available for deposits and payments.
+4. DusuPay - Public developer API with sandbox and callbacks.
+5. KoraPay - Full REST API for payments and payouts.
+6. Neteller - PSD2-compliant APIs for payments and accounts.
+7. Skrill - Provides APIs for payment integration.
+8. Zotapay - Known payment gateway with API documentation.
+
+PSPs likely supporting APIs but no direct docs found in quick search:
+
+- Nuvei
+- Ozow
+- Payunit
+- Payrock
+- SolidPayments
+- Swiffy
+- Ubankconnect
+- Virtual Pay
+- WebPayments
+- Payment Asia
+
+PSPs with unclear or no obvious public API support:
+
+- Dolcepay (needs confirmation)
+- Others as above without explicit docs
+
+Note:
+To verify API support, check the official developer documentation or search "[Provider Name] developer API".
+
+This list is based on available information and general knowledge about PSPs.

@@ -1,0 +1,672 @@
+﻿Folder PATH listing for volume Windows
+Volume serial number is B01A-4875
+C:.
++---Life cycle report
+ª   +---2023
+ª   ª   +---08. August
+ª   ª   +---09. September
+ª   ª   +---1. January
+ª   ª   +---10. October
+ª   ª   +---11. November
+ª   ª   +---12. December
+ª   ª   +---12. December - Copy
+ª   ª   +---2. February
+ª   ª   +---3. March
+ª   ª   +---4. April
+ª   ª   +---5. May
+ª   ª   +---6. June
+ª   ª   +---7. July
+ª   +---2024
+ª       +---01. January
+ª       +---02. February
+ª       +---03. March
+ª       +---04. April
+ª       +---05. May
++---MRS
+    +---2023
+    ª   +---01. Jan. 2023
+    ª   ª   +---Banks
+    ª   ª   +---platform
+    ª   ª   ª   +---Unrealised
+    ª   ª   +---PSPs
+    ª   ª       +---nuvei
+    ª   ª       ª   +---Balance
+    ª   ª       +---Payabl
+    ª   ª       +---Trustpayments
+    ª   +---02. Feb. 2023
+    ª   ª   +---Platform
+    ª   ª   +---PSP
+    ª   ª   ª   +---Nuvei
+    ª   ª   +---PSP balances
+    ª   ª       +---Inatec
+    ª   ª       +---Nuvei
+    ª   +---03. Mar. 2023
+    ª   ª   +---Banks
+    ª   ª   ª   +---Dubai
+    ª   ª   ª   +---Nigeria
+    ª   ª   +---Platform
+    ª   ª   ª   +---accounts
+    ª   ª   +---PSPs
+    ª   ª       +---Neteller
+    ª   ª       +---Nuvei
+    ª   ª       ª   +---Balance
+    ª   ª       +---Payabl
+    ª   ª       ª   +---Balance
+    ª   ª       +---Zotapay
+    ª   +---04. Apr. 2023
+    ª   ª   +---Banks
+    ª   ª   +---Platform
+    ª   ª   +---PSPs
+    ª   ª       +---Cellulant
+    ª   ª       +---Nuvei
+    ª   ª       ª   +---Balance
+    ª   ª       +---Payabl
+    ª   ª       ª   +---Balance
+    ª   ª       +---Swiffy
+    ª   ª       +---Virtualpay
+    ª   ª           +---monthly
+    ª   +---05. May 2023
+    ª   ª   +---01-21 May 2023
+    ª   ª   ª   +---banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---22-29 May 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payabl
+    ª   ª   +---30-31 May 2023
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Neteller
+    ª   ª           +---Nuvei
+    ª   ª           ª   +---Balance
+    ª   ª           +---Payabl
+    ª   ª           +---Swiffy
+    ª   +---06. June 2023
+    ª   ª   +---01-07 June 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---08-13 June 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---14-18 June 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   ª   +---Nedbank
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       ª   +---Balance
+    ª   ª   ª       +---payabl
+    ª   ª   ª       +---Swiffy
+    ª   ª   ª       +---VirtualPay
+    ª   ª   ª           +---05.06
+    ª   ª   ª           +---12.06
+    ª   ª   ª           +---19.06
+    ª   ª   +---19-25 June 2023
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Trustpayments Balance
+    ª   ª   +---26 June 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Cellulant
+    ª   ª   ª       +---Finrax
+    ª   ª   ª       +---Neteller
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payabl
+    ª   ª   ª       +---Skrill
+    ª   ª   ª       +---trustpayments
+    ª   ª   ª       +---Virtualpay
+    ª   ª   +---27-30 June 2023
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Neteller
+    ª   ª           +---Nuvei
+    ª   ª           +---Payabl
+    ª   ª           ª   +---All
+    ª   ª           ª       +---New folder
+    ª   ª           +---Trustpayments
+    ª   +---07. July 2023
+    ª   ª   +---01-03 July 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Cellulant
+    ª   ª   ª       +---Hayvn
+    ª   ª   ª       +---Neteller
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       ª   +---Balance
+    ª   ª   ª       +---Ozow
+    ª   ª   ª       +---Payabl
+    ª   ª   ª       ª   +---Statements
+    ª   ª   ª       +---Skrill
+    ª   ª   ª       +---Trustpayments
+    ª   ª   ª       +---Virtual pAY
+    ª   ª   +---04-09 July 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payabl
+    ª   ª   ª           +---Paybal
+    ª   ª   +---10-16 July 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Cellulant
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payabl
+    ª   ª   ª       +---VirtualPay
+    ª   ª   +---17-23 July 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Cellulant
+    ª   ª   ª       +---nuvei
+    ª   ª   ª       +---Payabl
+    ª   ª   ª       +---Virtualpay
+    ª   ª   +---24-30 July 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---VirtualPay
+    ª   ª   +---24-31 July 2023
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Cellulant
+    ª   ª           +---Neteller
+    ª   ª           +---Nuvei
+    ª   ª           +---Payabl
+    ª   ª           +---Trustpayments
+    ª   ª           +---VirtualPay
+    ª   +---08. August 2023
+    ª   ª   +---01-06 August 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Cellulant
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---07-20 August 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Cellulant
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payabl
+    ª   ª   +---21-27 August 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---28-31 August 2023
+    ª   ª       +---Banks
+    ª   ª       ª   +---GtBank NGN_files
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Nuvei
+    ª   ª           +---VirtualPay
+    ª   +---09. September 2023
+    ª   ª   +---01-10 September 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---11-17 September 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   ª           +---Deposits
+    ª   ª   ª           +---New folder
+    ª   ª   +---18-24 September 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---25-30 September 2023
+    ª   ª       +---balances
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Nuvei
+    ª   ª           +---Payunit
+    ª   +---10. October 2023
+    ª   ª   +---01-10 October 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Cellulant
+    ª   ª   ª       +---Korapay
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Virtualpay
+    ª   ª   +---11-15 October 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Cellulant
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---16-22 October 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---23-25 October 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platforms
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---26-29 October 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---30-31 October 2023
+    ª   ª       +---Banks
+    ª   ª       +---platform
+    ª   ª       +---PSPs
+    ª   ª           +---Balance
+    ª   ª           ª   +---cellulant
+    ª   ª           ª   +---Nuvei
+    ª   ª           ª   +---VirtualPay
+    ª   ª           ª   +---Webpayments
+    ª   ª           +---Nuvei
+    ª   ª           +---Payunit
+    ª   +---11. November 2023
+    ª   ª   +---01-05 November 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---06-12 November 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---13-19 November 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---20-22 November 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Korapay
+    ª   ª   ª       ª   +---GHS
+    ª   ª   ª       ª   +---KES
+    ª   ª   ª       ª   +---NGN
+    ª   ª   ª       +---nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---23-26 November 2023
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Korapay
+    ª   ª   ª       ª   +---GHS
+    ª   ª   ª       ª   +---KES
+    ª   ª   ª       ª   +---NGN
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---27-30 Nevember 2023
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Balances
+    ª   ª           ª   +---Cellulant
+    ª   ª           ª   +---Payunit
+    ª   ª           ª   +---Virtualpay
+    ª   ª           ª   +---Webpayments
+    ª   ª           +---Korapay
+    ª   ª           ª   +---GHS
+    ª   ª           ª   +---KES
+    ª   ª           ª   +---NGN
+    ª   ª           +---Nuvei
+    ª   ª           +---payunit
+    ª   +---12. December 2023
+    ª       +---01-10 December 2023
+    ª       ª   +---Banks
+    ª       ª   +---Platform
+    ª       ª   +---PSPs
+    ª       ª       +---Cellulant
+    ª       ª       +---Korapay
+    ª       ª       ª   +---GHS
+    ª       ª       ª   +---KES
+    ª       ª       ª   +---NGN
+    ª       ª       +---Nuvei
+    ª       ª       +---payunit
+    ª       +---11-26 December 2023
+    ª       ª   +---Banks
+    ª       ª   +---Platform
+    ª       ª   +---PSPs
+    ª       ª       +---cellulant
+    ª       ª       +---Korapay
+    ª       ª       ª   +---GHS
+    ª       ª       ª   +---KES
+    ª       ª       ª   +---NGN
+    ª       ª       +---Nuvei
+    ª       ª       +---payunit
+    ª       +---27-31 December 2023
+    ª           +---Banks
+    ª           +---Platform
+    ª           +---PSPs
+    ª               +---balance
+    ª               ª   +---Cellulant
+    ª               ª   +---VP
+    ª               +---Korapay
+    ª               ª   +---kes
+    ª               ª   +---ngn
+    ª               +---Nuvei
+    ª               +---payunit
+    +---2024
+    ª   +---01. Jan 24
+    ª   ª   +---01-07 Jan 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   +---07-14 Jan 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   +---15-21 Jan 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   ª       +---VP Settl
+    ª   ª   +---22-28 Jan 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platforms
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   ª       +---VP
+    ª   ª   +---29-31 Jan 24
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Balances
+    ª   ª           ª   +---VP
+    ª   ª           +---Nuvei
+    ª   ª           +---payunit
+    ª   +---02. Feb 24
+    ª   ª   +---05-11 Feb 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   ª       +---VP
+    ª   ª   +---1-4 Feb 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   ª       +---VP
+    ª   ª   +---12-18 Feb 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   ª       +---VP
+    ª   ª   +---19-20 Feb 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   +---21-25 Feb 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---Payunit
+    ª   ª   ª       +---VP
+    ª   ª   +---26-28 Feb 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---29 Feb 24
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Balances
+    ª   ª           ª   +---Cellulnat
+    ª   ª           ª   +---VP
+    ª   ª           +---Nuvei
+    ª   +---03. Mar 24
+    ª   ª   +---01-03 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---04-05 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---06-07 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---08-10 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---VP
+    ª   ª   +---11 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---12 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---VP
+    ª   ª   +---13 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---14-18 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---19-20 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---21-25 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---VP
+    ª   ª   +---26-27 Mar 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---28-31 Mar 24
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Balance
+    ª   ª           +---Nuvei
+    ª   ª           +---VP
+    ª   +---04. Apr 24
+    ª   ª   +---01-07 Apr 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---VP
+    ª   ª   +---08-14 Apr 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---New folder
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---VirtualPay
+    ª   ª   +---15-16 Apr 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---17-18 Apr 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   +---19-21 Apr 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---22-23 Apr 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---24-28 Apr 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---29-30 Apr 24
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Balance
+    ª   ª           +---Nuvei
+    ª   ª           +---VP
+    ª   +---05. May 24
+    ª   ª   +---01-15 May 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   +---16-19 May 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---VP
+    ª   ª   +---20-26 May 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---VP
+    ª   ª   +---27-31 May 24
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Nuvei
+    ª   +---1. Jan 24
+    ª   ª   +---01-07 Jan 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   +---07-14 Jan 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   +---15-21 Jan 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platform
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   ª       +---VP Settl
+    ª   ª   +---22-28 Jan 24
+    ª   ª   ª   +---Banks
+    ª   ª   ª   +---Platforms
+    ª   ª   ª   +---PSPs
+    ª   ª   ª       +---Nuvei
+    ª   ª   ª       +---payunit
+    ª   ª   ª       +---VP
+    ª   ª   +---29-31 Jan 24
+    ª   ª       +---Banks
+    ª   ª       +---Platform
+    ª   ª       +---PSPs
+    ª   ª           +---Balances
+    ª   ª           ª   +---VP
+    ª   ª           +---Nuvei
+    ª   ª           +---payunit
+    ª   +---2. Feb 24
+    ª       +---05-11 Feb 24
+    ª       ª   +---Banks
+    ª       ª   +---Platform
+    ª       ª   +---PSPs
+    ª       ª       +---Nuvei
+    ª       ª       +---payunit
+    ª       ª       +---VP
+    ª       +---1-4 Feb 24
+    ª       ª   +---Banks
+    ª       ª   +---Platform
+    ª       ª   +---PSPs
+    ª       ª       +---Nuvei
+    ª       ª       +---payunit
+    ª       ª       +---VP
+    ª       +---12-18 Feb 24
+    ª       ª   +---Banks
+    ª       ª   +---Platform
+    ª       ª   +---PSPs
+    ª       ª       +---Nuvei
+    ª       ª       +---payunit
+    ª       ª       +---VP
+    ª       +---19-20 Feb 24
+    ª       ª   +---Banks
+    ª       ª   +---Platform
+    ª       ª   +---PSPs
+    ª       ª       +---Nuvei
+    ª       ª       +---Payunit
+    ª       +---21-25 Feb 24
+    ª       ª   +---Banks
+    ª       ª   +---Platform
+    ª       ª   +---PSPs
+    ª       ª       +---Nuvei
+    ª       ª       +---Payunit
+    ª       ª       +---VP
+    ª       +---26-28 Feb 24
+    ª       ª   +---Banks
+    ª       ª   +---Platform
+    ª       ª   +---PSPs
+    ª       +---29 Feb 24
+    ª           +---Banks
+    ª           +---Platform
+    ª           +---PSPs
+    ª               +---Balances
+    ª               ª   +---Cellulnat
+    ª               ª   +---VP
+    ª               +---Nuvei
+    +---Accounts report
+    +---Other
+        +---Reconciled tables
+        +---Reconciliation
+            +---Banks
+            +---Platform
+            +---PSPs

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRS 2.0 - Next-Gen Reconciliation</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="glass-board">
+        <header>
+            <div class="logo">
+                <span class="icon">✨</span>
+                <h1>MRS <span>2.0 Engine</span></h1>
+            </div>
+            <p>Intelligent File Parsing & Bipartite Reconciliation</p>
+        </header>
+
+        <main>
+            <!-- STAGE 1: IMPORT & UPLOAD -->
+            <section class="stage-card" id="uploadZone">
+                <div class="stage-header">
+                    <h2>1. Ingest Data Sources</h2>
+                    <span class="badge">Input</span>
+                </div>
+                <form id="uploadForm">
+                    <div class="upload-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div class="file-drop-area" style="margin-bottom:0;">
+                            <label for="bankFile">Statements from Banks and PSPs (select all)</label>
+                            <input type="file" id="bankFile" accept=".csv,.xlsx,.xls" required multiple>
+                        </div>
+                        <div class="file-drop-area" style="margin-bottom:0;">
+                            <label for="platformFile">Platforms (CRM/MT4)</label>
+                            <input type="file" id="platformFile" accept=".csv,.xlsx,.xls" required>
+                        </div>
+                        <div class="file-drop-area" style="margin-bottom:0;">
+                            <label for="equityFile">Client Equity Report (Tableau)</label>
+                            <input type="file" id="equityFile" accept=".csv,.xlsx,.xls" required>
+                        </div>
+                        <div class="file-drop-area" style="margin-bottom:0;">
+                            <label for="transactionsFile">Transactions (Tableau)</label>
+                            <input type="file" id="transactionsFile" accept=".csv,.xlsx,.xls" required>
+                        </div>
+                        <div id="fxRatesWidget" style="grid-column: span 2; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 12px 20px; border-radius: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                                <span style="display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 6px #10b981;"></span>
+                                <span style="color: #34d399; font-weight: 600; font-size: 13px;">Live FX Rates (ECB via Frankfurter)</span>
+                            </div>
+                            <div id="fxRatesRow" style="display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                                <span style="color: #94a3b8; font-size: 13px;">Loading rates...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <span class="spinner hidden" id="uploadSpinner"></span>
+                        Run AI Column Mapping
+                    </button>
+                </form>
+            </section>
+
+            <!-- STAGE 2: AI MAPPING APPROVAL -->
+            <section class="stage-card hidden" id="mappingZone">
+                <div class="stage-header">
+                    <h2>2. AI Mapping Approval</h2>
+                    <span class="badge ai">AI Powered</span>
+                </div>
+                <p class="subtitle">The engine detected unstructured output. Please verify the automated mapping.</p>
+                <div class="mapping-grid" id="mappingCards">
+                    <!-- Populated via Javascript -->
+                </div>
+                <button id="runReconBtn" class="btn btn-action">
+                    Execute Mathematical Match <span class="arrow">→</span>
+                </button>
+            </section>
+
+            <!-- STAGE 3: OUTPUT LIST & BALANCES -->
+            <section class="stage-card hidden" id="resultsZone">
+                <div class="stage-header">
+                    <h2>3. Lifecycle Ledger Complete</h2>
+                    <span class="badge success">Output generated</span>
+                </div>
+                <div id="joinKeyInfo" style="margin-bottom: 15px; padding: 10px 15px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); border-radius: 8px; font-size: 13px; color: #93c5fd; font-family: monospace;"></div>
+                <div class="stats-board" style="grid-template-columns: repeat(3, 1fr);">
+                    <div class="stat-item">
+                        <p class="stat-label">Matched</p>
+                        <h3 id="statMatched" class="stat-num success">0</h3>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-label">CRM Unmatched</p>
+                        <h3 id="statCrmOnly" class="stat-num warning">0</h3>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-label">Bank Unmatched</p>
+                        <h3 id="statBankOnly" class="stat-num warning">0</h3>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-label">CRM Total Rows</p>
+                        <h3 id="statCrmTotal" class="stat-num" style="color: #94a3b8;">0</h3>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-label">Bank Total Rows</p>
+                        <h3 id="statBankTotal" class="stat-num" style="color: #94a3b8;">0</h3>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-label">Amount Discrepancy</p>
+                        <h3 id="statFees" class="stat-num danger">$0.00</h3>
+                    </div>
+                </div>
+                
+                <div class="action-footer">
+                    <button class="btn btn-primary download">📥 Download Lifecycle List.xlsx</button>
+                    <button class="btn btn-outline download">📊 Download Balances.xlsx</button>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
