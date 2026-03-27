@@ -350,7 +350,9 @@ def build_lifecycle_df(merged):
     g = lambda *names: _get_merged_col(merged, *names)
     out = pd.DataFrame(index=merged.index)
 
-    out['Tran.Date'] = g('Month, Day, Year of confirmation_time', 'Month, Day, Year of created_time')
+    # Parse CRM date strings ("January 1, 2023") → proper datetime
+    raw_date = g('Month, Day, Year of confirmation_time', 'Month, Day, Year of created_time')
+    out['Tran.Date'] = pd.to_datetime(raw_date, errors='coerce')
     out['Reference'] = g('psp_transaction_id', 'receipt', 'transactionreference')
     # Deal No: integer → string (no float .0 suffix); UUIDs from MT4 P&L not available
     deal_no_raw = g('mtorder_id')
