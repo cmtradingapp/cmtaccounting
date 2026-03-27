@@ -15,7 +15,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 STATE_FILE = os.path.join(app.config['UPLOAD_FOLDER'], '_recon_state.pkl')
 
-# The 52 output columns matching the historical Lifecycle List spec
+# 52-column spec used by List.xlsx ("Our" tab) — kept for test compatibility
 OUTPUT_COLUMNS = [
     'Tran.Date', 'Reference', 'Deal No', 'Amount', 'Commission', 'Total',
     'Currency', 'AmntBC', 'CommissionBC', 'TotalBC', 'Reason Code',
@@ -28,6 +28,30 @@ OUTPUT_COLUMNS = [
     'ClientAccount', 'ReasonCodeD', 'CategoryCode', 'Reason Code Group',
     'MRS Notes', 'Country', 'IsSeggr', 'PlatformName', 'Country.1',
     'ClientType', 'ClientGroup', 'Matched By', 'ReasonCodeGroupName', 'Matched On'
+]
+
+# 44-column spec matching MT4-Transactions tab in Life Cycle Report-final.xlsx
+MT4_TRX_COLUMNS = [
+    'Tran.Date', 'Reference', 'Deal No', 'Amount', 'Commission', 'Total',
+    'Currency', 'AmntBC', 'CommissionBC', 'TotalBC', 'Reason Code',
+    'Payment Method', 'Bank', 'Institution', 'Details1', 'Details2',
+    'Comment', 'Remarks', 'Exch.Diff. %', 'Take To Profit', 'Unrecon. Fees',
+    'Match No', 'Recon.Reason Group', 'Recon Reason', 'IsTiming', 'MatchCount',
+    'EOD', 'IsEODTran', 'ClientAccount', 'ReasonCodeD', 'CategoryCode',
+    'Reason Code Group', 'MRS Notes', 'Country', 'IsSeggr', 'PlatformName',
+    'Country_1', 'ClientType', 'ClientGroup', 'Matched By', 'ReasonCodeGroupName',
+    'Matched On', 'Index', 'TRX Type'
+]
+
+# 31-column spec matching PM-Transactions tab
+PM_TRX_COLUMNS = [
+    'Index', 'Tran.Date', 'Reference', 'Amount', 'Currency', 'AmntBC',
+    'Payment Method', 'Bank', 'Details1', 'Details2', 'Comment', 'Remarks',
+    'ExcRate', 'Exch.Diff. %', 'ToEmail', 'TranStatus', 'Reference2',
+    'Take To Profit', 'ReasonCodeD', 'MRS Notes', 'Recon.Reason Group',
+    'Recon Reason', 'Match No', 'ReasonCodeGroupName', 'TRX Type',
+    'PM Name', 'PM-Cur', 'Is Balance Currency', 'Balance Currency',
+    'Amount in Bal Curr', 'Amount USD'
 ]
 
 
@@ -67,12 +91,106 @@ def normalize_key(series):
 
 
 def _get_merged_col(merged, *candidates):
-    """Return the first found column from merged df, checking _crm suffix first."""
+    """Return the first found column from merged df, preferring _crm suffix."""
     for name in candidates:
-        for variant in [name, f"{name}_crm", f"{name}_bank"]:
+        for variant in [f"{name}_crm", name, f"{name}_bank"]:
             if variant in merged.columns:
                 return merged[variant]
     return pd.Series([None] * len(merged), index=merged.index)
+
+
+def _detect_bank_ref_col(df):
+    """Detect the transaction reference column for a single PSP file.
+
+    Uses a priority-ordered list derived from all known PSP schemas.
+    Returns None if no plausible reference column is found.
+    """
+    # Normalize each column name for matching: lowercase, strip all spaces/punctuation
+    def _norm(s):
+        return re.sub(r'[^a-z0-9]', '', s.lower())
+
+    normed = {col: _norm(col) for col in df.columns}
+
+    # Priority 1 — exact normalized matches (most reliable)
+    exact = [
+        'transactionreference',   # TrustPayments
+        'transactionreference',
+        'merchantreference',      # EFTpay, Swiffy
+        'transactionid',          # Finrax, Solidpayments
+        'txid',                   # generic
+        'referenceno',            # Finrax all.xlsx
+        'settlementreference',    # Korapay settlements
+        'transactionreference',
+        'paymentreference',       # Korapay pay-ins (alt)
+        'refno',                  # Solidpayment fees
+        'refid',                  # VP Refunds
+    ]
+    for keyword in exact:
+        for col, n in normed.items():
+            if n == keyword:
+                return col
+
+    # Priority 2 — contains a specific reference substring
+    contains = [
+        'transactionreference',
+        'transactionref',
+        'merchantreference',
+        'transactionid',
+        'settlementreference',
+        'paymentreference',
+        'referenceno',
+        'txnid',
+    ]
+    for keyword in contains:
+        for col, n in normed.items():
+            if keyword in n:
+                return col
+
+    # Priority 3 — generic 'reference' substring (last resort before bare id)
+    for col, n in normed.items():
+        if 'reference' in n:
+            return col
+
+    # Priority 4 — bare 'id' column (Neteller, Skrill, Ozow, Zota, Zotapay)
+    for col in df.columns:
+        if col.strip().lower() in ('id', 'transaction details'):
+            return col
+
+    return None
+
+
+def _detect_bank_amount_col(df):
+    """Detect the amount column for a single PSP file."""
+    priority = ['baseamount', 'settlebaseamount', 'settledamount', 'netamount',
+                'amount', 'gross', 'net', 'total']
+    normed = {col: re.sub(r'[^a-z0-9]', '', col.lower()) for col in df.columns}
+    for keyword in priority:
+        for col, n in normed.items():
+            if keyword in n:
+                return col
+    return None
+
+
+def _load_psp_file(path):
+    """Load a single PSP CSV or Excel file, returning a DataFrame or None on failure."""
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        if ext in ('.xlsx', '.xls'):
+            df = pd.read_excel(path)
+        else:
+            try:
+                with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                    dialect = csv.Sniffer().sniff(f.read(4096))
+                df = pd.read_csv(path, dialect=dialect, encoding='utf-8',
+                                 encoding_errors='replace')
+            except Exception:
+                df = pd.read_csv(path, encoding='utf-8', encoding_errors='replace')
+        # Skip files with no usable columns (e.g. Nuvei.xlsx balance/summary sheets)
+        real_cols = [c for c in df.columns if not str(c).startswith('Unnamed')
+                     and not str(c).startswith('CPanel')]
+        return df if real_cols else None
+    except Exception:
+        return None
 
 
 def build_lifecycle_df(merged):
@@ -201,6 +319,205 @@ def build_balances_df(merged):
     summary['Equity'] = summary['Equity'].round(2)
 
     return summary[['Currency', 'Equity', 'Equity EUR', 'Equity USD', 'Perc']]
+
+
+def build_mt4_transactions_df(merged):
+    """Build the MT4-Transactions tab (44 cols) matching Life Cycle Report-final.xlsx."""
+    # Start from the full 52-col lifecycle df and remap to the 44-col schema
+    lc = build_lifecycle_df(merged)
+    out = pd.DataFrame(index=lc.index)
+
+    # Columns that exist unchanged in both schemas
+    shared = [
+        'Tran.Date', 'Reference', 'Deal No', 'Amount', 'Commission', 'Total',
+        'Currency', 'AmntBC', 'CommissionBC', 'TotalBC', 'Reason Code',
+        'Payment Method', 'Bank', 'Institution', 'Details1', 'Details2',
+        'Comment', 'Remarks', 'Exch.Diff. %', 'Take To Profit', 'Unrecon. Fees',
+        'Match No', 'Recon.Reason Group', 'Recon Reason', 'IsTiming', 'MatchCount',
+        'EOD', 'IsEODTran', 'ClientAccount', 'ReasonCodeD', 'CategoryCode',
+        'Reason Code Group', 'MRS Notes', 'Country', 'IsSeggr', 'PlatformName',
+        'ClientType', 'ClientGroup', 'Matched By', 'ReasonCodeGroupName', 'Matched On'
+    ]
+    for col in shared:
+        out[col] = lc[col] if col in lc.columns else None
+
+    # Country_1 = Country.1 (naming difference only)
+    out['Country_1'] = lc['Country.1'] if 'Country.1' in lc.columns else None
+
+    # Index = sequential row number (1-based)
+    out['Index'] = range(1, len(out) + 1)
+
+    # TRX Type = Type from our schema
+    out['TRX Type'] = lc['Type'] if 'Type' in lc.columns else None
+
+    return out[MT4_TRX_COLUMNS]
+
+
+def build_pm_transactions_df(merged):
+    """Build the PM-Transactions tab (31 cols) from the bank/PSP side rows."""
+    g = lambda *names: _get_merged_col(merged, *names)
+
+    # PM-Transactions covers both matched bank rows and bank-only rows
+    # For matched rows, bank columns are available directly (no _bank suffix since
+    # they come from bank_df which wasn't renamed)
+    out = pd.DataFrame(index=merged.index)
+
+    # Sequential index
+    out['Index'] = range(1, len(merged) + 1)
+
+    # Date — bank files rarely have a clean date; fall back to CRM date
+    out['Tran.Date'] = g('tran.date', 'date', 'created_at', 'Month, Day, Year of confirmation_time',
+                         'Month, Day, Year of created_time')
+
+    # Reference from bank side
+    # Look for any column that has 'reference' or 'id' in its name (from bank)
+    bank_ref = None
+    for col in merged.columns:
+        low = col.lower()
+        if ('reference' in low or 'transactionid' in low.replace('_', '').replace(' ', '')) \
+                and '_crm' not in low and col not in ('_join_key', '_merge', '_psp_source'):
+            bank_ref = col
+            break
+    out['Reference'] = merged[bank_ref] if bank_ref else g('psp_transaction_id')
+
+    # Amount from bank side
+    bank_amt = next((c for c in merged.columns
+                     if 'amount' in c.lower() and '_crm' not in c and not c.startswith('_')), None)
+    out['Amount']  = pd.to_numeric(merged[bank_amt], errors='coerce') if bank_amt else None
+    out['Currency'] = g('currency_id')
+    out['AmntBC']   = g('usdamount')
+
+    # Payment method / bank info from CRM (most reliable source)
+    out['Payment Method'] = g('payment_method')
+    out['Bank']           = g('bank_name', 'payment_processor')
+    out['Details1']       = g('mtorder_id').astype(str).replace('None', None).replace('nan', None)
+    out['Details2']       = None
+    out['Comment']        = g('comment')
+    fname = g('first_name').fillna('').astype(str).str.strip()
+    lname = g('last_name').fillna('').astype(str).str.strip()
+    out['Remarks'] = (fname + ' ' + lname).str.strip().replace('', None)
+
+    # Columns we can't compute — leave blank
+    for col in ['ExcRate', 'Exch.Diff. %', 'ToEmail', 'TranStatus', 'Reference2']:
+        out[col] = None
+    out['Take To Profit'] = False
+
+    # Reconciliation metadata
+    out['ReasonCodeD']       = None
+    out['MRS Notes']         = None
+    out['Recon.Reason Group'] = merged.get('_merge', pd.Series(['left_only'] * len(merged))).map(
+        {'both': 'Matched', 'left_only': 'Unmatched', 'right_only': 'Bank Only'})
+    out['Recon Reason']       = merged.get('_merge', pd.Series(['left_only'] * len(merged))).map(
+        {'both': 'Ref/Ref-Curr-Amnt>nn', 'left_only': 'No Match', 'right_only': 'No CRM Entry'})
+
+    # Match No from lifecycle df
+    lc = build_lifecycle_df(merged)
+    out['Match No']            = lc['Match No']
+    out['ReasonCodeGroupName'] = None
+
+    out['TRX Type'] = g('transactiontype')
+
+    # PM-specific columns we don't have data for
+    psp_source = merged['_psp_source'] if '_psp_source' in merged.columns else None
+    out['PM Name']             = psp_source
+    out['PM-Cur']              = g('currency_id')
+    out['Is Balance Currency'] = None
+    out['Balance Currency']    = None
+    out['Amount in Bal Curr']  = None
+    out['Amount USD']          = g('usdamount')
+
+    return out[PM_TRX_COLUMNS]
+
+
+def build_ccy_lifecycle_df(merged, use_usd=False):
+    """Build the CCY or USD per-account lifecycle pivot from transaction data.
+
+    Computes the attributes we can derive from transactions:
+    2. DP  — deposits (positive amounts)
+    2. WD  — withdrawals (negative amounts)
+    4. Transfer — internal transfers
+    3. Timing Deposit / 3. Timing Withdrawal — timing rows
+
+    Opening Balance and P&L require the equity report and are left blank.
+    """
+    g = lambda *names: _get_merged_col(merged, *names)
+
+    # Only process CRM rows (left_only or both) — bank-only have no account info
+    crm_mask = merged['_merge'] != 'right_only' if '_merge' in merged.columns \
+               else pd.Series([True] * len(merged), index=merged.index)
+
+    account  = g('tradingaccountsid').where(crm_mask)
+    currency = g('currency_id').where(crm_mask)
+    raw_amt  = pd.to_numeric(g('usdamount' if use_usd else 'amount'), errors='coerce').where(crm_mask)
+    is_timing = merged.get('IsTiming', pd.Series([False] * len(merged), index=merged.index))
+    trx_type  = g('transactiontype').fillna('').astype(str).str.lower()
+
+    df = pd.DataFrame({
+        'Client Account': account,
+        'Currency': currency,
+        'Amount': raw_amt,
+        'IsTiming': is_timing,
+        'TRX Type': trx_type,
+    }).dropna(subset=['Client Account', 'Currency', 'Amount'])
+
+    rows = []
+    attr_col = 'Amount USD' if use_usd else 'Amount'
+
+    for (acct, ccy), grp in df.groupby(['Client Account', 'Currency']):
+        def add(attr, mask):
+            val = grp.loc[mask, 'Amount'].sum()
+            if val != 0:
+                rows.append({'Client Account': acct, 'Currency': ccy, 'Attribute': attr, attr_col: round(val, 2)})
+
+        deposits    = grp['TRX Type'].str.contains('deposit', na=False)
+        withdrawals = grp['TRX Type'].str.contains('withdraw', na=False)
+        transfers   = grp['TRX Type'].str.contains('transfer', na=False)
+        timing      = grp['IsTiming'].fillna(False).astype(bool)
+
+        add('2. DP',                  deposits & ~timing)
+        add('2. WD',                  withdrawals & ~timing)
+        add('4. Transfer',            transfers)
+        add('3. Timing Deposit',      deposits & timing)
+        add('3. Timing Withdrawal',   withdrawals & timing)
+
+    result = pd.DataFrame(rows, columns=['Client Account', 'Currency', 'Attribute', attr_col]) \
+             if rows else pd.DataFrame(columns=['Client Account', 'Currency', 'Attribute', attr_col])
+
+    return result.sort_values(['Client Account', 'Currency', 'Attribute']).reset_index(drop=True)
+
+
+def build_lifecycle_excel(merged):
+    """Build the multi-tab Life Cycle Report Excel matching the historical format."""
+    buf = io.BytesIO()
+
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+
+        def _write(df, sheet):
+            df.to_excel(writer, sheet_name=sheet, index=False)
+            ws = writer.sheets[sheet]
+            for col_cells in ws.columns:
+                max_len = max((len(str(c.value)) if c.value is not None else 0) for c in col_cells)
+                ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 35)
+
+        _write(build_mt4_transactions_df(merged),          'MT4-Transactions')
+        _write(build_ccy_lifecycle_df(merged, use_usd=False), 'MT4 CCY Life Cycle')
+        _write(build_ccy_lifecycle_df(merged, use_usd=True),  'MT4 USD per acc Life Cycle')
+
+        # Empty tabs matching the reference structure
+        for sheet in ('PM USD Life Cycle', 'PM CCY Life Cycle'):
+            pd.DataFrame().to_excel(writer, sheet_name=sheet, index=False)
+
+        _write(build_pm_transactions_df(merged), 'PM-Transactions')
+
+        # Mapping Rules — metadata
+        meta = pd.DataFrame({
+            'Key': ['Generated by', 'Date', 'Engine'],
+            'Value': ['MRS 2.0', datetime.now().strftime('%Y-%m-%d %H:%M'), 'Flask/pandas per-PSP engine']
+        })
+        _write(meta, 'Mapping Rules')
+
+    buf.seek(0)
+    return buf
 
 
 @app.route('/')
@@ -382,7 +699,13 @@ def get_crypto_rates():
 
 @app.route('/api/reconcile', methods=['POST'])
 def reconcile():
-    """Real reconciliation engine: joins Bank/PSP references against CRM data."""
+    """Per-PSP reconciliation engine.
+
+    Each PSP file is processed independently so its own reference column is
+    detected without interference from other PSPs that use different column names.
+    CRM columns are pre-renamed to the _crm suffix before any merge so matched
+    and unmatched rows have a consistent column layout in the output DataFrame.
+    """
     upload = app.config['UPLOAD_FOLDER']
 
     try:
@@ -395,28 +718,7 @@ def reconcile():
         if not bank_paths or not crm_path:
             return jsonify({"status": "error", "summary": {"error": "Missing uploaded files. Please re-upload."}}), 400
 
-        bank_frames = []
-        for bp in bank_paths:
-            ext = os.path.splitext(bp)[1].lower()
-            try:
-                if ext in ('.xlsx', '.xls'):
-                    df = pd.read_excel(bp)
-                else:
-                    try:
-                        with open(bp, 'r', encoding='utf-8', errors='replace') as f:
-                            dialect = csv.Sniffer().sniff(f.read(4096))
-                        df = pd.read_csv(bp, dialect=dialect)
-                    except Exception:
-                        df = pd.read_csv(bp)
-                bank_frames.append(df)
-            except Exception:
-                continue
-
-        if not bank_frames:
-            return jsonify({"status": "error", "summary": {"error": "Could not parse any bank files."}}), 400
-
-        bank_df = pd.concat(bank_frames, ignore_index=True)
-
+        # ── Load CRM ────────────────────────────────────────────────────────
         ext = os.path.splitext(crm_path)[1].lower()
         if ext in ('.xlsx', '.xls'):
             crm_df = pd.read_excel(crm_path)
@@ -426,116 +728,137 @@ def reconcile():
                     dialect = csv.Sniffer().sniff(f.read(4096))
                 crm_df = pd.read_csv(crm_path, dialect=dialect)
             except Exception:
-                crm_df = pd.read_csv(crm_path)
+                crm_df = pd.read_csv(crm_path, encoding='utf-8', encoding_errors='replace')
 
-        bank_cols_lower = {c: c.lower().strip() for c in bank_df.columns}
         crm_cols_lower = {c: c.lower().strip() for c in crm_df.columns}
 
-        bank_ref_col = None
-        for col, low in bank_cols_lower.items():
-            if any(k in low for k in ['transactionreference', 'reference', 'order no', 'transaction_id', 'trans_id']):
-                bank_ref_col = col
-                break
+        crm_ref_col = next((c for c, l in crm_cols_lower.items()
+                            if any(k in l for k in ['psp_transaction_id', 'psp_id'])), None)
+        crm_deal_col = next((c for c, l in crm_cols_lower.items()
+                             if any(k in l for k in ['mtorder_id', 'deal_no', 'dealid', 'order_id'])), None)
+        crm_amount_col = next((c for c, l in crm_cols_lower.items()
+                               if 'amount' in l), None)
 
-        crm_ref_col = None
-        for col, low in crm_cols_lower.items():
-            if any(k in low for k in ['psp_transaction_id', 'transactionreference', 'reference', 'psp_id']):
-                crm_ref_col = col
-                break
+        if not crm_ref_col:
+            return jsonify({"status": "error",
+                            "summary": {"error": "Could not detect CRM reference column (psp_transaction_id)."}}), 400
 
-        crm_deal_col = None
-        for col, low in crm_cols_lower.items():
-            if any(k in low for k in ['mtorder_id', 'deal_no', 'deal no', 'dealid', 'order_id']):
-                crm_deal_col = col
-                break
+        # Pre-rename all CRM columns to _crm suffix so matched + unmatched
+        # rows have consistent column names after concat.
+        crm_rename = {c: f"{c}_crm" for c in crm_df.columns if not c.startswith('_')}
+        crm_renamed = crm_df.rename(columns=crm_rename).copy()
+        crm_ref_col_crm = f"{crm_ref_col}_crm"
+        crm_renamed['_join_key'] = normalize_key(crm_renamed[crm_ref_col_crm])
 
-        bank_amount_col = None
-        for col, low in bank_cols_lower.items():
-            if any(k in low for k in ['baseamount', 'amount', 'settlebaseamount', 'gross']):
-                bank_amount_col = col
-                break
+        # ── Per-PSP loop ─────────────────────────────────────────────────────
+        matched_frames = []
+        bank_only_frames = []
+        all_matched_crm_keys = set()
+        psp_stats = []
+        total_bank_rows = 0
 
-        crm_amount_col = None
-        for col, low in crm_cols_lower.items():
-            if any(k in low for k in ['amount', 'requested_amount', 'gross']):
-                crm_amount_col = col
-                break
+        for bp in bank_paths:
+            bank_df = _load_psp_file(bp)
+            if bank_df is None:
+                continue
 
-        if bank_ref_col and crm_ref_col:
+            total_bank_rows += len(bank_df)
+            bank_ref_col = _detect_bank_ref_col(bank_df)
+
+            if not bank_ref_col:
+                # Can't match this PSP — all rows go to bank_only
+                bonly = bank_df.copy()
+                bonly['_join_key'] = None
+                bonly['_merge'] = 'right_only'
+                bonly['_psp_source'] = os.path.basename(bp)
+                bank_only_frames.append(bonly)
+                continue
+
+            bank_df = bank_df.copy()
             bank_df['_join_key'] = normalize_key(bank_df[bank_ref_col])
-            crm_df['_join_key'] = normalize_key(crm_df[crm_ref_col])
+            bank_df['_psp_source'] = os.path.basename(bp)
 
-            merged = crm_df.merge(bank_df, on='_join_key', how='outer',
-                                  suffixes=('_crm', '_bank'), indicator=True)
+            # Only attempt to match CRM rows not already claimed by a prior PSP
+            crm_available = crm_renamed[
+                crm_renamed['_join_key'].notna() &
+                ~crm_renamed['_join_key'].isin(all_matched_crm_keys)
+            ]
 
-            total_crm = len(crm_df)
-            total_bank = len(bank_df)
-            matched = int((merged['_merge'] == 'both').sum())
-            crm_only = int((merged['_merge'] == 'left_only').sum())
-            bank_only = int((merged['_merge'] == 'right_only').sum())
+            inner = crm_available.merge(bank_df, on='_join_key', how='inner')
 
-            unrecon_fees = 0.0
-            if bank_amount_col and crm_amount_col:
-                both = merged[merged['_merge'] == 'both'].copy()
-                bc = bank_amount_col if bank_amount_col in both.columns else f"{bank_amount_col}_bank"
-                cc = crm_amount_col if crm_amount_col in both.columns else f"{crm_amount_col}_crm"
-                if bc in both.columns and cc in both.columns:
-                    both[bc] = pd.to_numeric(both[bc], errors='coerce')
-                    both[cc] = pd.to_numeric(both[cc], errors='coerce')
-                    both['_diff'] = (both[bc] - both[cc]).abs()
-                    unrecon_fees = float(both['_diff'].sum())
+            if len(inner) > 0:
+                inner['_merge'] = 'both'
+                matched_frames.append(inner)
+                all_matched_crm_keys.update(inner['_join_key'].dropna().tolist())
+                psp_stats.append(f"{os.path.basename(bp)}[{bank_ref_col}]:{len(inner)}")
 
-            with open(STATE_FILE, 'wb') as f:
-                pickle.dump({
-                    'merged': merged, 'crm_df': crm_df, 'bank_df': bank_df,
-                    'bank_ref_col': bank_ref_col, 'crm_ref_col': crm_ref_col,
-                    'bank_amount_col': bank_amount_col, 'crm_amount_col': crm_amount_col,
-                }, f)
+            # Collect bank rows that didn't match any CRM row
+            matched_bank_keys = set(inner['_join_key'].dropna().tolist()) if len(inner) > 0 else set()
+            bonly = bank_df[bank_df['_join_key'].notna() &
+                            ~bank_df['_join_key'].isin(matched_bank_keys)].copy()
+            if len(bonly) > 0:
+                bonly['_merge'] = 'right_only'
+                bank_only_frames.append(bonly)
 
-            return jsonify({
-                "status": "success",
-                "summary": {
-                    "total_crm_rows": total_crm,
-                    "total_bank_rows": total_bank,
-                    "total_matched": matched,
-                    "total_orphaned": crm_only + bank_only,
-                    "crm_unmatched": crm_only,
-                    "bank_unmatched": bank_only,
-                    "unrecon_fees": round(unrecon_fees, 2),
-                    "join_keys_used": f"Bank[{bank_ref_col}] ↔ CRM[{crm_ref_col}]",
-                    "deal_no_column": crm_deal_col or "not detected"
-                }
-            })
+        # ── Build final merged DataFrame ─────────────────────────────────────
+        crm_unmatched = crm_renamed[
+            crm_renamed['_join_key'].isna() |
+            ~crm_renamed['_join_key'].isin(all_matched_crm_keys)
+        ].copy()
+        crm_unmatched['_merge'] = 'left_only'
+
+        parts = [crm_unmatched] + matched_frames + bank_only_frames
+        merged = pd.concat(parts, ignore_index=True, sort=False)
+
+        # ── Stats ────────────────────────────────────────────────────────────
+        total_crm  = len(crm_df)
+        matched    = int((merged['_merge'] == 'both').sum())
+        crm_only   = int((merged['_merge'] == 'left_only').sum())
+        bank_only  = int((merged['_merge'] == 'right_only').sum())
+
+        unrecon_fees = 0.0
+        if crm_amount_col and matched > 0:
+            both = merged[merged['_merge'] == 'both'].copy()
+            crm_amt = f"{crm_amount_col}_crm"
+            bank_amt_col = next((c for c in both.columns
+                                 if 'amount' in c.lower() and c != crm_amt and not c.endswith('_crm')), None)
+            if crm_amt in both.columns and bank_amt_col:
+                a = pd.to_numeric(both[crm_amt], errors='coerce')
+                b = pd.to_numeric(both[bank_amt_col], errors='coerce')
+                unrecon_fees = float((a - b).abs().sum())
+
+        if psp_stats:
+            n = len(psp_stats)
+            preview = ', '.join(psp_stats[:3]) + (f' (+{n-3} more)' if n > 3 else '')
+            join_info = f"CRM[{crm_ref_col}] matched {n} PSP(s): {preview}"
         else:
-            merged = crm_df.copy()
-            merged['_merge'] = 'left_only'
-            with open(STATE_FILE, 'wb') as f:
-                pickle.dump({
-                    'merged': merged, 'crm_df': crm_df, 'bank_df': bank_df,
-                    'bank_ref_col': None, 'crm_ref_col': None,
-                    'bank_amount_col': bank_amount_col, 'crm_amount_col': crm_amount_col,
-                }, f)
-            return jsonify({
-                "status": "success",
-                "summary": {
-                    "total_crm_rows": len(crm_df),
-                    "total_bank_rows": len(bank_df),
-                    "total_matched": 0,
-                    "total_orphaned": len(crm_df) + len(bank_df),
-                    "crm_unmatched": len(crm_df),
-                    "bank_unmatched": len(bank_df),
-                    "unrecon_fees": 0,
-                    "join_keys_used": f"FAILED: Bank ref col={bank_ref_col}, CRM ref col={crm_ref_col}",
-                    "deal_no_column": crm_deal_col or "not detected"
-                }
-            })
+            join_info = f"CRM[{crm_ref_col}] — no PSP reference columns detected"
+
+        with open(STATE_FILE, 'wb') as f:
+            pickle.dump({'merged': merged, 'crm_df': crm_df}, f)
+
+        return jsonify({
+            "status": "success",
+            "summary": {
+                "total_crm_rows":  total_crm,
+                "total_bank_rows": total_bank_rows,
+                "total_matched":   matched,
+                "total_orphaned":  crm_only + bank_only,
+                "crm_unmatched":   crm_only,
+                "bank_unmatched":  bank_only,
+                "unrecon_fees":    round(unrecon_fees, 2),
+                "join_keys_used":  join_info,
+                "deal_no_column":  crm_deal_col or "not detected"
+            }
+        })
+
     except Exception as e:
         return jsonify({"status": "error", "summary": {"error": str(e)}}), 500
 
 
 @app.route('/api/download/lifecycle')
 def download_lifecycle():
-    """Generate and serve Lifecycle List.xlsx with the full 52-column output schema."""
+    """Generate and serve the multi-tab Life Cycle Report matching the historical format."""
     try:
         with open(STATE_FILE, 'rb') as f:
             state = pickle.load(f)
@@ -543,16 +866,8 @@ def download_lifecycle():
         return jsonify({"error": "No reconciliation data found. Run reconciliation first."}), 400
 
     try:
-        df = build_lifecycle_df(state['merged'])
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Lifecycle List', index=False)
-            ws = writer.sheets['Lifecycle List']
-            for col_cells in ws.columns:
-                max_len = max((len(str(cell.value)) if cell.value is not None else 0) for cell in col_cells)
-                ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 30)
-        buf.seek(0)
-        filename = f"Lifecycle List {datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        buf = build_lifecycle_excel(state['merged'])
+        filename = f"Life Cycle Report {datetime.now().strftime('%Y-%m-%d')}.xlsx"
         return send_file(buf, as_attachment=True, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
@@ -583,6 +898,51 @@ def download_balances():
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/test', methods=['POST'])
+def test_load():
+    """Load ALL January 2023 PSP files + CRM from relevant-data and run reconcile.
+    Temporary dev endpoint — do not expose in production.
+    """
+    import shutil
+    base = os.path.join(os.path.dirname(__file__), '..', 'relevant-data',
+                        'MRS', '2023', '01. Jan. 2023')
+    psp_dir   = os.path.join(base, 'PSPs')
+    plat_dir  = os.path.join(base, 'platform')
+
+    upload = app.config['UPLOAD_FOLDER']
+
+    # Copy platform files
+    shutil.copy(os.path.join(plat_dir, 'CRM Transactions Additional info.xlsx'),
+                os.path.join(upload, 'platformFile.xlsx'))
+    shutil.copy(os.path.join(plat_dir, 'Client Balance check.xlsx'),
+                os.path.join(upload, 'equityFile.xlsx'))
+    shutil.copy(os.path.join(plat_dir, 'Deposit and Withdrawal Report.csv'),
+                os.path.join(upload, 'transactionsFile.csv'))
+
+    # Clear any old bank files
+    for f in os.listdir(upload):
+        if f.startswith('bankFile_'):
+            os.remove(os.path.join(upload, f))
+
+    # Copy every flat PSP file (skip subdirectories)
+    idx = 0
+    for fname in sorted(os.listdir(psp_dir)):
+        fpath = os.path.join(psp_dir, fname)
+        if not os.path.isfile(fpath):
+            continue
+        ext = os.path.splitext(fname)[1].lower()
+        if ext not in ('.csv', '.xlsx', '.xls'):
+            continue
+        shutil.copy(fpath, os.path.join(upload, f'bankFile_{idx}{ext}'))
+        idx += 1
+
+    from flask import current_app
+    with current_app.test_request_context('/api/reconcile', method='POST'):
+        result = reconcile()
+
+    return result
 
 
 if __name__ == '__main__':
