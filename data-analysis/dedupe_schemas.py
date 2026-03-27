@@ -3,7 +3,8 @@ import re
 from collections import defaultdict
 import os
 
-ROOT_DIR = r"c:\Projects\MethodosReconciliationSystem\Data\Reconciliation-Relevant"
+ROOT_DIR = r"c:\Projects\cmtaccounting\relevant-data"
+OUTPUT_DIR = r"c:\Projects\cmtaccounting\data-analysis"
 
 def clean_col(c):
     # Remove unnamed pandas columns
@@ -61,8 +62,8 @@ def dedupe(json_path):
         if output_files:
             process_map(output_map, sig, output_files, schema_key, details)
 
-    output_md = os.path.join(ROOT_DIR, "schemas_summary_deduped.md")
-    output_json = os.path.join(ROOT_DIR, "schemas_summary_deduped.json")
+    output_md = os.path.join(OUTPUT_DIR, "schemas_summary_deduped.md")
+    output_json = os.path.join(OUTPUT_DIR, "schemas_summary_deduped.json")
     
     json_output_data = {"INPUT_MRS": {}, "OUTPUT_Lifecycle": {}}
 
@@ -110,4 +111,4 @@ def dedupe(json_path):
     print(f"Separation complete. Input schemas: {len(input_map)}, Output schemas: {len(output_map)}.")
 
 if __name__ == "__main__":
-    dedupe(os.path.join(ROOT_DIR, "schemas_summary.json"))
+    dedupe(os.path.join(OUTPUT_DIR, "schemas_summary.json"))
