@@ -244,6 +244,34 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 ccyNote.textContent = '';
             }
 
+            // Build a table with an auto-totals footer row for numeric columns
+            function buildTableHtml(cols, rows) {
+                // Sum each column that looks numeric (>50% of rows are numbers)
+                const totals = cols.map((_, ci) => {
+                    const vals = rows.map(r => parseFloat(r[ci])).filter(v => !isNaN(v));
+                    return vals.length > rows.length * 0.5 ? vals.reduce((a, b) => a + b, 0) : null;
+                });
+                const hasAnyTotal = totals.some(t => t !== null);
+
+                const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+                const tbody = `<tbody>${rows.map(r =>
+                    `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
+                ).join('')}</tbody>`;
+
+                let tfoot = '';
+                if (hasAnyTotal) {
+                    const cells = totals.map((t, ci) => {
+                        if (ci === 0) return `<td class="recon-total-label">TOTAL</td>`;
+                        if (t === null) return `<td></td>`;
+                        const fmt = Number.isInteger(t) ? t.toLocaleString()
+                            : t.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                        return `<td class="recon-total-val">${fmt}</td>`;
+                    }).join('');
+                    tfoot = `<tfoot><tr>${cells}</tr></tfoot>`;
+                }
+                return thead + tbody + tfoot;
+            }
+
             // Cross-currency pairs inspector (the excluded note is the trigger)
             let crossCcyLoaded = false;
             const crossCcyDetail = document.getElementById('crossCcyDetail');
@@ -269,12 +297,7 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                     crossCcyTitle.textContent =
                         `${data.count.toLocaleString()} cross-currency pairs (CRM in USD, bank in local currency)` +
                         (data.count >= 500 ? ' · showing first 500' : '');
-                    const cols = data.columns;
-                    const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
-                    const tbody = `<tbody>${data.rows.map(r =>
-                        `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
-                    ).join('')}</tbody>`;
-                    crossCcyTable.innerHTML = thead + tbody;
+                    crossCcyTable.innerHTML = buildTableHtml(data.columns, data.rows);
                     crossCcyLoaded = true;
                 } catch (err) {
                     crossCcyTitle.textContent = `Error: ${err.message}`;
@@ -304,13 +327,7 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                     unreconTitle.textContent =
                         `${data.count.toLocaleString()} pairs with amount discrepancy` +
                         (data.count >= 500 ? ' (showing first 500)' : '');
-                    const cols = data.columns;
-                    const rows = data.rows;
-                    const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
-                    const tbody = `<tbody>${rows.map(r =>
-                        `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
-                    ).join('')}</tbody>`;
-                    unreconTable.innerHTML = thead + tbody;
+                    unreconTable.innerHTML = buildTableHtml(data.columns, data.rows);
                     unreconLoaded = true;
                 } catch (err) {
                     unreconTitle.textContent = `Error: ${err.message}`;

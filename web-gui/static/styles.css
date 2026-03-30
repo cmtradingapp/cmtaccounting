@@ -388,6 +388,24 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 }
 .recon-detail-table td:first-child { color: var(--text-primary); font-weight: 500; }
 .recon-detail-table tr:hover td { background: rgba(255,255,255,0.025); }
+.recon-detail-table tfoot tr td {
+    border-top: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.03);
+    position: sticky;
+    bottom: 0;
+}
+.recon-detail-table .recon-total-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+}
+.recon-detail-table .recon-total-val {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
 
 #unreconDetail {
     margin-top: 0;
