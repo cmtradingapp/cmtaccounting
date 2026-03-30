@@ -2,13 +2,18 @@ function updateBankFileList() {
     const input = document.getElementById('bankFile');
     const list  = document.getElementById('bankFileList');
     const files = Array.from(input.files || []);
-    if (files.length === 0) { list.style.display = 'none'; return; }
-    list.style.display = 'block';
-    list.innerHTML = files.map((f, i) =>
-        `<div style="font-size:11px; font-family:monospace; color:#94a3b8; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            <span style="color:#475569; margin-right:6px;">${String(i + 1).padStart(2, '0')}</span>${f.name}
-         </div>`
-    ).join('');
+    if (files.length === 0) { list.classList.add('hidden'); return; }
+    list.classList.remove('hidden');
+    list.innerHTML = files.map((f, i) => {
+        const ext = f.name.split('.').pop().toLowerCase();
+        const extClass = ['csv','xlsx','xls'].includes(ext) ? ext : 'other';
+        const stem = f.name.slice(0, f.name.lastIndexOf('.')) || f.name;
+        return `<div class="file-list-item">
+            <span class="file-list-idx">${String(i + 1).padStart(2, '0')}</span>
+            <span class="file-list-ext ${extClass}">${ext}</span>
+            <span class="file-list-name" title="${f.name}">${stem}</span>
+        </div>`;
+    }).join('');
 }
 
 document.getElementById('bankFile').addEventListener('change', updateBankFileList);

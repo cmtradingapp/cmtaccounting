@@ -141,6 +141,63 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
 .btn-outline:hover { background: rgba(59, 130, 246, 0.1); }
 
+/* Bank / PSP file list */
+.file-list {
+    margin-top: 8px;
+    max-height: 140px;
+    overflow-y: auto;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.18);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.file-list::-webkit-scrollbar { width: 4px; }
+.file-list::-webkit-scrollbar-track { background: transparent; }
+.file-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+.file-list-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.15s;
+}
+.file-list-item:last-child { border-bottom: none; }
+.file-list-item:hover { background: rgba(255,255,255,0.04); }
+
+.file-list-idx {
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: #334155;
+    min-width: 18px;
+    text-align: right;
+    flex-shrink: 0;
+}
+.file-list-ext {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 2px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+.file-list-ext.csv  { background: rgba(16,185,129,0.15);  color: #34d399; }
+.file-list-ext.xlsx { background: rgba(59,130,246,0.15);  color: #60a5fa; }
+.file-list-ext.xls  { background: rgba(99,102,241,0.15);  color: #a5b4fc; }
+.file-list-ext.other{ background: rgba(100,116,139,0.15); color: #94a3b8; }
+
+.file-list-name {
+    font-size: 12px;
+    color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Outfit', sans-serif;
+}
+
 /* Animation */
 .spinner {
     height: 18px; width: 18px; border: 3px solid rgba(255,255,255,0.3);
