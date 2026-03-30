@@ -184,8 +184,9 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             document.getElementById('statCrmOnly').textContent     = s.crm_unmatched.toLocaleString();
 
             // Bank side
-            document.getElementById('statBankTotal').textContent  = s.total_bank_rows.toLocaleString();
-            document.getElementById('statBankOnly').textContent   = s.bank_unmatched.toLocaleString();
+            document.getElementById('statBankTotal').textContent   = s.total_bank_rows.toLocaleString();
+            document.getElementById('statBankMatched').textContent = s.total_matched.toLocaleString();
+            document.getElementById('statBankOnly').textContent    = s.bank_unmatched.toLocaleString();
 
             // Unreconciled amount
             const amtBar = document.getElementById('reconAmountBar');

@@ -1103,6 +1103,9 @@ def reconcile():
 
         crm_ref_col = next((c for c, l in crm_cols_lower.items()
                             if any(k in l for k in ['psp_transaction_id', 'psp_id'])), None)
+        # Secondary CRM join key: some PSPs store transactionid instead of psp_transaction_id
+        crm_txid_col = next((c for c, l in crm_cols_lower.items()
+                             if l == 'transactionid'), None)
         crm_deal_col = next((c for c, l in crm_cols_lower.items()
                              if any(k in l for k in ['mtorder_id', 'deal_no', 'dealid', 'order_id'])), None)
         crm_amount_col = next((c for c, l in crm_cols_lower.items()
@@ -1117,12 +1120,20 @@ def reconcile():
         crm_rename = {c: f"{c}_crm" for c in crm_df.columns if not c.startswith('_')}
         crm_renamed = crm_df.rename(columns=crm_rename).copy()
         crm_ref_col_crm = f"{crm_ref_col}_crm"
+        crm_txid_col_crm = f"{crm_txid_col}_crm" if crm_txid_col else None
+
         crm_renamed['_join_key'] = normalize_key(crm_renamed[crm_ref_col_crm])
+        if crm_txid_col_crm and crm_txid_col_crm in crm_renamed.columns:
+            crm_renamed['_join_key_txid'] = normalize_key(crm_renamed[crm_txid_col_crm])
+
+        # Assign a stable row ID so claimed rows can be tracked across PSPs
+        # regardless of which CRM key column was used for that match.
+        crm_renamed['_crm_row_id'] = range(len(crm_renamed))
 
         # ── Per-PSP loop ─────────────────────────────────────────────────────
         matched_frames = []
         bank_only_frames = []
-        all_matched_crm_keys = set()
+        all_matched_crm_row_ids = set()   # row IDs of CRM rows already claimed
         psp_stats = []
         total_bank_rows = 0
 
@@ -1159,10 +1170,22 @@ def reconcile():
 
             # Only attempt to match CRM rows not already claimed by a prior PSP
             crm_available = crm_renamed[
-                crm_renamed['_join_key'].notna() &
-                ~crm_renamed['_join_key'].isin(all_matched_crm_keys)
-            ]
+                ~crm_renamed['_crm_row_id'].isin(all_matched_crm_row_ids)
+            ].copy()
 
+            # Per-PSP CRM key selection: some PSPs store transactionid (not
+            # psp_transaction_id) in their reference field. Choose whichever
+            # CRM key yields more overlap with this file's normalised keys.
+            bank_keys = set(bank_df['_join_key'].dropna())
+            crm_key_label = crm_ref_col
+            if '_join_key_txid' in crm_available.columns:
+                overlap_pspid = len(bank_keys & set(crm_available['_join_key'].dropna()))
+                overlap_txid  = len(bank_keys & set(crm_available['_join_key_txid'].dropna()))
+                if overlap_txid > overlap_pspid:
+                    crm_available['_join_key'] = crm_available['_join_key_txid']
+                    crm_key_label = crm_txid_col
+
+            crm_available = crm_available[crm_available['_join_key'].notna()]
             inner = crm_available.merge(bank_df, on='_join_key', how='inner')
 
             if len(inner) > 0:
@@ -1179,8 +1202,8 @@ def reconcile():
 
                 inner['_merge'] = 'both'
                 matched_frames.append(inner)
-                all_matched_crm_keys.update(inner['_join_key'].dropna().tolist())
-                psp_stats.append(f"{os.path.basename(bp)}[{bank_ref_col}]:{len(inner)}")
+                all_matched_crm_row_ids.update(inner['_crm_row_id'].tolist())
+                psp_stats.append(f"{os.path.basename(bp)}[{bank_ref_col}→{crm_key_label}]:{len(inner)}")
 
             # Collect bank rows that didn't match any CRM row
             matched_bank_keys = set(inner['_join_key'].dropna().tolist()) if len(inner) > 0 else set()
@@ -1192,8 +1215,7 @@ def reconcile():
 
         # ── Build final merged DataFrame ─────────────────────────────────────
         crm_unmatched = crm_renamed[
-            crm_renamed['_join_key'].isna() |
-            ~crm_renamed['_join_key'].isin(all_matched_crm_keys)
+            ~crm_renamed['_crm_row_id'].isin(all_matched_crm_row_ids)
         ].copy()
         crm_unmatched['_merge'] = 'left_only'
 
