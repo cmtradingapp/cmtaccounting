@@ -1299,6 +1299,60 @@ def reconcile():
         return jsonify({"status": "error", "summary": {"error": str(e)}}), 500
 
 
+@app.route('/api/unmatched-crm')
+def unmatched_crm_rows():
+    """Return unmatched CRM rows for a given TRX type, for manual inspection."""
+    trx_type_filter = request.args.get('trx_type', '').strip()
+    try:
+        with open(STATE_FILE, 'rb') as f:
+            state = pickle.load(f)
+    except FileNotFoundError:
+        return jsonify({"error": "No reconciliation data found."}), 400
+
+    merged = state['merged']
+    crm_df = state['crm_df']
+    unmatched = merged[merged['_merge'] == 'left_only'].copy()
+
+    # Re-detect CRM column names (strip _crm suffix for lookup)
+    crm_cols_lower = {c: c.lower().strip() for c in crm_df.columns}
+    crm_pm_col  = next((c for c, l in crm_cols_lower.items() if l == 'payment_method'), None)
+    crm_tt_col  = next((c for c, l in crm_cols_lower.items() if l == 'transactiontype'), None)
+    crm_pm_col_r = f"{crm_pm_col}_crm" if crm_pm_col else None
+    crm_tt_col_r = f"{crm_tt_col}_crm" if crm_tt_col else None
+
+    # Derive TRX type for each unmatched row and filter
+    if crm_pm_col_r and crm_pm_col_r in unmatched.columns:
+        pm_s = unmatched[crm_pm_col_r].fillna('')
+        tt_s = unmatched[crm_tt_col_r].fillna('') if (crm_tt_col_r and crm_tt_col_r in unmatched.columns) else pd.Series([''] * len(unmatched), index=unmatched.index)
+        unmatched = unmatched.copy()
+        unmatched['_trx_type'] = [_map_trx_type(pm, tt) for pm, tt in zip(pm_s, tt_s)]
+    else:
+        unmatched['_trx_type'] = 'Unknown'
+
+    if trx_type_filter:
+        unmatched = unmatched[unmatched['_trx_type'] == trx_type_filter]
+
+    # Pick display columns: prefer the most useful CRM fields, strip _crm suffix for headers
+    WANT = ['login', 'tradingaccountsid', 'tran.date', 'date', 'createdate',
+            'amount', 'currency', 'payment_method', 'transactiontype',
+            'payment_processor', 'psp_transaction_id', 'transactionid', 'bank_name']
+    display_cols = {}  # original_col_name → renamed_col (with _crm suffix stripped)
+    for want in WANT:
+        col_r = f"{want}_crm"
+        if col_r in unmatched.columns:
+            display_cols[col_r] = want
+
+    rows_df = unmatched[list(display_cols.keys())].rename(columns=display_cols)
+    rows_df = rows_df.where(rows_df.notna(), None)  # NaN → None for JSON
+
+    return jsonify({
+        "trx_type": trx_type_filter,
+        "count": len(rows_df),
+        "columns": list(rows_df.columns),
+        "rows": rows_df.head(500).values.tolist()
+    })
+
+
 @app.route('/api/download/lifecycle')
 def download_lifecycle():
     """Generate and serve the multi-tab Life Cycle Report matching the historical format."""

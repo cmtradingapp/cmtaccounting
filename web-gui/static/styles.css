@@ -308,6 +308,93 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
 }
+.recon-breakdown-chip-caret {
+    font-size: 14px;
+    opacity: 0.4;
+    transition: transform 0.2s, opacity 0.2s;
+    margin-left: 2px;
+}
+.recon-breakdown-chip.active .recon-breakdown-chip-caret {
+    transform: rotate(90deg);
+    opacity: 0.9;
+}
+.recon-breakdown-chip:hover { opacity: 0.85; }
+.recon-breakdown-chip.active {
+    border-color: rgba(148,163,184,0.35);
+    background: rgba(255,255,255,0.06);
+}
+.recon-breakdown-chip.psp.active { border-color: rgba(245,158,11,0.55); }
+
+/* Unmatched CRM detail table */
+.recon-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+#unmatchedDetailTitle {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+.recon-detail-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+}
+.recon-detail-close:hover { background: rgba(255,255,255,0.07); color: var(--text-primary); }
+.recon-detail-table-wrap {
+    overflow-x: auto;
+    max-height: 320px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.recon-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.recon-detail-table th {
+    position: sticky;
+    top: 0;
+    background: rgba(15,23,42,0.95);
+    backdrop-filter: blur(4px);
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #475569;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    white-space: nowrap;
+}
+.recon-detail-table td {
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.recon-detail-table td:first-child { color: var(--text-primary); font-weight: 500; }
+.recon-detail-table tr:hover td { background: rgba(255,255,255,0.025); }
+
+#unmatchedDetail {
+    margin-top: 10px;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.2);
+}
 
 .recon-details {
     font-size: 11px;

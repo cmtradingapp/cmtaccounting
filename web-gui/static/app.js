@@ -200,6 +200,17 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             const breakdownRows = document.getElementById('unmatchedBreakdownRows');
             const breakdown = s.unmatched_trx_breakdown || {};
             const breakdownEntries = Object.entries(breakdown);
+
+            // Human-readable labels for TRX type codes
+            const TRX_LABELS = {
+                '2. DP': 'Deposit', '2. WD': 'Withdrawal',
+                '4. Transfer': 'Transfer', '5. Bonuses': 'Bonus',
+                '5. Fees/Charges': 'Fee/Charge', '5. Fee Compensation': 'Fee Comp.',
+                '5. Realised Commissions': 'Commission', '5. IB Payment': 'IB Payment',
+                '5. Platform Balances': 'Platform Bal.', '5. Realised Profits': 'Realised P&L',
+                '5. Unrealised Profits': 'Unrealised P&L', '5. Realized Storage': 'Storage',
+            };
+
             if (breakdownEntries.length > 0) {
                 const PSP_TYPES = new Set(['2. DP', '2. WD']);
                 const pspCount  = breakdownEntries.filter(([k]) => PSP_TYPES.has(k)).reduce((a, [, v]) => a + v, 0);
@@ -208,13 +219,66 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                     ? `All ${s.crm_unmatched.toLocaleString()} are internal (no PSP gap)`
                     : `${pspCount.toLocaleString()} possible PSP gap · ${nonPspCount.toLocaleString()} internal`;
                 document.getElementById('unmatchedBreakdownNote').textContent = note;
+
                 breakdownRows.innerHTML = breakdownEntries.map(([type, count]) => {
                     const isPsp = PSP_TYPES.has(type);
-                    return `<div class="recon-breakdown-chip${isPsp ? ' psp' : ''}">` +
-                        `<span class="recon-breakdown-chip-label">${type}</span>` +
+                    const label = TRX_LABELS[type] || type;
+                    return `<div class="recon-breakdown-chip${isPsp ? ' psp' : ''}" ` +
+                        `data-trx="${encodeURIComponent(type)}" title="Click to inspect rows" style="cursor:pointer;">` +
+                        `<span class="recon-breakdown-chip-label">${label}</span>` +
                         `<span class="recon-breakdown-chip-count">${count.toLocaleString()}</span>` +
+                        `<span class="recon-breakdown-chip-caret">›</span>` +
                         `</div>`;
                 }).join('');
+
+                // Chip click → fetch and display rows
+                let activeType = null;
+                breakdownRows.addEventListener('click', async (e) => {
+                    const chip = e.target.closest('[data-trx]');
+                    if (!chip) return;
+                    const trxType = decodeURIComponent(chip.dataset.trx);
+                    const detail  = document.getElementById('unmatchedDetail');
+                    if (activeType === trxType) {
+                        // toggle off
+                        detail.classList.add('hidden');
+                        chip.classList.remove('active');
+                        activeType = null;
+                        return;
+                    }
+                    // deactivate previous
+                    breakdownRows.querySelectorAll('.recon-breakdown-chip.active')
+                        .forEach(c => c.classList.remove('active'));
+                    chip.classList.add('active');
+                    activeType = trxType;
+                    document.getElementById('unmatchedDetailTitle').textContent = 'Loading…';
+                    detail.classList.remove('hidden');
+
+                    try {
+                        const res  = await fetch(`/api/unmatched-crm?trx_type=${encodeURIComponent(trxType)}`);
+                        const data = await res.json();
+                        const label = TRX_LABELS[trxType] || trxType;
+                        document.getElementById('unmatchedDetailTitle').textContent =
+                            `${label} (${trxType}) — ${data.count.toLocaleString()} unmatched CRM rows${data.count >= 500 ? '  (showing first 500)' : ''}`;
+
+                        const cols = data.columns;
+                        const rows = data.rows;
+                        const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+                        const tbody = `<tbody>${rows.map(r =>
+                            `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
+                        ).join('')}</tbody>`;
+                        document.getElementById('unmatchedDetailTable').innerHTML = thead + tbody;
+                    } catch {
+                        document.getElementById('unmatchedDetailTitle').textContent = 'Failed to load rows.';
+                    }
+                });
+
+                document.getElementById('unmatchedDetailClose').addEventListener('click', () => {
+                    document.getElementById('unmatchedDetail').classList.add('hidden');
+                    breakdownRows.querySelectorAll('.recon-breakdown-chip.active')
+                        .forEach(c => c.classList.remove('active'));
+                    activeType = null;
+                });
+
                 breakdownWrap.classList.remove('hidden');
             } else {
                 breakdownWrap.classList.add('hidden');
