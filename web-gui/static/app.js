@@ -181,40 +181,124 @@ document.querySelectorAll('.btn.download').forEach(btn => {
     });
 });
 
-// TEST button — loads Jan 2023 data server-side and jumps straight to Stage 3
-document.getElementById('testBtn').addEventListener('click', async () => {
+// TEST button — show dataset picker, prefill uploads, then flow through Stage 2 normally
+(async function initTestDatasets() {
     const btn = document.getElementById('testBtn');
-    btn.textContent = '⏳ Loading test data...';
-    btn.disabled = true;
+    const picker = document.getElementById('testDatasetPicker');
 
+    // Load available datasets from server
     try {
-        const res = await fetch('/api/test', { method: 'POST' });
+        const res = await fetch('/api/test-datasets');
         const data = await res.json();
-
-        if (data.status === 'success') {
-            document.getElementById('uploadZone').classList.add('hidden');
-            document.getElementById('mappingZone').classList.add('hidden');
-
-            const s = data.summary;
-            document.getElementById('joinKeyInfo').innerText = `Join: ${s.join_keys_used} | Deal No col: ${s.deal_no_column}`;
-            document.getElementById('statMatched').innerText = s.total_matched.toLocaleString();
-            document.getElementById('statCrmOnly').innerText = s.crm_unmatched.toLocaleString();
-            document.getElementById('statBankOnly').innerText = s.bank_unmatched.toLocaleString();
-            document.getElementById('statCrmTotal').innerText = s.total_crm_rows.toLocaleString();
-            document.getElementById('statBankTotal').innerText = s.total_bank_rows.toLocaleString();
-            document.getElementById('statFees').innerText = `$${s.unrecon_fees.toLocaleString()}`;
-
-            document.getElementById('resultsZone').classList.remove('hidden');
-        } else {
-            alert('Test load failed: ' + (data.summary?.error || JSON.stringify(data)));
+        if (data.status === 'success' && data.datasets.length > 0) {
+            picker.innerHTML = '';
+            for (const ds of data.datasets) {
+                const opt = document.createElement('option');
+                opt.value = ds.id;
+                opt.textContent = ds.label;
+                picker.appendChild(opt);
+            }
         }
-    } catch (err) {
-        alert('Test load error: ' + err.message);
-    } finally {
-        btn.textContent = '⚡ TEST — Load Jan 2023 Data';
-        btn.disabled = false;
+    } catch (_) {
+        // leave default option
     }
-});
+
+    btn.addEventListener('click', async () => {
+        const datasetId = picker.value;
+        if (!datasetId) return alert('Please select a test dataset.');
+
+        btn.textContent = '⏳ Loading test data...';
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/test-prefill', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataset_id: datasetId })
+            });
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                document.getElementById('uploadZone').classList.add('hidden');
+
+                const mappingZone = document.getElementById('mappingZone');
+                const mappingCards = document.getElementById('mappingCards');
+
+                mappingZone.querySelector('.subtitle').innerText = data.message + ' — Running AI column analysis...';
+                mappingCards.innerHTML = '<div style="color: #94a3b8; padding: 20px; text-align: center;"><span class="spinner"></span> Asking Claude to analyze column schemas...</div>';
+                mappingCards.style.gridTemplateColumns = '1fr';
+                mappingZone.classList.remove('hidden');
+
+                // Call AI mapping endpoint — optional, falls back gracefully
+                let aiMapping = null;
+                try {
+                    const mapRes = await fetch('/api/map-columns', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sources: data.sources })
+                    });
+                    const mapData = await mapRes.json();
+                    if (mapData.status === 'success') aiMapping = mapData.mapping;
+                } catch (_) {}
+
+                mappingZone.querySelector('.subtitle').innerText = data.message;
+                mappingCards.innerHTML = '';
+                mappingCards.style.gridTemplateColumns = '';
+
+                for (const [source, info] of Object.entries(data.sources)) {
+                    const aiSource = aiMapping?.sources?.[source];
+                    const refCol = aiSource?.ref_col;
+                    const amtCol = aiSource?.amount_col;
+
+                    const colTags = info.columns.map(c => {
+                        let style = 'background: rgba(59,130,246,0.15); color: #93c5fd;';
+                        let badge = '';
+                        if (refCol && c === refCol) {
+                            style = 'background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.4);';
+                            badge = ' <span style="font-size:10px;opacity:0.7;">🔑 join key</span>';
+                        } else if (amtCol && c === amtCol) {
+                            style = 'background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3);';
+                            badge = ' <span style="font-size:10px;opacity:0.7;">💰 amount</span>';
+                        }
+                        return `<span style="${style} padding: 3px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">${c}${badge}</span>`;
+                    }).join(' ');
+
+                    const mappingRows = aiSource?.mappings
+                        ? Object.entries(aiSource.mappings).slice(0, 6).map(([src, out]) =>
+                            `<div style="font-size:11px; color:#64748b; font-family:monospace;">${src} → <span style="color:#a78bfa;">${out}</span></div>`
+                          ).join('')
+                        : '';
+
+                    mappingCards.innerHTML += `
+                        <div class="mapping-card" style="flex-direction: column; align-items: flex-start; gap: 10px; border-left-color: #f59e0b;">
+                            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                                <span class="m-value" style="font-size: 15px;">${source}</span>
+                                <span style="color: #64748b; font-size: 12px;">${info.filename}</span>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">${colTags}</div>
+                            ${mappingRows ? `<div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%;">${mappingRows}</div>` : ''}
+                        </div>
+                    `;
+                }
+
+                if (aiMapping?.join_explanation) {
+                    mappingCards.innerHTML += `
+                        <div style="background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #a78bfa;">
+                            <strong style="color:#c4b5fd;">AI Analysis:</strong> ${aiMapping.join_explanation}
+                        </div>
+                    `;
+                }
+            } else {
+                alert('Test load failed: ' + (data.error || JSON.stringify(data)));
+            }
+        } catch (err) {
+            alert('Test load error: ' + err.message);
+        } finally {
+            btn.textContent = '⚡ Load Test Data';
+            btn.disabled = false;
+        }
+    });
+})();
 
 // Live FX Rates
 (async function loadFxRates() {

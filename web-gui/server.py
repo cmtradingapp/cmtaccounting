@@ -1295,35 +1295,47 @@ def download_balances():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/test', methods=['POST'])
-def test_load():
-    """Load ALL January 2023 PSP files + CRM from relevant-data and run reconcile.
-    Temporary dev endpoint — do not expose in production.
+def _copy_month_to_uploads(month_dir):
+    """Copy a month's PSP + platform files into the uploads folder.
+    Returns (filename_map, all_headers) dict for the /api/upload-style response.
     """
     import shutil
-    base = os.path.join(os.path.dirname(__file__), '..', 'relevant-data',
-                        'MRS', '2023', '01. Jan. 2023')
-    psp_dir   = os.path.join(base, 'PSPs')
-    plat_dir  = os.path.join(base, 'platform')
-
-    upload = app.config['UPLOAD_FOLDER']
-
-    # Copy platform files
-    shutil.copy(os.path.join(plat_dir, 'CRM Transactions Additional info.xlsx'),
-                os.path.join(upload, 'platformFile.xlsx'))
-    shutil.copy(os.path.join(plat_dir, 'Client Balance check.xlsx'),
-                os.path.join(upload, 'equityFile.xlsx'))
-    shutil.copy(os.path.join(plat_dir, 'Deposit and Withdrawal Report.csv'),
-                os.path.join(upload, 'transactionsFile.csv'))
+    psp_dir  = os.path.join(month_dir, 'PSPs')
+    plat_dir = os.path.join(month_dir, 'platform')
+    upload   = app.config['UPLOAD_FOLDER']
 
     # Clear any old bank files
     for f in os.listdir(upload):
         if f.startswith('bankFile_'):
             os.remove(os.path.join(upload, f))
 
-    # Copy every flat PSP file (skip subdirectories), recording original filename
+    # Copy platform files
+    plat_map = {
+        'platformFile':     'CRM Transactions Additional info.xlsx',
+        'equityFile':       'Client Balance check.xlsx',
+        'transactionsFile': 'Deposit and Withdrawal Report.csv',
+    }
+    labels = {
+        'platformFile':     'Platform (CRM/MT4)',
+        'equityFile':       'Client Equity Report',
+        'transactionsFile': 'Transactions',
+    }
+    all_headers = {}
+    for key, fname in plat_map.items():
+        src = os.path.join(plat_dir, fname)
+        ext = os.path.splitext(fname)[1]
+        dst = os.path.join(upload, f'{key}{ext}')
+        shutil.copy(src, dst)
+        all_headers[labels[key]] = {
+            'filename': fname,
+            'columns': extract_headers(dst)
+        }
+
+    # Copy PSP files
     idx = 0
     filename_map = {}
+    bank_columns_all = []
+    bank_filenames = []
     for fname in sorted(os.listdir(psp_dir)):
         fpath = os.path.join(psp_dir, fname)
         if not os.path.isfile(fpath):
@@ -1333,16 +1345,92 @@ def test_load():
             continue
         saved_name = f'bankFile_{idx}{ext}'
         shutil.copy(fpath, os.path.join(upload, saved_name))
-        filename_map[saved_name] = fname  # e.g. "bankFile_3.csv" → "TrustPayments.csv"
+        filename_map[saved_name] = fname
+        headers = extract_headers(os.path.join(upload, saved_name))
+        bank_columns_all.extend(headers)
+        bank_filenames.append(fname)
         idx += 1
 
     with open(os.path.join(upload, '_filename_map.json'), 'w') as _f:
         json.dump(filename_map, _f)
 
-    # Unrealised.xlsx = Dec 31 equity = January opening balances
+    unique_bank_cols = list(dict.fromkeys(bank_columns_all))
+    all_headers['Bank/PSP Statements'] = {
+        'filename': f"{idx} files: {', '.join(bank_filenames[:5])}{'...' if len(bank_filenames) > 5 else ''}",
+        'columns': unique_bank_cols
+    }
+
+    # Optional opening balance (previous-month Unrealised.xlsx)
     unreal_path = os.path.join(plat_dir, 'Unrealised.xlsx')
     if os.path.exists(unreal_path):
         shutil.copy(unreal_path, os.path.join(upload, 'openingBalanceFile.xlsx'))
+
+    return all_headers
+
+
+@app.route('/api/test-datasets', methods=['GET'])
+def test_datasets():
+    """Return a list of available test dataset months under relevant-data/MRS."""
+    base = os.path.join(os.path.dirname(__file__), '..', 'relevant-data', 'MRS')
+    datasets = []
+    for year_dir in sorted(os.listdir(base)):
+        year_path = os.path.join(base, year_dir)
+        if not os.path.isdir(year_path):
+            continue
+        for month_dir in sorted(os.listdir(year_path)):
+            month_path = os.path.join(year_path, month_dir)
+            if not os.path.isdir(month_path):
+                continue
+            # Only include months that have a platform folder with the CRM file
+            crm_check = os.path.join(month_path, 'platform', 'CRM Transactions Additional info.xlsx')
+            if os.path.exists(crm_check):
+                datasets.append({
+                    'id': f'{year_dir}/{month_dir}',
+                    'label': f'{month_dir} ({year_dir})',
+                    'year': year_dir,
+                    'month': month_dir
+                })
+    return jsonify({'status': 'success', 'datasets': datasets})
+
+
+@app.route('/api/test-prefill', methods=['POST'])
+def test_prefill():
+    """Copy a test dataset's files to uploads and return column metadata (same shape
+    as /api/upload), so the UI can proceed through Stage 2 → Stage 3 normally.
+    """
+    data = request.json or {}
+    dataset_id = data.get('dataset_id', '2023/01. Jan. 2023')
+
+    base = os.path.join(os.path.dirname(__file__), '..', 'relevant-data', 'MRS')
+    month_dir = os.path.join(base, dataset_id)
+    if not os.path.isdir(month_dir):
+        return jsonify({'status': 'error', 'error': f'Dataset not found: {dataset_id}'}), 404
+
+    try:
+        all_headers = _copy_month_to_uploads(month_dir)
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+    total_cols = sum(len(v['columns']) for v in all_headers.values())
+    file_count = sum(1 for k in all_headers if k != 'Bank/PSP Statements') + 1
+    return jsonify({
+        'status': 'success',
+        'message': f'Test data loaded: {dataset_id} — {total_cols} columns across {file_count} sources.',
+        'sources': all_headers
+    })
+
+
+@app.route('/api/test', methods=['POST'])
+def test_load():
+    """Load ALL January 2023 PSP files + CRM from relevant-data and run reconcile.
+    Legacy endpoint kept for backward compatibility — use /api/test-prefill instead.
+    """
+    base = os.path.join(os.path.dirname(__file__), '..', 'relevant-data',
+                        'MRS', '2023', '01. Jan. 2023')
+    try:
+        _copy_month_to_uploads(base)
+    except Exception as e:
+        return jsonify({'status': 'error', 'summary': {'error': str(e)}}), 500
 
     from flask import current_app
     with current_app.test_request_context('/api/reconcile', method='POST'):

@@ -60,9 +60,14 @@
                         <span class="spinner hidden" id="uploadSpinner"></span>
                         Run AI Column Mapping
                     </button>
-                    <button type="button" id="testBtn" class="btn btn-outline" style="margin-top: 10px; border-color: #f59e0b; color: #f59e0b;">
-                        ⚡ TEST — Load Jan 2023 Data
-                    </button>
+                    <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center;">
+                        <select id="testDatasetPicker" style="flex: 1; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-family: inherit; cursor: pointer;">
+                            <option value="">Loading datasets...</option>
+                        </select>
+                        <button type="button" id="testBtn" class="btn btn-outline" style="border-color: #f59e0b; color: #f59e0b; white-space: nowrap;">
+                            ⚡ Load Test Data
+                        </button>
+                    </div>
                 </form>
             </section>
 
