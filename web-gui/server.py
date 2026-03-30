@@ -1246,6 +1246,28 @@ def reconcile():
         else:
             join_info = f"CRM[{crm_ref_col}] — no PSP reference columns detected"
 
+        # ── Unmatched CRM breakdown by TRX Type ──────────────────────────────
+        # Derive TRX type for unmatched CRM rows so the UI can show how many
+        # are non-PSP internal entries (PRF/ADJ/BN/TRF) vs genuine gaps.
+        crm_pm_col  = next((c for c, l in crm_cols_lower.items() if l == 'payment_method'), None)
+        crm_tt_col  = next((c for c, l in crm_cols_lower.items() if l == 'transactiontype'), None)
+        crm_pm_col_r = f"{crm_pm_col}_crm" if crm_pm_col else None
+        crm_tt_col_r = f"{crm_tt_col}_crm" if crm_tt_col else None
+
+        unmatched_trx_breakdown: dict = {}
+        if crm_pm_col_r and crm_pm_col_r in crm_unmatched.columns:
+            pm_series = crm_unmatched[crm_pm_col_r].fillna('')
+            tt_series = crm_unmatched[crm_tt_col_r].fillna('') if (crm_tt_col_r and crm_tt_col_r in crm_unmatched.columns) else pd.Series([''] * len(crm_unmatched))
+            trx_types = [_map_trx_type(pm, tt) for pm, tt in zip(pm_series, tt_series)]
+            from collections import Counter
+            counts = Counter(trx_types)
+            # Sort: PSP types (2. DP / 2. WD) first, then others alphabetically
+            psp_types = {'2. DP', '2. WD'}
+            unmatched_trx_breakdown = {
+                k: v for k, v in sorted(counts.items(),
+                    key=lambda x: (0 if x[0] in psp_types else 1, x[0]))
+            }
+
         # Check if an opening balance file was uploaded (optional)
         ob_path = None
         for fname in os.listdir(upload):
@@ -1268,7 +1290,8 @@ def reconcile():
                 "bank_unmatched":  bank_only,
                 "unrecon_fees":    round(unrecon_fees, 2),
                 "join_keys_used":  join_info,
-                "deal_no_column":  crm_deal_col or "not detected"
+                "deal_no_column":  crm_deal_col or "not detected",
+                "unmatched_trx_breakdown": unmatched_trx_breakdown
             }
         })
 

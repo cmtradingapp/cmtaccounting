@@ -258,6 +258,57 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 }
 .recon-amount-bar.clean .recon-amount-val { color: var(--success); }
 
+/* Unmatched CRM breakdown */
+.recon-breakdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+.recon-breakdown-note {
+    font-size: 11px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--success);
+    opacity: 0.8;
+}
+.recon-breakdown-rows {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+.recon-breakdown-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    border: 1px solid rgba(255,255,255,0.07);
+    background: rgba(0,0,0,0.2);
+}
+.recon-breakdown-chip.psp {
+    border-color: rgba(245,158,11,0.3);
+    background: rgba(245,158,11,0.06);
+}
+.recon-breakdown-chip-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.recon-breakdown-chip.psp .recon-breakdown-chip-label { color: #fbbf24; }
+.recon-breakdown-chip-count {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
 .recon-details {
     font-size: 11px;
     font-family: monospace;

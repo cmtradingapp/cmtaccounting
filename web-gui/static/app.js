@@ -195,6 +195,31 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             amtVal.textContent = '$' + Math.abs(fees).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
             if (fees === 0) amtBar.classList.add('clean');
 
+            // Unmatched CRM breakdown by TRX type
+            const breakdownWrap = document.getElementById('unmatchedBreakdown');
+            const breakdownRows = document.getElementById('unmatchedBreakdownRows');
+            const breakdown = s.unmatched_trx_breakdown || {};
+            const breakdownEntries = Object.entries(breakdown);
+            if (breakdownEntries.length > 0) {
+                const PSP_TYPES = new Set(['2. DP', '2. WD']);
+                const pspCount  = breakdownEntries.filter(([k]) => PSP_TYPES.has(k)).reduce((a, [, v]) => a + v, 0);
+                const nonPspCount = s.crm_unmatched - pspCount;
+                const note = pspCount === 0
+                    ? `All ${s.crm_unmatched.toLocaleString()} are internal (no PSP gap)`
+                    : `${pspCount.toLocaleString()} possible PSP gap · ${nonPspCount.toLocaleString()} internal`;
+                document.getElementById('unmatchedBreakdownNote').textContent = note;
+                breakdownRows.innerHTML = breakdownEntries.map(([type, count]) => {
+                    const isPsp = PSP_TYPES.has(type);
+                    return `<div class="recon-breakdown-chip${isPsp ? ' psp' : ''}">` +
+                        `<span class="recon-breakdown-chip-label">${type}</span>` +
+                        `<span class="recon-breakdown-chip-count">${count.toLocaleString()}</span>` +
+                        `</div>`;
+                }).join('');
+                breakdownWrap.classList.remove('hidden');
+            } else {
+                breakdownWrap.classList.add('hidden');
+            }
+
             // Technical details (small, at the bottom)
             document.getElementById('joinKeyInfo').textContent =
                 `Join key: ${s.join_keys_used}  ·  Deal No column: ${s.deal_no_column}`;
