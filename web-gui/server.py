@@ -1167,6 +1167,13 @@ def reconcile():
             bank_df['_join_key'] = normalize_key(bank_df[bank_ref_col])
             bank_df['_psp_source'] = _src_name
 
+            # Detect and normalize per-PSP amount into a unified column
+            _bamt_col = _detect_bank_amount_col(bank_df)
+            if _bamt_col:
+                bank_df['_bank_amount'] = pd.to_numeric(
+                    bank_df[_bamt_col].astype(str).str.replace(',', '', regex=False),
+                    errors='coerce')
+
             # Only attempt to match CRM rows not already claimed by a prior PSP
             crm_available = crm_renamed[
                 ~crm_renamed['_crm_row_id'].isin(all_matched_crm_row_ids)
@@ -1231,12 +1238,11 @@ def reconcile():
         if crm_amount_col and matched > 0:
             both = merged[merged['_merge'] == 'both'].copy()
             crm_amt = f"{crm_amount_col}_crm"
-            bank_amt_col = next((c for c in both.columns
-                                 if 'amount' in c.lower() and c != crm_amt and not c.endswith('_crm')), None)
-            if crm_amt in both.columns and bank_amt_col:
-                a = pd.to_numeric(both[crm_amt], errors='coerce')
-                b = pd.to_numeric(both[bank_amt_col], errors='coerce')
-                unrecon_fees = float((a - b).abs().sum())
+            if crm_amt in both.columns and '_bank_amount' in both.columns:
+                a = pd.to_numeric(both[crm_amt], errors='coerce').abs()
+                b = both['_bank_amount'].abs()   # already numeric from per-PSP loop
+                valid = a.notna() & b.notna()
+                unrecon_fees = float((a[valid] - b[valid]).abs().sum())
 
         if psp_stats:
             n = len(psp_stats)
