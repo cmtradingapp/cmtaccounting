@@ -237,6 +237,12 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             const fees = s.unrecon_fees;
             amtVal.textContent = '$' + Math.abs(fees).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
             if (fees === 0) amtBar.classList.add('clean');
+            const ccyNote = document.getElementById('statFeesCcyNote');
+            if (s.currency_mismatch_pairs > 0) {
+                ccyNote.textContent = `· ${s.currency_mismatch_pairs.toLocaleString()} cross-currency pairs excluded`;
+            } else {
+                ccyNote.textContent = '';
+            }
 
             // Human-readable labels for TRX type codes (shared by both sections)
             const TRX_LABELS = {

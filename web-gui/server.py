@@ -1468,14 +1468,22 @@ def reconcile():
         bank_only  = int((merged['_merge'] == 'right_only').sum())
 
         unrecon_fees = 0.0
+        currency_mismatch_pairs = 0
         if crm_amount_col and matched > 0:
             both = merged[merged['_merge'] == 'both'].copy()
             crm_amt = f"{crm_amount_col}_crm"
             if crm_amt in both.columns and '_bank_amount' in both.columns:
                 a = pd.to_numeric(both[crm_amt], errors='coerce').abs()
-                b = both['_bank_amount'].abs()   # already numeric from per-PSP loop
-                valid = a.notna() & b.notna()
-                unrecon_fees = float((a[valid] - b[valid]).abs().sum())
+                b = both['_bank_amount'].abs()
+                valid = a.notna() & b.notna() & (a > 0)
+                ratio = b[valid] / a[valid]
+                # Only count pairs where the ratio is within ±20% of 1:1 —
+                # outliers are cross-currency comparisons (ZAR vs USD, COP vs USD, etc.)
+                # and produce meaningless "discrepancies" orders of magnitude larger
+                # than any real amount difference.
+                same_ccy = valid & (ratio >= 0.8) & (ratio <= 1.2)
+                unrecon_fees = float((a[same_ccy] - b[same_ccy]).abs().sum())
+                currency_mismatch_pairs = int((valid & ~same_ccy).sum())
 
         if psp_stats:
             n = len(psp_stats)
@@ -1544,7 +1552,8 @@ def reconcile():
                 "total_orphaned":      crm_only + bank_only,
                 "crm_unmatched":       crm_only,
                 "bank_unmatched":      bank_only,
-                "unrecon_fees":        round(unrecon_fees, 2),
+                "unrecon_fees":            round(unrecon_fees, 2),
+                "currency_mismatch_pairs": currency_mismatch_pairs,
                 "join_keys_used":      join_info,
                 "deal_no_column":      crm_deal_col or "not detected",
                 "unmatched_trx_breakdown":  unmatched_trx_breakdown,
