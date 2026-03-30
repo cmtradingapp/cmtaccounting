@@ -348,14 +348,10 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 if (isOpen) {
                     unreconDetail.classList.add('hidden');
                     unreconCaret.style.transform = '';
-                    document.getElementById('reconAmountBar').style.borderRadius = '';
-                    document.getElementById('reconAmountBar').style.marginBottom = '16px';
                 } else {
                     unreconDetail.classList.remove('hidden');
                     unreconCaret.style.transform = 'rotate(90deg)';
                     unreconCaret.style.opacity = '0.8';
-                    document.getElementById('reconAmountBar').style.borderRadius = '10px 10px 0 0';
-                    document.getElementById('reconAmountBar').style.marginBottom = '0';
                     await loadUnreconPairs();
                 }
             });
@@ -365,8 +361,6 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 unreconDetail.classList.add('hidden');
                 unreconCaret.style.transform = '';
                 unreconCaret.style.opacity = '0.4';
-                document.getElementById('reconAmountBar').style.borderRadius = '';
-                document.getElementById('reconAmountBar').style.marginBottom = '16px';
             });
 
             // Human-readable labels for TRX type codes (shared by both sections)
