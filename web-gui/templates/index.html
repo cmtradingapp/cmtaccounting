@@ -59,10 +59,10 @@
                     </div>
                     <button type="submit" class="btn btn-primary">
                         <span class="spinner hidden" id="uploadSpinner"></span>
-                        Run AI Column Mapping
+                        Detect &amp; Review Column Schema
                     </button>
-                    <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center;">
-                        <select id="testDatasetPicker" style="flex: 1; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-family: inherit; cursor: pointer;">
+                    <div style="display: flex; gap: 10px; margin-top: 10px; align-items: stretch;">
+                        <select id="testDatasetPicker" style="flex: 1; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24; border-radius: 6px; padding: 0 14px; font-size: 13px; font-family: inherit; cursor: pointer;">
                             <option value="">Loading datasets...</option>
                         </select>
                         <button type="button" id="testBtn" class="btn btn-outline" style="border-color: #f59e0b; color: #f59e0b; white-space: nowrap;">
@@ -72,13 +72,13 @@
                 </form>
             </section>
 
-            <!-- STAGE 2: AI MAPPING APPROVAL -->
+            <!-- STAGE 2: COLUMN SCHEMA REVIEW -->
             <section class="stage-card hidden" id="mappingZone">
                 <div class="stage-header">
-                    <h2>2. AI Mapping Approval</h2>
-                    <span class="badge ai">AI Powered</span>
+                    <h2>2. Column Schema Review</h2>
+                    <span class="badge">Schema Detection</span>
                 </div>
-                <p class="subtitle">The engine detected unstructured output. Please verify the automated mapping.</p>
+                <p class="subtitle">Columns auto-detected from file headers. Verify join keys before reconciling.</p>
                 <div class="mapping-grid" id="mappingCards">
                     <!-- Populated via Javascript -->
                 </div>

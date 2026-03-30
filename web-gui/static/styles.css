@@ -143,6 +143,7 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 
 /* Bank / PSP file list */
 .file-list {
+    position: relative;
     margin-top: 8px;
     max-height: 140px;
     overflow-y: auto;
@@ -155,6 +156,37 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 .file-list::-webkit-scrollbar { width: 4px; }
 .file-list::-webkit-scrollbar-track { background: transparent; }
 .file-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+.file-list::after {
+    content: '';
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    display: block;
+    background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.45));
+    pointer-events: none;
+}
+
+.file-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    position: sticky;
+    top: 0;
+    background: rgba(15,23,42,0.9);
+    backdrop-filter: blur(4px);
+    z-index: 1;
+}
+.file-list-header-count {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #475569;
+}
 
 .file-list-item {
     display: flex;
@@ -166,6 +198,7 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 }
 .file-list-item:last-child { border-bottom: none; }
 .file-list-item:hover { background: rgba(255,255,255,0.04); }
+.file-list-item:hover .file-list-name { color: #cbd5e1; }
 
 .file-list-idx {
     font-size: 10px;

@@ -10,7 +10,10 @@ function updateBankFileList() {
     }
     if (label) label.style.color = '#34d399';
     list.classList.remove('hidden');
-    list.innerHTML = files.map((f, i) => {
+    const header = `<div class="file-list-header">
+        <span class="file-list-header-count">${files.length} file${files.length !== 1 ? 's' : ''}</span>
+    </div>`;
+    list.innerHTML = header + files.map((f, i) => {
         const ext = f.name.split('.').pop().toLowerCase();
         const extClass = ['csv','xlsx','xls'].includes(ext) ? ext : 'other';
         const stem = f.name.slice(0, f.name.lastIndexOf('.')) || f.name;
@@ -65,12 +68,12 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             const mappingZone = document.getElementById('mappingZone');
             const mappingCards = document.getElementById('mappingCards');
 
-            mappingZone.querySelector('.subtitle').innerText = data.message + ' — Running AI column analysis...';
-            mappingCards.innerHTML = '<div style="color: #94a3b8; padding: 20px; text-align: center;"><span class="spinner"></span> Asking Claude to analyze column schemas...</div>';
+            mappingZone.querySelector('.subtitle').innerText = data.message + ' — Detecting column schema...';
+            mappingCards.innerHTML = '<div style="color: #94a3b8; padding: 20px; text-align: center;"><span class="spinner"></span> Detecting column schema...</div>';
             mappingCards.style.gridTemplateColumns = '1fr';
             mappingZone.classList.remove('hidden');
 
-            // Call AI mapping endpoint — optional, falls back gracefully if unavailable
+            // Optional: LLM enhancement via OpenRouter (highlights join key + amount cols)
             let aiMapping = null;
             try {
                 const mapRes = await fetch('/api/map-columns', {
@@ -81,7 +84,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
                 const mapData = await mapRes.json();
                 if (mapData.status === 'success') aiMapping = mapData.mapping;
             } catch (_) {
-                // AI mapping is optional — silently fall back to raw column display
+                // LLM unavailable — showing raw detected columns
             }
 
             mappingZone.querySelector('.subtitle').innerText = data.message;
@@ -126,7 +129,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             if (aiMapping?.join_explanation) {
                 mappingCards.innerHTML += `
                     <div style="background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #a78bfa;">
-                        <strong style="color:#c4b5fd;">AI Analysis:</strong> ${aiMapping.join_explanation}
+                        <strong style="color:#c4b5fd;">LLM suggestion:</strong> ${aiMapping.join_explanation}
                     </div>
                 `;
             }
