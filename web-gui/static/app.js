@@ -244,12 +244,21 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 ccyNote.textContent = '';
             }
 
-            // Build a table with an auto-totals footer row for numeric columns
+            // Build a table with a totals footer row for selected amount columns only
             function buildTableHtml(cols, rows) {
-                // Sum each column that looks numeric (>50% of rows are numbers)
-                const totals = cols.map((_, ci) => {
-                    const vals = rows.map(r => parseFloat(r[ci])).filter(v => !isNaN(v));
-                    return vals.length > rows.length * 0.5 ? vals.reduce((a, b) => a + b, 0) : null;
+                const totalableHeaders = new Set(['crmamount', 'bankamount', 'diff', 'difference']);
+                const norm = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                const toNumber = (v) => {
+                    if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+                    const s = String(v ?? '').replace(/,/g, '').trim();
+                    const n = parseFloat(s);
+                    return Number.isFinite(n) ? n : NaN;
+                };
+
+                const totals = cols.map((col, ci) => {
+                    if (!totalableHeaders.has(norm(col))) return null;
+                    const vals = rows.map(r => toNumber(r[ci])).filter(v => !isNaN(v));
+                    return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
                 });
                 const hasAnyTotal = totals.some(t => t !== null);
 
