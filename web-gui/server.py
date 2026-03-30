@@ -1441,7 +1441,40 @@ def _copy_month_to_uploads(month_dir):
         dst = os.path.join(upload, 'openingBalanceFile.xlsx')
         shutil.copy(files['opening_balance'], dst)
 
-    return all_headers
+    # Build a manifest so the browser can fetch each file back and populate inputs
+    file_manifest = {}
+    for key, fname in [
+        ('platformFile',     files['crm']),
+        ('equityFile',       files['equity']),
+        ('transactionsFile', files['transactions']),
+        ('openingBalanceFile', files['opening_balance']),
+    ]:
+        if fname:
+            ext = os.path.splitext(fname)[1]
+            saved = f'{key}{ext}'
+            file_manifest[key] = {
+                'saved': saved,
+                'original': os.path.basename(fname),
+            }
+    file_manifest['bankFiles'] = [
+        {'saved': sn, 'original': on}
+        for sn, on in filename_map.items()
+    ]
+
+    return all_headers, file_manifest
+
+
+@app.route('/api/uploads/<path:filename>', methods=['GET'])
+def serve_upload(filename):
+    """Serve a previously-uploaded file back to the browser (used by test prefill)."""
+    # Prevent path traversal — only serve flat filenames from the uploads dir
+    safe_name = os.path.basename(filename)
+    path = os.path.join(os.path.abspath(app.config['UPLOAD_FOLDER']), safe_name)
+    if not path.startswith(os.path.abspath(app.config['UPLOAD_FOLDER'])):
+        return jsonify({'error': 'Forbidden'}), 403
+    if not os.path.isfile(path):
+        return jsonify({'error': 'Not found'}), 404
+    return send_file(path)
 
 
 @app.route('/api/test-datasets', methods=['GET'])
@@ -1493,7 +1526,7 @@ def test_prefill():
         return jsonify({'status': 'error', 'error': f'Dataset not found: {dataset_id}'}), 404
 
     try:
-        all_headers = _copy_month_to_uploads(month_dir)
+        all_headers, file_manifest = _copy_month_to_uploads(month_dir)
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
@@ -1502,7 +1535,8 @@ def test_prefill():
     return jsonify({
         'status': 'success',
         'message': f'Test data loaded: {dataset_id} — {total_cols} columns across {file_count} sources.',
-        'sources': all_headers
+        'sources': all_headers,
+        'file_manifest': file_manifest,
     })
 
 
@@ -1514,7 +1548,7 @@ def test_load():
     base = os.path.join(os.path.dirname(__file__), '..', 'relevant-data',
                         'MRS', '2023', '01. Jan. 2023')
     try:
-        _copy_month_to_uploads(base)
+        _copy_month_to_uploads(base)  # return value unused in legacy path
     except Exception as e:
         return jsonify({'status': 'error', 'summary': {'error': str(e)}}), 500
 

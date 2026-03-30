@@ -218,79 +218,55 @@ document.querySelectorAll('.btn.download').forEach(btn => {
             });
             const data = await res.json();
 
-            if (data.status === 'success') {
-                document.getElementById('uploadZone').classList.add('hidden');
-
-                const mappingZone = document.getElementById('mappingZone');
-                const mappingCards = document.getElementById('mappingCards');
-
-                mappingZone.querySelector('.subtitle').innerText = data.message + ' — Running AI column analysis...';
-                mappingCards.innerHTML = '<div style="color: #94a3b8; padding: 20px; text-align: center;"><span class="spinner"></span> Asking Claude to analyze column schemas...</div>';
-                mappingCards.style.gridTemplateColumns = '1fr';
-                mappingZone.classList.remove('hidden');
-
-                // Call AI mapping endpoint — optional, falls back gracefully
-                let aiMapping = null;
-                try {
-                    const mapRes = await fetch('/api/map-columns', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sources: data.sources })
-                    });
-                    const mapData = await mapRes.json();
-                    if (mapData.status === 'success') aiMapping = mapData.mapping;
-                } catch (_) {}
-
-                mappingZone.querySelector('.subtitle').innerText = data.message;
-                mappingCards.innerHTML = '';
-                mappingCards.style.gridTemplateColumns = '';
-
-                for (const [source, info] of Object.entries(data.sources)) {
-                    const aiSource = aiMapping?.sources?.[source];
-                    const refCol = aiSource?.ref_col;
-                    const amtCol = aiSource?.amount_col;
-
-                    const colTags = info.columns.map(c => {
-                        let style = 'background: rgba(59,130,246,0.15); color: #93c5fd;';
-                        let badge = '';
-                        if (refCol && c === refCol) {
-                            style = 'background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.4);';
-                            badge = ' <span style="font-size:10px;opacity:0.7;">🔑 join key</span>';
-                        } else if (amtCol && c === amtCol) {
-                            style = 'background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3);';
-                            badge = ' <span style="font-size:10px;opacity:0.7;">💰 amount</span>';
-                        }
-                        return `<span style="${style} padding: 3px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">${c}${badge}</span>`;
-                    }).join(' ');
-
-                    const mappingRows = aiSource?.mappings
-                        ? Object.entries(aiSource.mappings).slice(0, 6).map(([src, out]) =>
-                            `<div style="font-size:11px; color:#64748b; font-family:monospace;">${src} → <span style="color:#a78bfa;">${out}</span></div>`
-                          ).join('')
-                        : '';
-
-                    mappingCards.innerHTML += `
-                        <div class="mapping-card" style="flex-direction: column; align-items: flex-start; gap: 10px; border-left-color: #f59e0b;">
-                            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
-                                <span class="m-value" style="font-size: 15px;">${source}</span>
-                                <span style="color: #64748b; font-size: 12px;">${info.filename}</span>
-                            </div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">${colTags}</div>
-                            ${mappingRows ? `<div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%;">${mappingRows}</div>` : ''}
-                        </div>
-                    `;
-                }
-
-                if (aiMapping?.join_explanation) {
-                    mappingCards.innerHTML += `
-                        <div style="background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #a78bfa;">
-                            <strong style="color:#c4b5fd;">AI Analysis:</strong> ${aiMapping.join_explanation}
-                        </div>
-                    `;
-                }
-            } else {
+            if (data.status !== 'success') {
                 alert('Test load failed: ' + (data.error || JSON.stringify(data)));
+                return;
             }
+
+            // --- Populate file inputs from the manifest ---
+            btn.textContent = '⏳ Fetching files...';
+            const manifest = data.file_manifest || {};
+
+            // Helper: fetch a file from uploads and return a File object
+            async function fetchUploadedFile(saved, original) {
+                const r = await fetch(`/api/uploads/${encodeURIComponent(saved)}`);
+                const blob = await r.blob();
+                return new File([blob], original, { type: blob.type });
+            }
+
+            // Single-file inputs
+            for (const [inputId, key] of [
+                ['platformFile',      'platformFile'],
+                ['equityFile',        'equityFile'],
+                ['transactionsFile',  'transactionsFile'],
+                ['openingBalanceFile','openingBalanceFile'],
+            ]) {
+                const entry = manifest[key];
+                const el = document.getElementById(inputId);
+                if (!el || !entry) continue;
+                const file = await fetchUploadedFile(entry.saved, entry.original);
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                el.files = dt.files;
+                // Update the visible label if it exists
+                const label = el.previousElementSibling;
+                if (label && label.tagName === 'LABEL') {
+                    label.style.color = '#34d399';
+                }
+            }
+
+            // Bank files (multiple)
+            const bankEntries = manifest.bankFiles || [];
+            if (bankEntries.length > 0) {
+                const bankEl = document.getElementById('bankFile');
+                const dt = new DataTransfer();
+                for (const entry of bankEntries) {
+                    const file = await fetchUploadedFile(entry.saved, entry.original);
+                    dt.items.add(file);
+                }
+                bankEl.files = dt.files;
+            }
+
         } catch (err) {
             alert('Test load error: ' + err.message);
         } finally {
