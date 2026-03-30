@@ -1,8 +1,14 @@
 function updateBankFileList() {
     const input = document.getElementById('bankFile');
     const list  = document.getElementById('bankFileList');
+    const label = input.previousElementSibling;
     const files = Array.from(input.files || []);
-    if (files.length === 0) { list.classList.add('hidden'); return; }
+    if (files.length === 0) {
+        list.classList.add('hidden');
+        if (label) label.style.color = '';
+        return;
+    }
+    if (label) label.style.color = '#34d399';
     list.classList.remove('hidden');
     list.innerHTML = files.map((f, i) => {
         const ext = f.name.split('.').pop().toLowerCase();
