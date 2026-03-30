@@ -241,6 +241,7 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
     border: 1px solid rgba(239,68,68,0.2);
     background: rgba(239,68,68,0.05);
     margin-bottom: 16px;
+    transition: border-radius 0.15s;
 }
 .recon-amount-bar.clean {
     border-color: rgba(16,185,129,0.25);
@@ -388,6 +389,15 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 .recon-detail-table td:first-child { color: var(--text-primary); font-weight: 500; }
 .recon-detail-table tr:hover td { background: rgba(255,255,255,0.025); }
 
+#unreconDetail {
+    margin-top: 0;
+    border: 1px solid rgba(239,68,68,0.15);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.2);
+    margin-bottom: 16px;
+}
 #unmatchedDetail {
     margin-top: 10px;
     border: 1px solid rgba(255,255,255,0.07);

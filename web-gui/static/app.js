@@ -244,6 +244,63 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 ccyNote.textContent = '';
             }
 
+            // Unreconciled pairs — click amount bar to expand/collapse
+            let unreconLoaded = false;
+            const unreconDetail  = document.getElementById('unreconDetail');
+            const unreconCaret   = document.getElementById('unreconCaret');
+            const unreconTitle   = document.getElementById('unreconDetailTitle');
+            const unreconTable   = document.getElementById('unreconDetailTable');
+            const unreconClose   = document.getElementById('unreconDetailClose');
+
+            async function loadUnreconPairs() {
+                if (unreconLoaded) return;
+                unreconTitle.textContent = 'Loading…';
+                try {
+                    const res  = await fetch('/api/unreconciled-pairs');
+                    const data = await res.json();
+                    if (data.error) throw new Error(data.error);
+                    unreconTitle.textContent =
+                        `${data.count.toLocaleString()} pairs with amount discrepancy` +
+                        (data.count >= 500 ? ' (showing first 500)' : '');
+                    const cols = data.columns;
+                    const rows = data.rows;
+                    const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+                    const tbody = `<tbody>${rows.map(r =>
+                        `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
+                    ).join('')}</tbody>`;
+                    unreconTable.innerHTML = thead + tbody;
+                    unreconLoaded = true;
+                } catch (err) {
+                    unreconTitle.textContent = `Error: ${err.message}`;
+                }
+            }
+
+            document.getElementById('reconAmountBar').addEventListener('click', async () => {
+                const isOpen = !unreconDetail.classList.contains('hidden');
+                if (isOpen) {
+                    unreconDetail.classList.add('hidden');
+                    unreconCaret.style.transform = '';
+                    document.getElementById('reconAmountBar').style.borderRadius = '';
+                    document.getElementById('reconAmountBar').style.marginBottom = '16px';
+                } else {
+                    unreconDetail.classList.remove('hidden');
+                    unreconCaret.style.transform = 'rotate(90deg)';
+                    unreconCaret.style.opacity = '0.8';
+                    document.getElementById('reconAmountBar').style.borderRadius = '10px 10px 0 0';
+                    document.getElementById('reconAmountBar').style.marginBottom = '0';
+                    await loadUnreconPairs();
+                }
+            });
+
+            unreconClose.addEventListener('click', (e) => {
+                e.stopPropagation();
+                unreconDetail.classList.add('hidden');
+                unreconCaret.style.transform = '';
+                unreconCaret.style.opacity = '0.4';
+                document.getElementById('reconAmountBar').style.borderRadius = '';
+                document.getElementById('reconAmountBar').style.marginBottom = '16px';
+            });
+
             // Human-readable labels for TRX type codes (shared by both sections)
             const TRX_LABELS = {
                 '2. DP': 'Deposit', '2. WD': 'Withdrawal',

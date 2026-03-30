@@ -144,12 +144,24 @@
                 </div>
 
                 <!-- Unreconciled amount -->
-                <div class="recon-amount-bar" id="reconAmountBar">
+                <div class="recon-amount-bar" id="reconAmountBar" style="cursor:pointer;" title="Click to inspect pairs">
                     <span class="recon-amount-label">
                         Unreconciled amount
                         <span id="statFeesCcyNote" style="font-size:11px; font-weight:400; opacity:0.55; margin-left:6px;"></span>
                     </span>
-                    <span class="recon-amount-val" id="statFees">$0.00</span>
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <span class="recon-amount-val" id="statFees">$0.00</span>
+                        <span id="unreconCaret" style="font-size:16px; opacity:0.4; transition:transform 0.2s;">›</span>
+                    </div>
+                </div>
+                <div id="unreconDetail" class="hidden">
+                    <div class="recon-detail-header">
+                        <span id="unreconDetailTitle" style="font-size:12px; font-weight:600; color:var(--text-secondary);"></span>
+                        <button id="unreconDetailClose" class="recon-detail-close">✕</button>
+                    </div>
+                    <div class="recon-detail-table-wrap">
+                        <table id="unreconDetailTable" class="recon-detail-table"></table>
+                    </div>
                 </div>
 
                 <!-- Unmatched CRM breakdown -->
