@@ -263,23 +263,29 @@ def _detect_bank_ref_col(df):
 
     normed = {col: _norm(col) for col in df.columns}
 
+    # Columns whose normalized name starts with 'external' are counterparty IDs
+    # (e.g. Zotapay's external_transaction_id = the bank/card network's own ref,
+    # not the Zotapay order ID stored in CRM). Skip them in all priority levels.
+    def _is_external(n):
+        return n.startswith('external')
+
     # Priority 1 — exact normalized matches (most reliable)
     exact = [
         'transactionreference',   # TrustPayments
-        'transactionreference',
         'merchantreference',      # EFTpay, Swiffy
         'transactionid',          # Finrax, Solidpayments
         'txid',                   # generic
         'referenceno',            # Finrax all.xlsx
         'settlementreference',    # Korapay settlements
-        'transactionreference',
         'paymentreference',       # Korapay pay-ins (alt)
         'refno',                  # Solidpayment fees
         'refid',                  # VP Refunds
+        'transactionnumber',      # VP Deposits
+        'txid',
     ]
     for keyword in exact:
         for col, n in normed.items():
-            if n == keyword:
+            if n == keyword and not _is_external(n):
                 return col
 
     # Priority 2 — contains a specific reference substring
@@ -292,18 +298,19 @@ def _detect_bank_ref_col(df):
         'paymentreference',
         'referenceno',
         'txnid',
+        'transactionnumber',
     ]
     for keyword in contains:
         for col, n in normed.items():
-            if keyword in n:
+            if keyword in n and not _is_external(n):
                 return col
 
     # Priority 3 — generic 'reference' substring (last resort before bare id)
     for col, n in normed.items():
-        if 'reference' in n:
+        if 'reference' in n and not _is_external(n):
             return col
 
-    # Priority 4 — bare 'id' column (Neteller, Skrill, Ozow, Zota, Zotapay)
+    # Priority 4 — bare 'id' column (Neteller, Skrill, Ozow, Zotapay)
     for col in df.columns:
         if col.strip().lower() in ('id', 'transaction details'):
             return col
