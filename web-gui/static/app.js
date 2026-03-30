@@ -1,3 +1,18 @@
+function updateBankFileList() {
+    const input = document.getElementById('bankFile');
+    const list  = document.getElementById('bankFileList');
+    const files = Array.from(input.files || []);
+    if (files.length === 0) { list.style.display = 'none'; return; }
+    list.style.display = 'block';
+    list.innerHTML = files.map((f, i) =>
+        `<div style="font-size:11px; font-family:monospace; color:#94a3b8; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            <span style="color:#475569; margin-right:6px;">${String(i + 1).padStart(2, '0')}</span>${f.name}
+         </div>`
+    ).join('');
+}
+
+document.getElementById('bankFile').addEventListener('change', updateBankFileList);
+
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -265,6 +280,7 @@ document.querySelectorAll('.btn.download').forEach(btn => {
                     dt.items.add(file);
                 }
                 bankEl.files = dt.files;
+                updateBankFileList();
             }
 
         } catch (err) {
