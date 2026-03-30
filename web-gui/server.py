@@ -317,6 +317,58 @@ def _detect_bank_ref_col(df):
     return None
 
 
+def _detect_bank_ref_cols(df):
+    """Return ALL plausible reference columns for a PSP file, in priority order.
+
+    Used by the per-PSP loop to try multiple candidates and pick the one with
+    the best overlap against CRM keys (handles cases like SolidPayments where
+    the priority-1 column has low overlap but a lower-priority one has high overlap).
+    """
+    def _norm(s):
+        return re.sub(r'[^a-z0-9]', '', s.lower())
+
+    normed = {col: _norm(col) for col in df.columns}
+
+    def _is_external(n):
+        return n.startswith('external')
+
+    seen = []
+
+    def _add(col):
+        if col and col not in seen:
+            seen.append(col)
+
+    exact = [
+        'transactionreference', 'merchantreference', 'transactionid', 'txid',
+        'referenceno', 'paymentreference', 'settlementreference',
+        'uniqueid', 'refno', 'refid', 'transactionnumber',
+    ]
+    for keyword in exact:
+        for col, n in normed.items():
+            if n == keyword and not _is_external(n):
+                _add(col)
+
+    contains = [
+        'transactionreference', 'transactionref', 'merchantreference',
+        'transactionid', 'uniqueid', 'settlementreference', 'paymentreference',
+        'referenceno', 'txnid', 'transactionnumber',
+    ]
+    for keyword in contains:
+        for col, n in normed.items():
+            if keyword in n and not _is_external(n):
+                _add(col)
+
+    for col, n in normed.items():
+        if 'reference' in n and not _is_external(n):
+            _add(col)
+
+    for col in df.columns:
+        if col.strip().lower() in ('id', 'transaction details'):
+            _add(col)
+
+    return seen
+
+
 def _detect_bank_amount_col(df):
     """Detect the amount column for a single PSP file."""
     priority = ['baseamount', 'settlebaseamount', 'settledamount', 'netamount',
@@ -332,18 +384,48 @@ def _detect_bank_amount_col(df):
 def _load_psp_file(path):
     """Load a single PSP CSV or Excel file, returning a DataFrame or None on failure."""
     ext = os.path.splitext(path)[1].lower()
+
+    # Keywords that indicate a row is a real column header (not metadata)
+    _HEADER_KEYWORDS = {'date', 'amount', 'id', 'reference', 'transaction',
+                        'currency', 'type', 'status', 'payment', 'method',
+                        'name', 'result', 'email', 'order', 'fee'}
+
+    def _looks_like_header(row_values):
+        """True if 3+ values contain header keywords (suggesting a column-name row)."""
+        hits = sum(1 for v in row_values
+                   if any(k in str(v).lower() for k in _HEADER_KEYWORDS))
+        return hits >= 3
+
+    def _has_metadata_header(df):
+        """True if the loaded DataFrame looks like it used a metadata row as header."""
+        unnamed = sum(1 for c in df.columns if str(c).startswith('Unnamed'))
+        first_col = str(df.columns[0]) if len(df.columns) else ''
+        return (unnamed > len(df.columns) * 0.5
+                or any(k in first_col.lower() for k in ('report', 'cpanel', 'generated')))
+
     try:
         if ext in ('.xlsx', '.xls'):
-            df = pd.read_excel(path)
+            # dtype=str preserves large integer IDs (e.g. 19-digit SafeCharge IDs)
+            # that float64 would round, corrupting join keys.
+            df = pd.read_excel(path, dtype=str)
+            if _has_metadata_header(df):
+                # Scan first 20 rows for the real header row
+                raw = pd.read_excel(path, header=None, dtype=str, nrows=20)
+                for i in range(len(raw)):
+                    vals = [v for v in raw.iloc[i].tolist() if pd.notna(v)]
+                    if _looks_like_header(vals):
+                        df = pd.read_excel(path, skiprows=i, dtype=str)
+                        break
         else:
             try:
                 with open(path, 'r', encoding='utf-8', errors='replace') as f:
                     dialect = csv.Sniffer().sniff(f.read(4096))
                 df = pd.read_csv(path, dialect=dialect, encoding='utf-8',
-                                 encoding_errors='replace')
+                                 encoding_errors='replace', dtype=str)
             except Exception:
-                df = pd.read_csv(path, encoding='utf-8', encoding_errors='replace')
-        # Skip files with no usable columns (e.g. Nuvei.xlsx balance/summary sheets)
+                df = pd.read_csv(path, encoding='utf-8', encoding_errors='replace',
+                                 dtype=str)
+        # Skip files with no usable columns
         real_cols = [c for c in df.columns if not str(c).startswith('Unnamed')
                      and not str(c).startswith('CPanel')]
         return df if real_cols else None
@@ -1152,9 +1234,12 @@ def reconcile():
             _src_name = _filename_map.get(os.path.basename(bp), os.path.basename(bp))
 
             total_bank_rows += len(bank_df)
-            bank_ref_col = _detect_bank_ref_col(bank_df)
 
-            if not bank_ref_col:
+            # Collect all candidate ref columns and pick the one with best CRM overlap.
+            # This handles cases where the priority-1 column has low overlap (e.g.
+            # SolidPayments TransactionId=12 vs UniqueId=79) by trying all candidates.
+            ref_candidates = _detect_bank_ref_cols(bank_df)
+            if not ref_candidates:
                 # Can't match this PSP — all rows go to bank_only
                 bonly = bank_df.copy()
                 bonly['_join_key'] = None
@@ -1163,6 +1248,28 @@ def reconcile():
                 bank_only_frames.append(bonly)
                 continue
 
+            # CRM keys (will compare against each bank candidate)
+            crm_avail_base = crm_renamed[
+                ~crm_renamed['_crm_row_id'].isin(all_matched_crm_row_ids)
+            ].copy()
+            crm_pspid_keys = set(crm_avail_base['_join_key'].dropna())
+            crm_txid_keys  = (set(crm_avail_base['_join_key_txid'].dropna())
+                              if '_join_key_txid' in crm_avail_base.columns else set())
+
+            best_ref_col = ref_candidates[0]
+            best_overlap = 0
+            best_crm_key = 'pspid'
+            for cand in ref_candidates:
+                cand_keys = set(normalize_key(bank_df[cand]).dropna())
+                ov_psp  = len(cand_keys & crm_pspid_keys)
+                ov_txid = len(cand_keys & crm_txid_keys)
+                ov = max(ov_psp, ov_txid)
+                if ov > best_overlap:
+                    best_overlap = ov
+                    best_ref_col = cand
+                    best_crm_key = 'txid' if ov_txid > ov_psp else 'pspid'
+
+            bank_ref_col = best_ref_col
             bank_df = bank_df.copy()
             bank_df['_join_key'] = normalize_key(bank_df[bank_ref_col])
             bank_df['_psp_source'] = _src_name
@@ -1175,21 +1282,13 @@ def reconcile():
                     errors='coerce')
 
             # Only attempt to match CRM rows not already claimed by a prior PSP
-            crm_available = crm_renamed[
-                ~crm_renamed['_crm_row_id'].isin(all_matched_crm_row_ids)
-            ].copy()
+            crm_available = crm_avail_base.copy()
 
-            # Per-PSP CRM key selection: some PSPs store transactionid (not
-            # psp_transaction_id) in their reference field. Choose whichever
-            # CRM key yields more overlap with this file's normalised keys.
-            bank_keys = set(bank_df['_join_key'].dropna())
+            # Apply the CRM key chosen during the overlap comparison above
             crm_key_label = crm_ref_col
-            if '_join_key_txid' in crm_available.columns:
-                overlap_pspid = len(bank_keys & set(crm_available['_join_key'].dropna()))
-                overlap_txid  = len(bank_keys & set(crm_available['_join_key_txid'].dropna()))
-                if overlap_txid > overlap_pspid:
-                    crm_available['_join_key'] = crm_available['_join_key_txid']
-                    crm_key_label = crm_txid_col
+            if best_crm_key == 'txid' and '_join_key_txid' in crm_available.columns:
+                crm_available['_join_key'] = crm_available['_join_key_txid']
+                crm_key_label = crm_txid_col
 
             crm_available = crm_available[crm_available['_join_key'].notna()]
             inner = crm_available.merge(bank_df, on='_join_key', how='inner')
