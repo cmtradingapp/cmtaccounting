@@ -276,12 +276,11 @@ def _detect_bank_ref_col(df):
         'transactionid',          # Finrax, Solidpayments
         'txid',                   # generic
         'referenceno',            # Finrax all.xlsx
-        'settlementreference',    # Korapay settlements
-        'paymentreference',       # Korapay pay-ins (alt)
+        'paymentreference',       # Korapay pay-ins — must come before settlementreference
+        'settlementreference',    # Korapay settlements (batch-level, lower priority)
         'refno',                  # Solidpayment fees
         'refid',                  # VP Refunds
         'transactionnumber',      # VP Deposits
-        'txid',
     ]
     for keyword in exact:
         for col, n in normed.items():
@@ -1254,19 +1253,35 @@ def reconcile():
         crm_pm_col_r = f"{crm_pm_col}_crm" if crm_pm_col else None
         crm_tt_col_r = f"{crm_tt_col}_crm" if crm_tt_col else None
 
+        PSP_TYPES = {'2. DP', '2. WD'}
+
+        # TRX types for ALL CRM rows — needed for crm_psp_total denominator
+        crm_psp_total = total_crm
+        if crm_pm_col and crm_tt_col:
+            all_pm = crm_df[crm_pm_col].fillna('')
+            all_tt = crm_df[crm_tt_col].fillna('')
+            all_trx = [_map_trx_type(pm, tt) for pm, tt in zip(all_pm, all_tt)]
+            crm_psp_total = sum(1 for t in all_trx if t in PSP_TYPES)
+
         unmatched_trx_breakdown: dict = {}
+        internal_trx_breakdown: dict = {}
         if crm_pm_col_r and crm_pm_col_r in crm_unmatched.columns:
             pm_series = crm_unmatched[crm_pm_col_r].fillna('')
             tt_series = crm_unmatched[crm_tt_col_r].fillna('') if (crm_tt_col_r and crm_tt_col_r in crm_unmatched.columns) else pd.Series([''] * len(crm_unmatched))
             trx_types = [_map_trx_type(pm, tt) for pm, tt in zip(pm_series, tt_series)]
             from collections import Counter
             counts = Counter(trx_types)
-            # Sort: PSP types (2. DP / 2. WD) first, then others alphabetically
-            psp_types = {'2. DP', '2. WD'}
+            # Split PSP (2. DP / 2. WD) from internal — sorted alphabetically within each group
             unmatched_trx_breakdown = {
-                k: v for k, v in sorted(counts.items(),
-                    key=lambda x: (0 if x[0] in psp_types else 1, x[0]))
+                k: v for k, v in sorted(counts.items(), key=lambda x: x[0])
+                if k in PSP_TYPES
             }
+            internal_trx_breakdown = {
+                k: v for k, v in sorted(counts.items(), key=lambda x: x[0])
+                if k not in PSP_TYPES
+            }
+
+        crm_psp_unmatched = sum(unmatched_trx_breakdown.values())
 
         # Check if an opening balance file was uploaded (optional)
         ob_path = None
@@ -1282,16 +1297,19 @@ def reconcile():
         return jsonify({
             "status": "success",
             "summary": {
-                "total_crm_rows":  total_crm,
-                "total_bank_rows": total_bank_rows,
-                "total_matched":   matched,
-                "total_orphaned":  crm_only + bank_only,
-                "crm_unmatched":   crm_only,
-                "bank_unmatched":  bank_only,
-                "unrecon_fees":    round(unrecon_fees, 2),
-                "join_keys_used":  join_info,
-                "deal_no_column":  crm_deal_col or "not detected",
-                "unmatched_trx_breakdown": unmatched_trx_breakdown
+                "total_crm_rows":      total_crm,
+                "crm_psp_total":       crm_psp_total,
+                "crm_psp_unmatched":   crm_psp_unmatched,
+                "total_bank_rows":     total_bank_rows,
+                "total_matched":       matched,
+                "total_orphaned":      crm_only + bank_only,
+                "crm_unmatched":       crm_only,
+                "bank_unmatched":      bank_only,
+                "unrecon_fees":        round(unrecon_fees, 2),
+                "join_keys_used":      join_info,
+                "deal_no_column":      crm_deal_col or "not detected",
+                "unmatched_trx_breakdown":  unmatched_trx_breakdown,
+                "internal_trx_breakdown":   internal_trx_breakdown,
             }
         })
 
