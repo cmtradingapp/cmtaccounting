@@ -334,6 +334,16 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
     padding: 10px 14px 8px;
     border-bottom: 1px solid rgba(255,255,255,0.06);
 }
+.recon-detail-title {
+    font-size: 12px;
+    font-weight: 600;
+}
+.recon-detail-title-cross {
+    color: #93c5fd;
+}
+.recon-detail-title-discrepancy {
+    color: #fca5a5;
+}
 #unmatchedDetailTitle {
     font-size: 12px;
     font-weight: 600;
@@ -412,8 +422,15 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 #unreconDetail {
     margin-top: 0;
     border: 1px solid rgba(239,68,68,0.15);
-    border-top: none;
-    border-radius: 0 0 10px 10px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.2);
+    margin-bottom: 16px;
+}
+#crossCcyDetail {
+    margin-top: 0;
+    border: 1px solid rgba(148,163,184,0.2);
+    border-radius: 10px;
     overflow: hidden;
     background: rgba(0,0,0,0.2);
     margin-bottom: 16px;
