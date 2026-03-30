@@ -566,5 +566,69 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 .spinner {
     height: 18px; width: 18px; border: 3px solid rgba(255,255,255,0.3);
     border-top-color: #fff; border-radius: 50%; animation: spin 1s infinite linear;
+    display: inline-block; vertical-align: middle; flex-shrink: 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Schema detection progress */
+.schema-progress-wrap {
+    padding: 28px 32px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.schema-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.schema-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #475569;
+    transition: color 0.3s;
+}
+.schema-step.done  { color: var(--text-secondary); }
+.schema-step.active { color: var(--text-primary); }
+.schema-step-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    flex-shrink: 0;
+    transition: background 0.3s, box-shadow 0.3s;
+}
+.schema-step.done  .schema-step-dot { background: var(--success); }
+.schema-step.active .schema-step-dot {
+    background: #60a5fa;
+    box-shadow: 0 0 6px rgba(96,165,250,0.6);
+    animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 4px rgba(96,165,250,0.5); }
+    50%       { box-shadow: 0 0 10px rgba(96,165,250,0.9); }
+}
+.schema-step-label { flex: 1; }
+.schema-step-icon {
+    font-size: 11px;
+    font-weight: 600;
+    width: 42px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.schema-step.done  .schema-step-icon { color: var(--success); }
+.schema-step.active .schema-step-icon { color: #60a5fa; }
+.schema-progress-track {
+    height: 5px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.schema-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #10b981, #60a5fa);
+    transition: width 0.5s cubic-bezier(0.16,1,0.3,1);
+    width: 0%;
+}

@@ -68,10 +68,39 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             const mappingZone = document.getElementById('mappingZone');
             const mappingCards = document.getElementById('mappingCards');
 
-            mappingZone.querySelector('.subtitle').innerText = data.message + ' — Detecting column schema...';
-            mappingCards.innerHTML = '<div style="color: #94a3b8; padding: 20px; text-align: center;"><span class="spinner"></span> Detecting column schema...</div>';
+            mappingZone.querySelector('.subtitle').innerText = data.message;
             mappingCards.style.gridTemplateColumns = '1fr';
+            mappingCards.innerHTML = `
+                <div class="schema-progress-wrap">
+                    <div class="schema-steps">
+                        <div class="schema-step done"  id="spStep1">
+                            <span class="schema-step-dot"></span>
+                            <span class="schema-step-label">Files uploaded &amp; saved</span>
+                            <span class="schema-step-icon">✓</span>
+                        </div>
+                        <div class="schema-step done"  id="spStep2">
+                            <span class="schema-step-dot"></span>
+                            <span class="schema-step-label">Column headers parsed</span>
+                            <span class="schema-step-icon">✓</span>
+                        </div>
+                        <div class="schema-step active" id="spStep3">
+                            <span class="schema-step-dot"></span>
+                            <span class="schema-step-label">AI column analysis</span>
+                            <span class="schema-step-icon">···</span>
+                        </div>
+                    </div>
+                    <div class="schema-progress-track">
+                        <div class="schema-progress-fill" id="schemaFill"></div>
+                    </div>
+                </div>`;
             mappingZone.classList.remove('hidden');
+
+            // Animate bar: steps 1+2 done (66%) → hold while AI runs
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    document.getElementById('schemaFill').style.width = '66%';
+                }, 40);
+            });
 
             // Optional: LLM enhancement via OpenRouter (highlights join key + amount cols)
             let aiMapping = null;
@@ -87,7 +116,15 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
                 // LLM unavailable — showing raw detected columns
             }
 
-            mappingZone.querySelector('.subtitle').innerText = data.message;
+            // Step 3 complete → 100%, brief pause, then render cards
+            const fillEl = document.getElementById('schemaFill');
+            const step3  = document.getElementById('spStep3');
+            if (fillEl) fillEl.style.width = '100%';
+            if (step3) {
+                step3.classList.replace('active', 'done');
+                step3.querySelector('.schema-step-icon').textContent = '✓';
+            }
+            await new Promise(r => setTimeout(r, 380));
             mappingCards.innerHTML = '';
 
             for (const [source, info] of Object.entries(data.sources)) {
