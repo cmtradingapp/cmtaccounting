@@ -826,19 +826,16 @@ def build_pm_lifecycle_df(merged, use_usd=False):
 
 
 def _load_mapping_rules():
-    """Load the PM Code → PM Name mapping table from the reference lifecycle file.
-    Falls back to an empty DataFrame if the reference file is not available.
+    """Load the PM Code → PM Name mapping table from the bundled CSV.
+    Falls back to an empty DataFrame if the file is not available.
     """
-    ref_path = os.path.join(os.path.dirname(__file__), '..', 'relevant-data',
-                            'Life cycle report', '2023', '1. January',
-                            'Life Cycle Report-final.xlsx')
-    if not os.path.exists(ref_path):
+    csv_path = os.path.join(os.path.dirname(__file__), 'data', 'mapping_rules.csv')
+    if not os.path.exists(csv_path):
         return pd.DataFrame(columns=['PM Code', 'PM Name', 'PM-Cur', 'Is Balance Currency',
                                      'Balance Currency', 'PM-Bal-Cur', 'Processing Currency',
                                      'Amount factor'])
     try:
-        df = pd.read_excel(ref_path, sheet_name='Mapping Rules', header=4)
-        return df.dropna(how='all')
+        return pd.read_csv(csv_path)
     except Exception:
         return pd.DataFrame()
 
