@@ -156,13 +156,14 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             document.getElementById('mappingZone').classList.add('hidden');
 
             const s = data.summary;
-            const total = Math.max(s.total_crm_rows, s.total_bank_rows);
-            const rate  = total > 0 ? (s.total_matched / total * 100) : 0;
-            const rateStr = rate.toFixed(1) + '%';
+            // Use PSP-only denominator for match rate (excludes internal entries)
+            const pspTotal = s.crm_psp_total ?? s.total_crm_rows;
+            const rate     = pspTotal > 0 ? (s.total_matched / pspTotal * 100) : 0;
+            const rateStr  = rate.toFixed(1) + '%';
 
             // Match rate hero
-            const rateEl  = document.getElementById('statMatchRate');
-            const barFill  = document.getElementById('reconBarFill');
+            const rateEl = document.getElementById('statMatchRate');
+            const barFill = document.getElementById('reconBarFill');
             rateEl.textContent = rateStr;
             rateEl.style.color = rate >= 95 ? 'var(--success)' : rate >= 80 ? 'var(--warning)' : 'var(--danger)';
             setTimeout(() => { barFill.style.width = rate + '%'; }, 50);
@@ -170,7 +171,7 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             document.getElementById('reconBarMatchedLabel').textContent =
                 `${s.total_matched.toLocaleString()} matched`;
             document.getElementById('reconBarUnmatchedLabel').textContent =
-                `${(s.crm_unmatched + s.bank_unmatched).toLocaleString()} unmatched`;
+                `${((s.crm_psp_unmatched ?? s.crm_unmatched) + s.bank_unmatched).toLocaleString()} unmatched`;
 
             // Badge
             const badge = document.getElementById('resultsBadge');
@@ -178,10 +179,15 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             badge.style.background = rate >= 95 ? 'rgba(16,185,129,0.2)' : rate >= 80 ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)';
             badge.style.color = rate >= 95 ? '#34d399' : rate >= 80 ? '#fbbf24' : '#f87171';
 
-            // CRM side
-            document.getElementById('statCrmTotal').textContent   = s.total_crm_rows.toLocaleString();
-            document.getElementById('statMatched').textContent     = s.total_matched.toLocaleString();
-            document.getElementById('statCrmOnly').textContent     = s.crm_unmatched.toLocaleString();
+            // CRM side — PSP-reconcilable rows only; show internal count as subtitle
+            const internalCount = s.total_crm_rows - pspTotal;
+            if (internalCount > 0) {
+                document.getElementById('statCrmInternalNote').textContent =
+                    `· ${internalCount.toLocaleString()} internal excluded`;
+            }
+            document.getElementById('statCrmTotal').textContent = pspTotal.toLocaleString();
+            document.getElementById('statMatched').textContent  = s.total_matched.toLocaleString();
+            document.getElementById('statCrmOnly').textContent  = (s.crm_psp_unmatched ?? s.crm_unmatched).toLocaleString();
 
             // Bank side
             document.getElementById('statBankTotal').textContent   = s.total_bank_rows.toLocaleString();
@@ -195,13 +201,7 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             amtVal.textContent = '$' + Math.abs(fees).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
             if (fees === 0) amtBar.classList.add('clean');
 
-            // Unmatched CRM breakdown by TRX type
-            const breakdownWrap = document.getElementById('unmatchedBreakdown');
-            const breakdownRows = document.getElementById('unmatchedBreakdownRows');
-            const breakdown = s.unmatched_trx_breakdown || {};
-            const breakdownEntries = Object.entries(breakdown);
-
-            // Human-readable labels for TRX type codes
+            // Human-readable labels for TRX type codes (shared by both sections)
             const TRX_LABELS = {
                 '2. DP': 'Deposit', '2. WD': 'Withdrawal',
                 '4. Transfer': 'Transfer', '5. Bonuses': 'Bonus',
@@ -211,19 +211,11 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 '5. Unrealised Profits': 'Unrealised P&L', '5. Realized Storage': 'Storage',
             };
 
-            if (breakdownEntries.length > 0) {
-                const PSP_TYPES = new Set(['2. DP', '2. WD']);
-                const pspCount  = breakdownEntries.filter(([k]) => PSP_TYPES.has(k)).reduce((a, [, v]) => a + v, 0);
-                const nonPspCount = s.crm_unmatched - pspCount;
-                const note = pspCount === 0
-                    ? `All ${s.crm_unmatched.toLocaleString()} are internal (no PSP gap)`
-                    : `${pspCount.toLocaleString()} possible PSP gap · ${nonPspCount.toLocaleString()} internal`;
-                document.getElementById('unmatchedBreakdownNote').textContent = note;
-
-                breakdownRows.innerHTML = breakdownEntries.map(([type, count]) => {
-                    const isPsp = PSP_TYPES.has(type);
+            // Helper: build chips into a container and wire up the row inspector
+            function wireChips(chipsContainer, detailEl, titleEl, closeBtn, entries, chipClass) {
+                chipsContainer.innerHTML = entries.map(([type, count]) => {
                     const label = TRX_LABELS[type] || type;
-                    return `<div class="recon-breakdown-chip${isPsp ? ' psp' : ''}" ` +
+                    return `<div class="recon-breakdown-chip ${chipClass}" ` +
                         `data-trx="${encodeURIComponent(type)}" title="Click to inspect rows" style="cursor:pointer;">` +
                         `<span class="recon-breakdown-chip-label">${label}</span>` +
                         `<span class="recon-breakdown-chip-count">${count.toLocaleString()}</span>` +
@@ -231,58 +223,97 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                         `</div>`;
                 }).join('');
 
-                // Chip click → fetch and display rows
                 let activeType = null;
-                breakdownRows.addEventListener('click', async (e) => {
+                chipsContainer.addEventListener('click', async (e) => {
                     const chip = e.target.closest('[data-trx]');
                     if (!chip) return;
                     const trxType = decodeURIComponent(chip.dataset.trx);
-                    const detail  = document.getElementById('unmatchedDetail');
                     if (activeType === trxType) {
-                        // toggle off
-                        detail.classList.add('hidden');
+                        detailEl.classList.add('hidden');
                         chip.classList.remove('active');
                         activeType = null;
                         return;
                     }
-                    // deactivate previous
-                    breakdownRows.querySelectorAll('.recon-breakdown-chip.active')
+                    chipsContainer.querySelectorAll('.recon-breakdown-chip.active')
                         .forEach(c => c.classList.remove('active'));
                     chip.classList.add('active');
                     activeType = trxType;
-                    document.getElementById('unmatchedDetailTitle').textContent = 'Loading…';
-                    detail.classList.remove('hidden');
+                    titleEl.textContent = 'Loading…';
+                    detailEl.classList.remove('hidden');
 
                     try {
                         const res  = await fetch(`/api/unmatched-crm?trx_type=${encodeURIComponent(trxType)}`);
-                        const data = await res.json();
-                        if (data.error) throw new Error(data.error);
+                        const resp = await res.json();
+                        if (resp.error) throw new Error(resp.error);
                         const label = TRX_LABELS[trxType] || trxType;
-                        document.getElementById('unmatchedDetailTitle').textContent =
-                            `${label} (${trxType}) — ${data.count.toLocaleString()} unmatched CRM rows${data.count >= 500 ? '  (showing first 500)' : ''}`;
-
-                        const cols = data.columns;
-                        const rows = data.rows;
+                        titleEl.textContent =
+                            `${label} (${trxType}) — ${resp.count.toLocaleString()} unmatched CRM rows` +
+                            (resp.count >= 500 ? ' (showing first 500)' : '');
+                        const cols = resp.columns;
+                        const rows = resp.rows;
                         const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
                         const tbody = `<tbody>${rows.map(r =>
                             `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
                         ).join('')}</tbody>`;
-                        document.getElementById('unmatchedDetailTable').innerHTML = thead + tbody;
+                        detailEl.querySelector('table').innerHTML = thead + tbody;
                     } catch (err) {
-                        document.getElementById('unmatchedDetailTitle').textContent = `Error: ${err.message}`;
+                        titleEl.textContent = `Error: ${err.message}`;
                     }
                 });
 
-                document.getElementById('unmatchedDetailClose').addEventListener('click', () => {
-                    document.getElementById('unmatchedDetail').classList.add('hidden');
-                    breakdownRows.querySelectorAll('.recon-breakdown-chip.active')
+                closeBtn.addEventListener('click', () => {
+                    detailEl.classList.add('hidden');
+                    chipsContainer.querySelectorAll('.recon-breakdown-chip.active')
                         .forEach(c => c.classList.remove('active'));
                     activeType = null;
                 });
+            }
 
+            // PSP unmatched breakdown (Deposit / Withdrawal chips)
+            const breakdownWrap = document.getElementById('unmatchedBreakdown');
+            const pspEntries = Object.entries(s.unmatched_trx_breakdown || {});
+            if (pspEntries.length > 0) {
+                document.getElementById('unmatchedBreakdownNote').textContent = '';
+                wireChips(
+                    document.getElementById('unmatchedBreakdownRows'),
+                    document.getElementById('unmatchedDetail'),
+                    document.getElementById('unmatchedDetailTitle'),
+                    document.getElementById('unmatchedDetailClose'),
+                    pspEntries, 'psp'
+                );
                 breakdownWrap.classList.remove('hidden');
             } else {
                 breakdownWrap.classList.add('hidden');
+            }
+
+            // Miscellaneous internal breakdown (collapsed section)
+            const miscEntries = Object.entries(s.internal_trx_breakdown || {});
+            const miscSection = document.getElementById('miscSection');
+            if (miscEntries.length > 0) {
+                const miscTotal = miscEntries.reduce((a, [, v]) => a + v, 0);
+                document.getElementById('miscToggleLabel').textContent =
+                    `Miscellaneous — ${miscTotal.toLocaleString()} internal entries`;
+
+                wireChips(
+                    document.getElementById('miscBreakdownRows'),
+                    document.getElementById('miscDetail'),
+                    document.getElementById('miscDetailTitle'),
+                    document.getElementById('miscDetailClose'),
+                    miscEntries, ''
+                );
+
+                // Toggle expand/collapse
+                document.getElementById('miscToggle').addEventListener('click', () => {
+                    const toggle = document.getElementById('miscToggle');
+                    const content = document.getElementById('miscContent');
+                    const isOpen = toggle.classList.contains('open');
+                    toggle.classList.toggle('open', !isOpen);
+                    content.classList.toggle('hidden', isOpen);
+                });
+
+                miscSection.classList.remove('hidden');
+            } else {
+                miscSection.classList.add('hidden');
             }
 
             // Technical details (small, at the bottom)
@@ -335,6 +366,15 @@ document.querySelectorAll('.btn.download').forEach(btn => {
             btn.innerHTML = originalHTML;
         }
     });
+});
+
+// Start Over button — reset to Stage 1
+document.getElementById('startOverBtn').addEventListener('click', () => {
+    document.getElementById('resultsZone').classList.add('hidden');
+    document.getElementById('mappingZone').classList.add('hidden');
+    document.getElementById('uploadForm').reset();
+    document.getElementById('bankFileList').classList.add('hidden');
+    document.getElementById('uploadZone').classList.remove('hidden');
 });
 
 // TEST button — show dataset picker, prefill uploads, then flow through Stage 2 normally
