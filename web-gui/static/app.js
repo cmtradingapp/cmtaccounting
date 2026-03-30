@@ -156,13 +156,47 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
             document.getElementById('mappingZone').classList.add('hidden');
 
             const s = data.summary;
-            document.getElementById('joinKeyInfo').innerText = `Join: ${s.join_keys_used} | Deal No col: ${s.deal_no_column}`;
-            document.getElementById('statMatched').innerText = s.total_matched.toLocaleString();
-            document.getElementById('statCrmOnly').innerText = s.crm_unmatched.toLocaleString();
-            document.getElementById('statBankOnly').innerText = s.bank_unmatched.toLocaleString();
-            document.getElementById('statCrmTotal').innerText = s.total_crm_rows.toLocaleString();
-            document.getElementById('statBankTotal').innerText = s.total_bank_rows.toLocaleString();
-            document.getElementById('statFees').innerText = `$${s.unrecon_fees.toLocaleString()}`;
+            const total = Math.max(s.total_crm_rows, s.total_bank_rows);
+            const rate  = total > 0 ? (s.total_matched / total * 100) : 0;
+            const rateStr = rate.toFixed(1) + '%';
+
+            // Match rate hero
+            const rateEl  = document.getElementById('statMatchRate');
+            const barFill  = document.getElementById('reconBarFill');
+            rateEl.textContent = rateStr;
+            rateEl.style.color = rate >= 95 ? 'var(--success)' : rate >= 80 ? 'var(--warning)' : 'var(--danger)';
+            setTimeout(() => { barFill.style.width = rate + '%'; }, 50);
+            barFill.style.background = rate >= 95 ? 'var(--success)' : rate >= 80 ? 'var(--warning)' : 'var(--danger)';
+            document.getElementById('reconBarMatchedLabel').textContent =
+                `${s.total_matched.toLocaleString()} matched`;
+            document.getElementById('reconBarUnmatchedLabel').textContent =
+                `${(s.crm_unmatched + s.bank_unmatched).toLocaleString()} unmatched`;
+
+            // Badge
+            const badge = document.getElementById('resultsBadge');
+            badge.textContent = rate >= 95 ? 'Clean' : rate >= 80 ? 'Review needed' : 'Issues found';
+            badge.style.background = rate >= 95 ? 'rgba(16,185,129,0.2)' : rate >= 80 ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)';
+            badge.style.color = rate >= 95 ? '#34d399' : rate >= 80 ? '#fbbf24' : '#f87171';
+
+            // CRM side
+            document.getElementById('statCrmTotal').textContent   = s.total_crm_rows.toLocaleString();
+            document.getElementById('statMatched').textContent     = s.total_matched.toLocaleString();
+            document.getElementById('statCrmOnly').textContent     = s.crm_unmatched.toLocaleString();
+
+            // Bank side
+            document.getElementById('statBankTotal').textContent  = s.total_bank_rows.toLocaleString();
+            document.getElementById('statBankOnly').textContent   = s.bank_unmatched.toLocaleString();
+
+            // Unreconciled amount
+            const amtBar = document.getElementById('reconAmountBar');
+            const amtVal = document.getElementById('statFees');
+            const fees = s.unrecon_fees;
+            amtVal.textContent = '$' + Math.abs(fees).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            if (fees === 0) amtBar.classList.add('clean');
+
+            // Technical details (small, at the bottom)
+            document.getElementById('joinKeyInfo').textContent =
+                `Join key: ${s.join_keys_used}  ·  Deal No column: ${s.deal_no_column}`;
 
             document.getElementById('resultsZone').classList.remove('hidden');
         } else {
@@ -171,42 +205,44 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
     } catch (err) {
         alert("Mathematical Reconciliation failed.");
     } finally {
-        btn.innerHTML = `Execute Mathematical Match <span class="arrow">→</span>`;
+        btn.innerHTML = `Run Reconciliation <span class="arrow">→</span>`;
     }
 });
 
 // Download buttons — fetch from backend and trigger browser save
 document.querySelectorAll('.btn.download').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const isLifecycle = btn.textContent.includes('Lifecycle');
+    btn.addEventListener('click', async () => {
+        const isLifecycle = btn.querySelector('strong')?.textContent.includes('Lifecycle')
+            || btn.textContent.includes('Lifecycle');
         const url = isLifecycle ? '/api/download/lifecycle' : '/api/download/balances';
-        const originalText = btn.textContent;
+        const originalHTML = btn.innerHTML;
 
         btn.style.opacity = "0.6";
         btn.textContent = '⏳ Generating...';
 
-        fetch(url)
-            .then(res => {
-                if (!res.ok) return res.json().then(d => { throw new Error(d.error || 'Download failed'); });
-                return res.blob();
-            })
-            .then(blob => {
-                const objUrl = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = objUrl;
-                a.download = isLifecycle
-                    ? `Lifecycle List ${new Date().toISOString().slice(0, 10)}.xlsx`
-                    : `Balances ${new Date().toISOString().slice(0, 10)}.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(objUrl);
-            })
-            .catch(err => alert('Download error: ' + err.message))
-            .finally(() => {
-                btn.style.opacity = "1";
-                btn.textContent = originalText;
-            });
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                const d = await res.json();
+                throw new Error(d.error || 'Download failed');
+            }
+            const blob = await res.blob();
+            const objUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = objUrl;
+            a.download = isLifecycle
+                ? `Lifecycle List ${new Date().toISOString().slice(0, 10)}.xlsx`
+                : `Balances ${new Date().toISOString().slice(0, 10)}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(objUrl);
+        } catch (err) {
+            alert('Download error: ' + err.message);
+        } finally {
+            btn.style.opacity = "1";
+            btn.innerHTML = originalHTML;
+        }
     });
 });
 
