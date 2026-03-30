@@ -256,6 +256,7 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                     try {
                         const res  = await fetch(`/api/unmatched-crm?trx_type=${encodeURIComponent(trxType)}`);
                         const data = await res.json();
+                        if (data.error) throw new Error(data.error);
                         const label = TRX_LABELS[trxType] || trxType;
                         document.getElementById('unmatchedDetailTitle').textContent =
                             `${label} (${trxType}) — ${data.count.toLocaleString()} unmatched CRM rows${data.count >= 500 ? '  (showing first 500)' : ''}`;
@@ -267,8 +268,8 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                             `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
                         ).join('')}</tbody>`;
                         document.getElementById('unmatchedDetailTable').innerHTML = thead + tbody;
-                    } catch {
-                        document.getElementById('unmatchedDetailTitle').textContent = 'Failed to load rows.';
+                    } catch (err) {
+                        document.getElementById('unmatchedDetailTitle').textContent = `Error: ${err.message}`;
                     }
                 });
 
