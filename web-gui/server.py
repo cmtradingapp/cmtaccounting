@@ -1292,39 +1292,118 @@ def download_balances():
         return jsonify({"error": str(e)}), 500
 
 
+def _find_dir_icase(parent, *candidates):
+    """Find the first existing subdirectory of parent matching any candidate name (case-insensitive)."""
+    try:
+        entries = {e.lower(): e for e in os.listdir(parent)}
+    except OSError:
+        return None
+    for name in candidates:
+        if name.lower() in entries:
+            path = os.path.join(parent, entries[name.lower()])
+            if os.path.isdir(path):
+                return path
+    return None
+
+
+def _find_file_pattern(directory, *patterns):
+    """Return path of the best-matching file in directory whose lowercase name starts
+    with any of the given patterns. When multiple files match, the shortest filename
+    wins (most canonical name, avoids DEC/JAN suffix copies and numbered duplicates).
+    """
+    if not directory or not os.path.isdir(directory):
+        return None
+    matches = []
+    for fname in os.listdir(directory):
+        fpath = os.path.join(directory, fname)
+        if not os.path.isfile(fpath):
+            continue
+        fl = fname.lower()
+        for pat in patterns:
+            if fl.startswith(pat.lower()):
+                matches.append(fpath)
+                break
+    if not matches:
+        return None
+    return min(matches, key=lambda p: len(os.path.basename(p)))
+
+
+def _detect_month_files(month_dir):
+    """Locate platform + PSP files for a month, tolerating folder/filename variations.
+    Returns a dict with keys: plat_dir, psp_dir, crm, equity, transactions, opening_balance.
+    Values are absolute paths or None if not found.
+    """
+    plat_dir = _find_dir_icase(month_dir, 'platform')
+    psp_dir  = _find_dir_icase(month_dir, 'PSPs', 'PSP')
+
+    crm          = _find_file_pattern(plat_dir, 'CRM Transactions')
+    transactions = _find_file_pattern(plat_dir, 'Deposit and Withdrawal Report')
+    equity       = _find_file_pattern(plat_dir, 'Client Balance', 'Equity Check', 'Equity Report')
+    opening_bal  = _find_file_pattern(plat_dir, 'Unrealised')
+
+    return {
+        'plat_dir':        plat_dir,
+        'psp_dir':         psp_dir,
+        'crm':             crm,
+        'equity':          equity,
+        'transactions':    transactions,
+        'opening_balance': opening_bal,
+    }
+
+
 def _copy_month_to_uploads(month_dir):
     """Copy a month's PSP + platform files into the uploads folder.
-    Returns (filename_map, all_headers) dict for the /api/upload-style response.
+    Returns all_headers dict for the /api/upload-style response.
+    Tolerates folder/filename variations across months (case-insensitive dirs,
+    pattern-matched filenames).
     """
     import shutil
-    psp_dir  = os.path.join(month_dir, 'PSPs')
-    plat_dir = os.path.join(month_dir, 'platform')
-    upload   = app.config['UPLOAD_FOLDER']
+    upload = app.config['UPLOAD_FOLDER']
+    files  = _detect_month_files(month_dir)
+
+    if not files['crm']:
+        raise FileNotFoundError(f"No CRM Transactions file found in {month_dir}")
+    if not files['psp_dir']:
+        raise FileNotFoundError(f"No PSP/PSPs folder found in {month_dir}")
 
     # Clear any old bank files
     for f in os.listdir(upload):
         if f.startswith('bankFile_'):
             os.remove(os.path.join(upload, f))
 
-    # Copy platform files
-    plat_map = {
-        'platformFile':     'CRM Transactions Additional info.xlsx',
-        'equityFile':       'Client Balance check.xlsx',
-        'transactionsFile': 'Deposit and Withdrawal Report.csv',
-    }
     labels = {
         'platformFile':     'Platform (CRM/MT4)',
         'equityFile':       'Client Equity Report',
         'transactionsFile': 'Transactions',
     }
     all_headers = {}
-    for key, fname in plat_map.items():
-        src = os.path.join(plat_dir, fname)
-        ext = os.path.splitext(fname)[1]
-        dst = os.path.join(upload, f'{key}{ext}')
-        shutil.copy(src, dst)
-        all_headers[labels[key]] = {
-            'filename': fname,
+
+    # Required: CRM platform file
+    ext = os.path.splitext(files['crm'])[1]
+    dst = os.path.join(upload, f'platformFile{ext}')
+    shutil.copy(files['crm'], dst)
+    all_headers[labels['platformFile']] = {
+        'filename': os.path.basename(files['crm']),
+        'columns': extract_headers(dst)
+    }
+
+    # Optional: equity file
+    if files['equity']:
+        ext = os.path.splitext(files['equity'])[1]
+        dst = os.path.join(upload, f'equityFile{ext}')
+        shutil.copy(files['equity'], dst)
+        all_headers[labels['equityFile']] = {
+            'filename': os.path.basename(files['equity']),
+            'columns': extract_headers(dst)
+        }
+
+    # Optional: transactions file
+    if files['transactions']:
+        ext = os.path.splitext(files['transactions'])[1]
+        dst = os.path.join(upload, f'transactionsFile{ext}')
+        shutil.copy(files['transactions'], dst)
+        all_headers[labels['transactionsFile']] = {
+            'filename': os.path.basename(files['transactions']),
             'columns': extract_headers(dst)
         }
 
@@ -1333,8 +1412,8 @@ def _copy_month_to_uploads(month_dir):
     filename_map = {}
     bank_columns_all = []
     bank_filenames = []
-    for fname in sorted(os.listdir(psp_dir)):
-        fpath = os.path.join(psp_dir, fname)
+    for fname in sorted(os.listdir(files['psp_dir'])):
+        fpath = os.path.join(files['psp_dir'], fname)
         if not os.path.isfile(fpath):
             continue
         ext = os.path.splitext(fname)[1].lower()
@@ -1357,17 +1436,20 @@ def _copy_month_to_uploads(month_dir):
         'columns': unique_bank_cols
     }
 
-    # Optional opening balance (previous-month Unrealised.xlsx)
-    unreal_path = os.path.join(plat_dir, 'Unrealised.xlsx')
-    if os.path.exists(unreal_path):
-        shutil.copy(unreal_path, os.path.join(upload, 'openingBalanceFile.xlsx'))
+    # Optional opening balance
+    if files['opening_balance']:
+        dst = os.path.join(upload, 'openingBalanceFile.xlsx')
+        shutil.copy(files['opening_balance'], dst)
 
     return all_headers
 
 
 @app.route('/api/test-datasets', methods=['GET'])
 def test_datasets():
-    """Return a list of available test dataset months under relevant-data/MRS."""
+    """Return a list of available test dataset months under relevant-data/MRS.
+    A month is included only if it has a detectable platform dir with a CRM file
+    AND a PSP dir with at least one CSV/Excel file.
+    """
     base = os.path.join(os.path.dirname(__file__), '..', 'relevant-data', 'MRS')
     datasets = []
     for year_dir in sorted(os.listdir(base)):
@@ -1378,15 +1460,22 @@ def test_datasets():
             month_path = os.path.join(year_path, month_dir)
             if not os.path.isdir(month_path):
                 continue
-            # Only include months that have a platform folder with the CRM file
-            crm_check = os.path.join(month_path, 'platform', 'CRM Transactions Additional info.xlsx')
-            if os.path.exists(crm_check):
-                datasets.append({
-                    'id': f'{year_dir}/{month_dir}',
-                    'label': f'{month_dir} ({year_dir})',
-                    'year': year_dir,
-                    'month': month_dir
-                })
+            files = _detect_month_files(month_path)
+            if not files['crm'] or not files['psp_dir']:
+                continue
+            # Require at least one PSP file
+            psp_files = [f for f in os.listdir(files['psp_dir'])
+                         if os.path.isfile(os.path.join(files['psp_dir'], f))
+                         and os.path.splitext(f)[1].lower() in ('.csv', '.xlsx', '.xls')]
+            if not psp_files:
+                continue
+            datasets.append({
+                'id':    f'{year_dir}/{month_dir}',
+                'label': f'{month_dir} ({year_dir})',
+                'year':  year_dir,
+                'month': month_dir,
+                'psp_count': len(psp_files),
+            })
     return jsonify({'status': 'success', 'datasets': datasets})
 
 

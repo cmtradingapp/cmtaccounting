@@ -182,7 +182,7 @@ document.querySelectorAll('.btn.download').forEach(btn => {
 });
 
 // TEST button — show dataset picker, prefill uploads, then flow through Stage 2 normally
-(async function initTestDatasets() {
+(async () => {
     const btn = document.getElementById('testBtn');
     const picker = document.getElementById('testDatasetPicker');
 
@@ -195,7 +195,7 @@ document.querySelectorAll('.btn.download').forEach(btn => {
             for (const ds of data.datasets) {
                 const opt = document.createElement('option');
                 opt.value = ds.id;
-                opt.textContent = ds.label;
+                opt.textContent = `${ds.label}  (${ds.psp_count} PSPs)`;
                 picker.appendChild(opt);
             }
         }
@@ -301,7 +301,7 @@ document.querySelectorAll('.btn.download').forEach(btn => {
 })();
 
 // Live FX Rates
-(async function loadFxRates() {
+(async () => {
     const row = document.getElementById('fxRatesRow');
     try {
         const res = await fetch('/api/rates');
