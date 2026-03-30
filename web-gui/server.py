@@ -1782,6 +1782,119 @@ def download_balances():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/download/issues')
+def download_issues():
+    """Export a 3-sheet Excel: unmatched D/W, amount-discrepancy pairs, cross-currency pairs."""
+    try:
+        with open(STATE_FILE, 'rb') as f:
+            state = pickle.load(f)
+    except FileNotFoundError:
+        return jsonify({"error": "No reconciliation data found. Run reconciliation first."}), 400
+
+    try:
+        merged   = state['merged']
+        crm_df   = state['crm_df']
+
+        crm_cols_lower  = {c: c.lower().strip() for c in crm_df.columns}
+        crm_pm_col      = next((c for c, l in crm_cols_lower.items() if l == 'payment_method'), None)
+        crm_tt_col      = next((c for c, l in crm_cols_lower.items() if l == 'transactiontype'), None)
+        crm_amount_col  = next((c for c, l in crm_cols_lower.items()
+                                if 'amount' in l and 'usd' not in l), None)
+
+        # ── Shared column selection helper ────────────────────────────────────
+        CRM_WANT = ['login', 'tradingaccountsid', 'amount', 'payment_method',
+                    'transactiontype', 'payment_processor', 'psp_transaction_id',
+                    'transactionid', 'currency_id']
+
+        def _crm_cols(df):
+            out = {}
+            for w in CRM_WANT:
+                col_r = f"{w}_crm"
+                if col_r in df.columns:
+                    out[col_r] = w
+            return out
+
+        def _autofit(ws):
+            for col_cells in ws.columns:
+                width = max((len(str(c.value)) if c.value is not None else 0)
+                            for c in col_cells)
+                ws.column_dimensions[col_cells[0].column_letter].width = min(width + 2, 40)
+
+        # ── Sheet 1: Unmatched D/W ────────────────────────────────────────────
+        unmatched = merged[merged['_merge'] == 'left_only'].copy()
+        PSP_TYPES = {'2. DP', '2. WD'}
+        crm_pm_r = f"{crm_pm_col}_crm" if crm_pm_col else None
+        crm_tt_r = f"{crm_tt_col}_crm" if crm_tt_col else None
+        if crm_pm_r and crm_pm_r in unmatched.columns:
+            pm_s = unmatched[crm_pm_r].fillna('')
+            tt_s = unmatched[crm_tt_r].fillna('') if (crm_tt_r and crm_tt_r in unmatched.columns) \
+                   else pd.Series([''] * len(unmatched), index=unmatched.index)
+            trx  = [_map_trx_type(pm, tt) for pm, tt in zip(pm_s, tt_s)]
+            unmatched['_trx'] = trx
+            um_dw = unmatched[unmatched['_trx'].isin(PSP_TYPES)].copy()
+        else:
+            um_dw = unmatched.copy()
+
+        um_cols = _crm_cols(um_dw)
+        sheet1  = um_dw[list(um_cols.keys())].rename(columns=um_cols).reset_index(drop=True)
+
+        # ── Sheet 2: Amount discrepancy (same-currency pairs) ─────────────────
+        both = merged[merged['_merge'] == 'both'].copy()
+        if crm_amount_col and '_bank_amount' in both.columns:
+            crm_amt_r = f"{crm_amount_col}_crm"
+            a = pd.to_numeric(both[crm_amt_r], errors='coerce').abs()
+            b = both['_bank_amount'].abs()
+            valid = a.notna() & b.notna() & (a > 0)
+            ratio = b[valid] / a[valid]
+            same_ccy = valid & (ratio >= 0.8) & (ratio <= 1.2)
+            disc = both[same_ccy & ((a - b).abs() > 0.005)].copy()
+            disc['crm_amount']  = a[disc.index]
+            disc['bank_amount'] = b[disc.index]
+            disc['difference']  = (a[disc.index] - b[disc.index]).abs().round(2)
+            disc = disc.sort_values('difference', ascending=False)
+            disc_cols = _crm_cols(disc)
+            for extra in ['_psp_source', 'crm_amount', 'bank_amount', 'difference']:
+                if extra in disc.columns:
+                    disc_cols[extra] = extra.lstrip('_').replace('_', ' ')
+            sheet2 = disc[list(disc_cols.keys())].rename(columns=disc_cols).reset_index(drop=True)
+        else:
+            sheet2 = pd.DataFrame()
+
+        # ── Sheet 3: Cross-currency pairs ─────────────────────────────────────
+        if crm_amount_col and '_bank_amount' in both.columns:
+            cross = both[valid & ((ratio < 0.8) | (ratio > 1.2))].copy()
+            cross['crm_amount']  = a[cross.index]
+            cross['bank_amount'] = b[cross.index]
+            cross['ratio']       = (b[cross.index] / a[cross.index]).round(1)
+            cross = cross.sort_values('ratio', ascending=False)
+            cross_cols = _crm_cols(cross)
+            for extra in ['_psp_source', 'crm_amount', 'bank_amount', 'ratio']:
+                if extra in cross.columns:
+                    cross_cols[extra] = extra.lstrip('_').replace('_', ' ')
+            sheet3 = cross[list(cross_cols.keys())].rename(columns=cross_cols).reset_index(drop=True)
+        else:
+            sheet3 = pd.DataFrame()
+
+        # ── Write workbook ────────────────────────────────────────────────────
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            sheet1.to_excel(writer, sheet_name='Unmatched D-W', index=False)
+            _autofit(writer.sheets['Unmatched D-W'])
+            if not sheet2.empty:
+                sheet2.to_excel(writer, sheet_name='Amount Discrepancy', index=False)
+                _autofit(writer.sheets['Amount Discrepancy'])
+            if not sheet3.empty:
+                sheet3.to_excel(writer, sheet_name='Cross-Currency', index=False)
+                _autofit(writer.sheets['Cross-Currency'])
+
+        buf.seek(0)
+        filename = f"Issues {datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        return send_file(buf, as_attachment=True, download_name=filename,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def _find_dir_icase(parent, *candidates):
     """Find the first existing subdirectory of parent matching any candidate name (case-insensitive)."""
     try:

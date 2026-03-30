@@ -510,6 +510,35 @@ document.querySelectorAll('.btn.download').forEach(btn => {
     });
 });
 
+// Issues Report download button
+document.getElementById('issuesDownloadBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('issuesDownloadBtn');
+    const originalHTML = btn.innerHTML;
+    btn.style.opacity = '0.6';
+    btn.textContent = '⏳ Generating…';
+    try {
+        const res = await fetch('/api/download/issues');
+        if (!res.ok) {
+            const d = await res.json();
+            throw new Error(d.error || 'Download failed');
+        }
+        const blob   = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objUrl;
+        a.download = `Issues ${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objUrl);
+    } catch (err) {
+        alert('Download error: ' + err.message);
+    } finally {
+        btn.style.opacity = '1';
+        btn.innerHTML = originalHTML;
+    }
+});
+
 // Start Over button — reset to Stage 1
 document.getElementById('startOverBtn').addEventListener('click', () => {
     document.getElementById('resultsZone').classList.add('hidden');
