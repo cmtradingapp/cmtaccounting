@@ -9,6 +9,13 @@ from flask import Flask, render_template, request, jsonify, send_file
 import requests as http_requests
 import pandas as pd
 
+try:
+    import pdfplumber as _pdfplumber
+    _PDF_SUPPORT = True
+except ImportError:
+    _pdfplumber = None
+    _PDF_SUPPORT = False
+
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -341,7 +348,7 @@ def _detect_bank_ref_cols(df):
     exact = [
         'transactionreference', 'merchantreference', 'transactionid', 'txid',
         'referenceno', 'paymentreference', 'settlementreference',
-        'uniqueid', 'refno', 'refid', 'transactionnumber',
+        'uniqueid', 'clientid', 'refno', 'refid', 'transactionnumber',
     ]
     for keyword in exact:
         for col, n in normed.items():
@@ -381,9 +388,136 @@ def _detect_bank_amount_col(df):
     return None
 
 
+def _load_pdf_file(path):
+    """Extract a transaction table from a PDF bank statement.
+
+    Tries three strategies in order:
+    1. pdfplumber table extraction — works for clean single-table PDFs (Dixipay).
+    2. Standard Bank ZAR text layout — fixed-column text with login IDs on the
+       continuation line of each transaction.
+    3. SD Bank / SWIFT-style concatenated-cell table — all rows packed as
+       newline-separated values inside a single merged PDF cell.
+
+    Returns a DataFrame or None if pdfplumber is unavailable or extraction fails.
+    """
+    if not _PDF_SUPPORT:
+        return None
+
+    try:
+        with _pdfplumber.open(path) as pdf:
+            all_tables = []
+            all_text   = []
+            for page in pdf.pages:
+                tbls = page.extract_tables()
+                if tbls:
+                    all_tables.extend(tbls)
+                txt = page.extract_text()
+                if txt:
+                    all_text.append(txt)
+
+        # ── Strategy 1: clean table (Dixipay-style) ──────────────────────────
+        # A usable table has ≥3 non-None header cells and data rows.
+        for tbl in all_tables:
+            if not tbl or len(tbl) < 2:
+                continue
+            header = [str(c).strip() for c in tbl[0] if c is not None]
+            if len(header) < 3:
+                continue
+            # Reject tables whose header is a single merged metadata cell
+            if len([c for c in tbl[0] if c is not None]) < 3:
+                continue
+            # Check for "normal" column header keywords
+            hdr_lower = ' '.join(header).lower()
+            if any(k in hdr_lower for k in ('date', 'amount', 'reference', 'transaction', 'balance')):
+                rows = []
+                for r in tbl[1:]:
+                    if any(v for v in r):
+                        rows.append([str(v).strip() if v is not None else '' for v in r])
+                if rows:
+                    df = pd.DataFrame(rows, columns=header[:len(rows[0])])
+                    return df
+
+        # ── Strategy 2: Standard Bank ZAR text layout ────────────────────────
+        # Each transaction occupies two lines in the extracted text:
+        #   {page} {description} {svc_fee} {debit} {credit} {YYYYMMDD} {balance}
+        #   {reference / client ID line}
+        full_text = '\n'.join(all_text)
+        _TXN_RE = re.compile(
+            r'^\d+\s+(.+?)\s+'               # page + description
+            r'([\d,]+\.\d{2})\s+'            # service fee
+            r'(-?[\d,]+\.\d{2})\s+'          # debit (may be negative)
+            r'([\d,]+\.\d{2})\s+'            # credit
+            r'(\d{8})\s+'                    # date YYYYMMDD
+            r'([\d,]+\.\d{2})\s*$'           # running balance
+        )
+        _CLIENT_ID_RE = re.compile(r'\b(1[34]\d{6,8})\b')
+
+        lines = full_text.split('\n')
+        std_rows = []
+        i = 0
+        while i < len(lines) - 1:
+            m = _TXN_RE.match(lines[i].strip())
+            if m:
+                desc, svcfee, debit, credit, date, balance = m.groups()
+                # Skip header / balance-forward lines
+                if not any(k in desc.upper() for k in
+                           ('BALANCE BROUGHT', 'END OF REPORT', 'SERVICE FEE')):
+                    ref_line = lines[i + 1].strip()
+                    cid_m = _CLIENT_ID_RE.search(ref_line)
+                    std_rows.append({
+                        'date':        date,
+                        'description': desc.strip(),
+                        'debit':       debit,
+                        'credit':      credit,
+                        'balance':     balance,
+                        'reference':   ref_line,
+                        'client_id':   cid_m.group(1) if cid_m else None,
+                    })
+                i += 2
+            else:
+                i += 1
+
+        if std_rows:
+            return pd.DataFrame(std_rows)
+
+        # ── Strategy 3: concatenated-cell table (SD Bank / SWIFT-style) ──────
+        # All rows are packed as newline-separated values in each column cell.
+        for tbl in all_tables:
+            if not tbl or len(tbl) < 2:
+                continue
+            data_row = tbl[1]  # first (only) data row
+            if not any('\n' in str(c or '') for c in data_row):
+                continue
+            # Split each cell on newlines to reconstruct individual rows
+            cols_split = [str(c or '').split('\n') for c in data_row]
+            max_len = max(len(c) for c in cols_split)
+            # Parse header from the merged header cell
+            hdr_raw = str(tbl[0][0] or '').replace('\n', ' ')
+            hdr_tokens = re.split(r'\s{2,}', hdr_raw.strip())
+            # Fallback generic names if header parsing fails
+            if len(hdr_tokens) < len(data_row):
+                hdr_tokens = [f'col{i}' for i in range(len(data_row))]
+            rows_out = []
+            for idx in range(max_len):
+                row = [c[idx].strip() if idx < len(c) else '' for c in cols_split]
+                if any(v and v not in ('Opening Balance', 'Closing Balance') for v in row):
+                    rows_out.append(row)
+            if rows_out:
+                df = pd.DataFrame(rows_out, columns=hdr_tokens[:len(rows_out[0])])
+                return df
+
+    except Exception:
+        pass
+
+    return None
+
+
 def _load_psp_file(path):
-    """Load a single PSP CSV or Excel file, returning a DataFrame or None on failure."""
+    """Load a single PSP CSV or Excel file (or PDF bank statement), returning a DataFrame or None."""
     ext = os.path.splitext(path)[1].lower()
+
+    if ext == '.pdf':
+        return _load_pdf_file(path)
 
     # Keywords that indicate a row is a real column header (not metadata)
     _HEADER_KEYWORDS = {'date', 'amount', 'id', 'reference', 'transaction',
