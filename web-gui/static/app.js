@@ -244,6 +244,48 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 ccyNote.textContent = '';
             }
 
+            // Cross-currency pairs inspector (the excluded note is the trigger)
+            let crossCcyLoaded = false;
+            const crossCcyDetail = document.getElementById('crossCcyDetail');
+            const crossCcyTitle  = document.getElementById('crossCcyDetailTitle');
+            const crossCcyTable  = document.getElementById('crossCcyDetailTable');
+
+            ccyNote.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const isOpen = !crossCcyDetail.classList.contains('hidden');
+                if (isOpen) {
+                    crossCcyDetail.classList.add('hidden');
+                    ccyNote.style.opacity = '0.55';
+                    return;
+                }
+                crossCcyDetail.classList.remove('hidden');
+                ccyNote.style.opacity = '1';
+                if (crossCcyLoaded) return;
+                crossCcyTitle.textContent = 'Loading…';
+                try {
+                    const res  = await fetch('/api/cross-currency-pairs');
+                    const data = await res.json();
+                    if (data.error) throw new Error(data.error);
+                    crossCcyTitle.textContent =
+                        `${data.count.toLocaleString()} cross-currency pairs (CRM in USD, bank in local currency)` +
+                        (data.count >= 500 ? ' · showing first 500' : '');
+                    const cols = data.columns;
+                    const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+                    const tbody = `<tbody>${data.rows.map(r =>
+                        `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
+                    ).join('')}</tbody>`;
+                    crossCcyTable.innerHTML = thead + tbody;
+                    crossCcyLoaded = true;
+                } catch (err) {
+                    crossCcyTitle.textContent = `Error: ${err.message}`;
+                }
+            });
+
+            document.getElementById('crossCcyDetailClose').addEventListener('click', () => {
+                crossCcyDetail.classList.add('hidden');
+                ccyNote.style.opacity = '0.55';
+            });
+
             // Unreconciled pairs — click amount bar to expand/collapse
             let unreconLoaded = false;
             const unreconDetail  = document.getElementById('unreconDetail');

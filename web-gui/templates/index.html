@@ -147,11 +147,20 @@
                 <div class="recon-amount-bar" id="reconAmountBar" style="cursor:pointer;" title="Click to inspect pairs">
                     <span class="recon-amount-label">
                         Unreconciled amount
-                        <span id="statFeesCcyNote" style="font-size:11px; font-weight:400; opacity:0.55; margin-left:6px;"></span>
+                        <button id="statFeesCcyNote" style="font-size:11px; font-weight:400; opacity:0.55; margin-left:6px; background:none; border:none; color:inherit; cursor:pointer; padding:0; text-decoration:underline dotted; text-underline-offset:2px;"></button>
                     </span>
                     <div style="display:flex; align-items:center; gap:12px;">
                         <span class="recon-amount-val" id="statFees">$0.00</span>
                         <span id="unreconCaret" style="font-size:16px; opacity:0.4; transition:transform 0.2s;">›</span>
+                    </div>
+                </div>
+                <div id="crossCcyDetail" class="hidden" style="border-color: rgba(148,163,184,0.2); border-top:none; border-radius: 0 0 10px 10px; border-width:1px; border-style:solid; background:rgba(0,0,0,0.2); overflow:hidden; margin-bottom:16px;">
+                    <div class="recon-detail-header">
+                        <span id="crossCcyDetailTitle" style="font-size:12px; font-weight:600; color:var(--text-secondary);"></span>
+                        <button id="crossCcyDetailClose" class="recon-detail-close">✕</button>
+                    </div>
+                    <div class="recon-detail-table-wrap">
+                        <table id="crossCcyDetailTable" class="recon-detail-table"></table>
                     </div>
                 </div>
                 <div id="unreconDetail" class="hidden">

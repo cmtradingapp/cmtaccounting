@@ -1565,6 +1565,58 @@ def reconcile():
         return jsonify({"status": "error", "summary": {"error": str(e)}}), 500
 
 
+@app.route('/api/cross-currency-pairs')
+def cross_currency_pairs():
+    """Return matched pairs excluded from unrecon calc due to currency mismatch (ratio outside 0.8–1.2)."""
+    try:
+        with open(STATE_FILE, 'rb') as f:
+            state = pickle.load(f)
+    except FileNotFoundError:
+        return jsonify({"error": "No reconciliation data found."}), 400
+
+    try:
+        merged = state['merged']
+        crm_df = state['crm_df']
+        both = merged[merged['_merge'] == 'both'].copy()
+
+        crm_cols_lower = {c: c.lower().strip() for c in crm_df.columns}
+        crm_amount_col = next((c for c, l in crm_cols_lower.items()
+                               if 'amount' in l and 'usd' not in l), None)
+        if not crm_amount_col or '_bank_amount' not in both.columns:
+            return jsonify({"columns": [], "rows": [], "count": 0})
+
+        crm_amt_col_r = f"{crm_amount_col}_crm"
+        a = pd.to_numeric(both[crm_amt_col_r], errors='coerce').abs()
+        b = both['_bank_amount'].abs()
+        valid = a.notna() & b.notna() & (a > 0)
+        ratio = b[valid] / a[valid]
+        cross_ccy = valid & ((ratio < 0.8) | (ratio > 1.2))
+        pairs = both[cross_ccy].copy()
+        pairs['_crm_amount']   = a[pairs.index]
+        pairs['_bank_amount_'] = b[pairs.index]
+        pairs['_ratio']        = (b[pairs.index] / a[pairs.index]).round(1)
+        pairs = pairs.sort_values('_ratio', ascending=False)
+
+        WANT_CRM  = ['login', 'payment_processor', 'psp_transaction_id',
+                     'transactiontype', 'payment_method']
+        WANT_BANK = ['_psp_source', '_crm_amount', '_bank_amount_', '_ratio']
+        display = {}
+        for w in WANT_CRM:
+            col_r = f"{w}_crm"
+            if col_r in pairs.columns:
+                display[col_r] = w
+        for w in WANT_BANK:
+            if w in pairs.columns:
+                display[w] = w.lstrip('_').replace('_', ' ')
+
+        rows_df = pairs[list(display.keys())].rename(columns=display)
+        import json as _json
+        rows_list = _json.loads(rows_df.head(500).to_json(orient='values'))
+        return jsonify({"count": len(rows_df), "columns": list(rows_df.columns), "rows": rows_list})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/unreconciled-pairs')
 def unreconciled_pairs():
     """Return matched pairs where CRM and bank amounts differ (same-currency only)."""
