@@ -396,6 +396,48 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
     background: rgba(0,0,0,0.2);
 }
 
+/* Miscellaneous internal section */
+.misc-toggle-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.12);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    color: #475569;
+    margin-top: 6px;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+}
+.misc-toggle-bar:hover {
+    background: rgba(255,255,255,0.03);
+    border-color: rgba(255,255,255,0.1);
+    color: var(--text-secondary);
+}
+.misc-toggle-caret {
+    font-size: 14px;
+    opacity: 0.35;
+    transition: transform 0.2s, opacity 0.2s;
+}
+.misc-toggle-bar.open .misc-toggle-caret {
+    transform: rotate(90deg);
+    opacity: 0.6;
+}
+#miscContent {
+    padding: 2px 2px 6px;
+}
+#miscDetail {
+    margin-top: 10px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.15);
+}
+
 .recon-details {
     font-size: 11px;
     font-family: monospace;
