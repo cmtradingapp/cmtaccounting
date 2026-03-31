@@ -47,3 +47,15 @@ MRS Questions Summary:
 	
 10.	Question: How do we automatically obtain CRM/MT4 reports?
 	Answer: Currently unknown, have to ask Gil and Leonidas.
+	
+11.	Question: Where do we get Statements from Banks and PSPs?
+	Answer: We seem to receive them separately from AbsaBank, NetBank, StandardBank, FreeMarket. We must check if an API exists to automate the collection of those statements. Right Now they are collected manually.
+	
+12.	Question: What's the reason we used Oanda before, why not use something free, like Frankfurter.
+	Answer: No reason, we can use Frankfurter, it should be alright.
+	
+General additional questions:
+1.	Question: 01. Jan 2023 CRM report contains junk sometimes in the PSP transaction ID. Where did it come from?
+	Answer: It was a basic human error, as those reports were compiled by hand. We don't need to drown in heuristics to cover all the possible cases, since there is an infinite amount. What we really need is a standard!
+	
+	-Aleh C.
