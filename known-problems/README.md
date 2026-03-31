@@ -9,3 +9,4 @@ Issues discovered during reconciliation analysis that affect match rates, data q
 | [korapay-join-key.md](korapay-join-key.md) | Fixed | 101 unmatched Korapay rows |
 | [unrecon-amount-zero.md](unrecon-amount-zero.md) | Fixed | Unreconciled amount always showed $0.00 |
 | [unfixable-gaps.md](unfixable-gaps.md) | Data gap | ~279 rows — needs different source files |
+| [open-questions.md](open-questions.md) | Research agenda | 44 concrete data science questions across 8 subsystems |
