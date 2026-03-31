@@ -1,0 +1,49 @@
+Division of responsibilities for different parts of the company infrastructure as a whole:
+MT4: Ibrahim or Leonidas.
+CRM: Gil.
+Accounting in general: Despina.
+A lot of rules for report generation: Elis.
+
+
+MRS Questions Summary:
+
+1.	Question: How many unique PSP statement formats are there in total.
+	Answer: Around 20 in total.
+
+1.1	Question: How often do they change?
+	Answer: They most usually don't and in case they do, it is a big event, so we do not need our own notification system.
+	
+2.	Question: How do we find the right join-key column in a PSP file we've never seen before?
+	Answer: We need to have exact rules for each PSP (There are around 20 of them in total). There needs to be a folder with all the possible PSP statement variants, so that we could analyze each one of them separately to infer from that the rules that we will apply to extract the data that we need from them. We will also need an interface in our web application which will allow us to add the rules for new formats, because we could connect new PSPs to our system at any time. The process needs to be easy enough.
+	
+	2.1.1.	Question: Do we need new infrastructure to register new schemas?
+			Answer: Yes.
+			
+	
+3.	Question: How many transformations are there  in total that lead to same transaction ID match?
+	Answer: Before, people did it semi-manually with something that was called "PowerQuery".
+	
+4.	Question: How do we know if the match is correct, not just that the one was found?
+	Answer: First and foremost we need to check if MT4 generates IDs automatically.
+	
+5.	Question: Do CRM and MT4 entries have a standartized format?
+	Answer: Assume yes for now, but need to Gil and Leonidas.
+	
+6.	Question: What would be the frequency of lifecycle reports?
+	Answer: Must be configurable. Daily/Weekly/Monthly. In general the whole system needs to work automatically.
+	
+	6.1.	Question: Where would the lifecycle reports be stored?
+			Answer:	Company stores them in a shared OneDrive folder, which has sub-folders and those sub-folder's names correlate with the date when the report was generated.
+			
+	
+7. 	Question: Where do we get Client Equity Reports from?
+	Answer: We can generate those reports with raw data from MT4, rules for generation could be provided by Elis.
+	
+8.	Question: Where do we get the list of transactions?
+	Answer: We use Praxis which is linked to all the PSPs that we work with, and from what I have assumed, those PSPs send those reports with the help of Praxis API.
+	
+9.	Question: Where do we get openning balances from?
+	Answer:	Balances are received from PSPs. And each PSP obeys its own format, we will need to infer extraction rules from these formats.
+	
+10.	Question: How do we automatically obtain CRM/MT4 reports?
+	Answer: Currently unknown, have to ask Gil and Leonidas.
