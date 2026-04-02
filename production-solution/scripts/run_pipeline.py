@@ -1,21 +1,25 @@
 """CLI entry point for the reconciliation pipeline.
 
-Usage:
-    python scripts/run_pipeline.py --month 2023-01 --data-dir ../relevant-data/MRS/2023/01.\ Jan.\ 2023/
+Usage (file-based — current):
+    python scripts/run_pipeline.py --month 2023-01 --data-dir "../relevant-data/MRS/2023/01. Jan. 2023/"
+
+Usage (Praxis API — once credentials are available):
+    python scripts/run_pipeline.py --month 2023-01 --data-dir <crm-dir> --praxis
 
 Steps:
     1. Init DB (create tables, seed registry)
     2. Auto-discover transformers
     3. Load CRM transactions
-    4. Load PSP + Bank files
-    5. Run SQL reconciliation
-    6. Print summary
+    4. Load PSP statements (file-based or via Praxis API)
+    5. Load Bank statements (always file-based for now)
+    6. Run SQL reconciliation
+    7. Print summary
 """
 
 import os
 import sys
 import argparse
-import glob
+from datetime import date, datetime
 
 # Add parent dir to path so imports work when running from scripts/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -50,8 +54,11 @@ def find_crm_file(data_dir: str) -> str | None:
 def main():
     parser = argparse.ArgumentParser(description="Run the ETL reconciliation pipeline")
     parser.add_argument("--month", required=True, help="Report month (e.g. 2023-01)")
-    parser.add_argument("--data-dir", required=True, help="Path to monthly data directory")
+    parser.add_argument("--data-dir", required=True, help="Path to monthly data directory (must contain platform/ for CRM)")
     parser.add_argument("--fresh", action="store_true", help="Drop and recreate all tables")
+    parser.add_argument("--praxis", action="store_true",
+                        help="Fetch PSP data from Praxis API instead of local files "
+                             "(requires PRAXIS_API_URL and PRAXIS_API_KEY env vars)")
     args = parser.parse_args()
 
     data_dir = os.path.abspath(args.data_dir)
@@ -89,15 +96,34 @@ def main():
         print("  WARNING: No CRM file found in platform/ directory")
         crm_count = 0
 
-    # ── Step 4: Load PSP + Bank files ───────────────────────────────────────
-    print("\n[4/5] Loading PSP and Bank statements...")
-    stats = load_directory(data_dir)
-    print(f"\n  Summary: {stats['psp_files']} PSP files ({stats['psp_rows']} rows), "
-          f"{stats['bank_files']} bank files ({stats['bank_rows']} rows)")
-    if stats["unrecognized"]:
-        print(f"  Unrecognized files: {', '.join(stats['unrecognized'][:10])}")
-        if len(stats["unrecognized"]) > 10:
-            print(f"    ... and {len(stats['unrecognized']) - 10} more")
+    # ── Step 4: Load PSP statements ─────────────────────────────────────────
+    if args.praxis:
+        print("\n[4/5] Fetching PSP statements via Praxis API...")
+        from loaders.praxis_loader import load_all_gateways_via_praxis, PraxisAPIError
+        try:
+            # Derive date range from the report month (full calendar month)
+            year, month = map(int, args.month.split("-"))
+            import calendar
+            last_day = calendar.monthrange(year, month)[1]
+            date_from = date(year, month, 1)
+            date_to = date(year, month, last_day)
+            praxis_stats = load_all_gateways_via_praxis(date_from=date_from, date_to=date_to)
+            total_praxis_rows = sum(praxis_stats.values())
+            print(f"\n  Praxis summary: {len(praxis_stats)} PSPs, {total_praxis_rows} total rows")
+        except (PraxisAPIError, NotImplementedError) as e:
+            print(f"\n  ERROR: Praxis API unavailable — {e}")
+            print("  Falling back to file-based loading...")
+            args.praxis = False
+
+    if not args.praxis:
+        print("\n[4/5] Loading PSP and Bank statements from files...")
+        stats = load_directory(data_dir)
+        print(f"\n  Summary: {stats['psp_files']} PSP files ({stats['psp_rows']} rows), "
+              f"{stats['bank_files']} bank files ({stats['bank_rows']} rows)")
+        if stats["unrecognized"]:
+            print(f"  Unrecognized files: {', '.join(stats['unrecognized'][:10])}")
+            if len(stats["unrecognized"]) > 10:
+                print(f"    ... and {len(stats['unrecognized']) - 10} more")
 
     # ── Step 5: Reconcile ───────────────────────────────────────────────────
     print("\n[5/5] Running reconciliation...")
