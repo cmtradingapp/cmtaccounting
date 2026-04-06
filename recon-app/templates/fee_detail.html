@@ -2,27 +2,6 @@
 {% block title %} — {{ agreement.psp_name }}{% endblock %}
 {% block content %}
 
-<style>
-  .fee-form { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin: 16px 0; }
-  .fee-form label { display: block; margin-bottom: 12px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
-  .fee-form input, .fee-form select, .fee-form textarea {
-    background: var(--bg); border: 1px solid var(--border); color: var(--text);
-    padding: 8px 12px; border-radius: 6px; width: 100%; margin-top: 4px; font-size: 14px;
-  }
-  .fee-form input:focus, .fee-form select:focus { border-color: var(--accent); outline: none; }
-  .fee-form .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
-  .fee-form textarea { resize: vertical; min-height: 50px; }
-  .fee-fields { margin-top: 12px; }
-  .btn-danger { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.3); color: var(--red); }
-  .btn-danger:hover { background: rgba(239,68,68,.25); }
-  .tier-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  .tier-table th { font-size: 11px; text-transform: uppercase; color: var(--muted); text-align: left; padding: 4px 8px; }
-  .tier-table td { padding: 4px 8px; }
-  .tier-table input { width: 100%; }
-  .tier-remove { color: var(--red); background: none; border: none; cursor: pointer; font-size: 16px; padding: 2px 6px; }
-  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 28px 0 12px; }
-  .rule-value { font-family: monospace; font-weight: 600; }
-</style>
 
 <div class="month-bar">
   <a class="btn" href="/fees">← Back to Fees</a>
@@ -72,24 +51,24 @@
     <div class="form-row">
       <label>PSP Name *<input type="text" name="psp_name" required value="{{ agreement.psp_name }}"></label>
       <label>Provider<input type="text" name="provider_name" value="{{ agreement.provider_name or '' }}"></label>
+    </div>
+    <div class="form-row">
       <label>Entity
         <select name="agreement_entity">
           <option value="">—</option>
           {% for e in entities %}<option value="{{ e }}" {{ 'selected' if agreement.agreement_entity == e }}>{{ e }}</option>{% endfor %}
         </select>
       </label>
+      <label>Settlement Bank<input type="text" name="settlement_bank" value="{{ agreement.settlement_bank or '' }}"></label>
     </div>
     <div class="form-row">
       <label>Agreement Date<input type="date" name="agreement_date" value="{{ agreement.agreement_date or '' }}"></label>
       <label>Addendum Date<input type="date" name="addendum_date" value="{{ agreement.addendum_date or '' }}"></label>
-      <label>Settlement Bank<input type="text" name="settlement_bank" value="{{ agreement.settlement_bank or '' }}"></label>
     </div>
-    <div class="form-row">
-      <label style="flex-direction:row;align-items:center;gap:8px;display:flex;">
-        <input type="checkbox" name="auto_settlement" {{ 'checked' if agreement.auto_settlement }} style="width:auto;"> Auto Settlement
-      </label>
-    </div>
-    <div style="margin-top:12px;display:flex;gap:8px;">
+    <label class="check-row">
+      <input type="checkbox" name="auto_settlement" {{ 'checked' if agreement.auto_settlement }}> Auto Settlement
+    </label>
+    <div class="actions">
       <button type="submit" class="btn btn-primary">Save</button>
       <button type="button" class="btn" onclick="document.getElementById('editForm').style.display='none'">Cancel</button>
     </div>
@@ -175,15 +154,18 @@
         {% for t in fee_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
       </select>
     </label>
+  </div>
+
+  <div class="form-row">
     <label>Country
       <input type="text" name="country" value="GLOBAL" placeholder="GLOBAL">
     </label>
-    <label>Sub-Provider
-      <input type="text" name="sub_provider" placeholder="e.g. MTN, Airtel, WAVE">
+    <label>Sub-Provider <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:11px;">(e.g. MTN, Airtel — leave blank if applies to all)</span>
+      <input type="text" name="sub_provider" placeholder="Optional">
     </label>
   </div>
 
-  <div class="form-row" style="margin-top:12px;">
+  <div class="form-row cols-1" style="margin-bottom:4px;">
     <label>Fee Structure *
       <select name="fee_kind" id="feeKind" onchange="toggleFeeFields()" required>
         <option value="percentage">Percentage</option>
@@ -194,16 +176,15 @@
     </label>
   </div>
 
-  <!-- Percentage fields -->
   <div id="pctFields" class="fee-fields">
     <div class="form-row">
       <label>Rate (%)
         <input type="number" name="pct_rate" step="0.001" min="0" max="100" placeholder="e.g. 3.5">
       </label>
+      <div></div>
     </div>
   </div>
 
-  <!-- Fixed amount fields -->
   <div id="fixedFields" class="fee-fields" style="display:none;">
     <div class="form-row">
       <label>Amount
@@ -217,7 +198,6 @@
     </div>
   </div>
 
-  <!-- Tiered fields -->
   <div id="tieredFields" class="fee-fields" style="display:none;">
     <table class="tier-table" id="tierTable">
       <thead><tr><th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th></th></tr></thead>
@@ -226,13 +206,13 @@
     <button type="button" class="btn" onclick="addTierRow()" style="margin-top:8px;font-size:12px;">+ Add Tier</button>
   </div>
 
-  <div class="form-row" style="margin-top:12px;">
+  <div class="form-row cols-1" style="margin-top:4px;">
     <label>Description / Notes
       <textarea name="description" placeholder="Optional notes about this fee rule"></textarea>
     </label>
   </div>
 
-  <div style="margin-top:16px;">
+  <div class="actions">
     <button type="submit" class="btn btn-primary">Add Rule</button>
   </div>
 </form>

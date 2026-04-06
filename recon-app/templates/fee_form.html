@@ -1,19 +1,21 @@
 {% extends "base.html" %}
-{% block title %} — {{ 'Edit' if agreement else 'New' }} PSP Agreement{% endblock %}
+{% block title %} — {{ 'Edit' if agreement else 'New PSP' }} Agreement{% endblock %}
 {% block content %}
 
 <div class="month-bar">
   <a class="btn" href="/fees">← Back to Fees</a>
   <span style="font-size:18px;font-weight:700;margin-left:8px;">
-    {{ 'Edit' if agreement else 'New PSP' }} Agreement
+    {{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}
   </span>
 </div>
 
 <form class="fee-form" method="POST"
-      action="{{ '/fees/' ~ agreement.id ~ '/edit' if agreement else '/fees/new' }}">
+      action="{{ '/fees/' ~ agreement.id ~ '/edit' if agreement else '/fees/new' }}"
+      style="max-width:740px;">
+
   <div class="form-row">
     <label>PSP Name *
-      <input type="text" name="psp_name" required
+      <input type="text" name="psp_name" required autofocus
              value="{{ agreement.psp_name if agreement else '' }}"
              placeholder="e.g. NUVEI">
     </label>
@@ -22,15 +24,24 @@
              value="{{ agreement.provider_name if agreement else '' }}"
              placeholder="e.g. NUVEI LIMITED">
     </label>
+  </div>
+
+  <div class="form-row">
     <label>Agreement Entity
       <select name="agreement_entity">
-        <option value="">—</option>
+        <option value="">— None —</option>
         {% for e in entities %}
         <option value="{{ e }}" {{ 'selected' if agreement and agreement.agreement_entity == e }}>{{ e }}</option>
         {% endfor %}
       </select>
     </label>
+    <label>Settlement Bank
+      <input type="text" name="settlement_bank"
+             value="{{ agreement.settlement_bank if agreement else '' }}"
+             placeholder="e.g. Absa 242586-USD-1046-11">
+    </label>
   </div>
+
   <div class="form-row">
     <label>Agreement Date
       <input type="date" name="agreement_date"
@@ -40,24 +51,21 @@
       <input type="date" name="addendum_date"
              value="{{ agreement.addendum_date if agreement else '' }}">
     </label>
-    <label>Settlement Bank
-      <input type="text" name="settlement_bank"
-             value="{{ agreement.settlement_bank if agreement else '' }}"
-             placeholder="e.g. Absa 242586-USD-1046-11">
-    </label>
   </div>
-  <div class="form-row">
-    <label style="flex-direction:row;align-items:center;gap:8px;display:flex;">
-      <input type="checkbox" name="auto_settlement"
-             {{ 'checked' if agreement and agreement.auto_settlement }}
-             style="width:auto;">
-      Auto Settlement
-    </label>
-  </div>
-  <div style="margin-top:16px;display:flex;gap:10px;">
-    <button type="submit" class="btn btn-primary">{{ 'Save Changes' if agreement else 'Create PSP' }}</button>
+
+  <label class="check-row">
+    <input type="checkbox" name="auto_settlement"
+           {{ 'checked' if agreement and agreement.auto_settlement }}>
+    Auto Settlement
+  </label>
+
+  <div class="actions" style="margin-top:24px;">
+    <button type="submit" class="btn btn-primary">
+      {{ 'Save Changes' if agreement else 'Create PSP' }}
+    </button>
     <a class="btn" href="/fees">Cancel</a>
   </div>
+
 </form>
 
 {% endblock %}

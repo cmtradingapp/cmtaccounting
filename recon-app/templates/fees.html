@@ -29,9 +29,7 @@
     <tbody>
       {% for a in agreements %}
       <tr>
-        <td>
-          <a class="login-link" href="/fees/{{ a.id }}" style="font-family:inherit;font-weight:600;">{{ a.psp_name }}</a>
-        </td>
+        <td><a class="login-link" href="/fees/{{ a.id }}" style="font-family:inherit;font-weight:600;">{{ a.psp_name }}</a></td>
         <td style="color:var(--muted);">{{ a.provider_name or '—' }}</td>
         <td>{{ a.agreement_entity or '—' }}</td>
         <td>{{ a.agreement_date or '—' }}</td>
@@ -55,43 +53,34 @@
 <div class="empty">
   <div style="font-size:48px;margin-bottom:16px;">📋</div>
   <div style="font-size:18px;font-weight:600;margin-bottom:8px;">No PSP agreements yet</div>
-  <div style="color:var(--muted);">Click "Add PSP" to create the first one.</div>
+  <div style="color:var(--muted);">Click "+ Add PSP" to create the first one.</div>
 </div>
 {% endif %}
 
-<div class="section-title" style="margin-top:40px;">Agreement Entities</div>
-<div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
-  <div class="table-wrap" style="min-width:280px;flex:0 0 auto;">
-    <table>
-      <thead><tr><th>Entity Name</th><th></th></tr></thead>
-      <tbody>
-        {% for e in entities %}
-        <tr>
-          <td>{{ e }}</td>
-          <td>
-            <form method="POST" action="/fees/entities/delete"
-                  onsubmit="return confirm('Remove entity {{ e }}?')">
-              <input type="hidden" name="name" value="{{ e }}">
-              <button type="submit" style="color:var(--red);background:none;border:none;cursor:pointer;font-size:16px;">✕</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <form method="POST" action="/fees/entities/add" style="display:flex;gap:8px;align-items:flex-end;">
-    <label style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em;">
-      Add Entity
-      <input type="text" name="name" placeholder="e.g. NEW ENTITY LTD" required
-             style="display:block;margin-top:4px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:14px;width:280px;">
-    </label>
-    <button type="submit" class="btn btn-primary">Add</button>
+<!-- Agreement Entities -->
+<div class="section-title">Agreement Entities</div>
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+  {% for e in entities %}
+  <span class="entity-chip">
+    {{ e }}
+    <form method="POST" action="/fees/entities/delete" style="display:contents;"
+          onsubmit="return confirm('Remove {{ e }}?')">
+      <input type="hidden" name="name" value="{{ e }}">
+      <button type="submit" title="Remove">×</button>
+    </form>
+  </span>
+  {% endfor %}
+
+  <form method="POST" action="/fees/entities/add"
+        style="display:flex;align-items:center;gap:6px;margin-left:4px;">
+    <input type="text" name="name" required placeholder="New entity name…"
+           style="background:var(--surface);border:1px solid var(--border);color:var(--text);
+                  padding:5px 12px;border-radius:20px;font-size:13px;width:200px;outline:none;
+                  transition:border-color .15s;"
+           onfocus="this.style.borderColor='var(--accent)'"
+           onblur="this.style.borderColor='var(--border)'">
+    <button type="submit" class="btn btn-primary" style="padding:5px 14px;border-radius:20px;font-size:13px;">Add</button>
   </form>
 </div>
-
-<style>
-  .section-title { font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:12px; }
-</style>
 
 {% endblock %}
