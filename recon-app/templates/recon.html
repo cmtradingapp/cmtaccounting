@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %} — {{ month }}{% endblock %}
+{% block content %}
+
+<div class="month-bar">
+  <select onchange="window.location.href = '/recon/' + this.value + '?status={{ status_filter }}'">
+    {% for m in months %}
+    <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
+    {% endfor %}
+  </select>
+  <a class="btn btn-primary" href="/recon/{{ month }}/export">↓ Export Excel</a>
+  <span style="color:var(--muted);margin-left:auto;font-size:13px;">
+    MT4 netdeposit vs CRM approved transactions &nbsp;·&nbsp; {{ stats.total }} clients
+  </span>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card green">
+    <div class="label">Matched</div>
+    <div class="value">{{ stats.matched }}</div>
+  </div>
+  <div class="stat-card red">
+    <div class="label">Discrepancy</div>
+    <div class="value">{{ stats.discrepancy }}</div>
+  </div>
+  <div class="stat-card yellow">
+    <div class="label">MT4 Only</div>
+    <div class="value">{{ stats.mt4_only }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">CRM Only</div>
+    <div class="value">{{ stats.crm_only }}</div>
+  </div>
+  <div class="stat-card {% if stats.total_diff < 0 %}red{% elif stats.total_diff > 0 %}yellow{% else %}green{% endif %}">
+    <div class="label">Net Discrepancy (USD)</div>
+    <div class="value">${{ "{:,.0f}".format(stats.total_diff) }}</div>
+  </div>
+  <div class="stat-card green">
+    <div class="label">Match Rate</div>
+    <div class="value">{{ stats.match_rate }}%</div>
+  </div>
+</div>
+
+<div class="filter-bar">
+  {% for f, label in [('all','All'), ('matched','Matched'), ('discrepancy','Discrepancy'), ('mt4_only','MT4 Only'), ('crm_only','CRM Only')] %}
+  <a class="filter-btn {% if status_filter == f %}active{% endif %}"
+     href="/recon/{{ month }}?status={{ f }}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Login</th>
+        <th class="num">MT4 Net (USD)</th>
+        <th class="num">CRM Net (USD)</th>
+        <th class="num">CRM Deposits</th>
+        <th class="num">CRM Withdrawals</th>
+        <th class="num">Difference</th>
+        <th>Status</th>
+        <th>Payment Methods</th>
+        <th class="num">Txns</th>
+        <th>Ccy</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if rows %}
+        {% for r in rows %}
+        <tr>
+          <td><code>{{ r.login }}</code></td>
+          <td class="num">{{ "{:,.2f}".format(r.mt4_net) }}</td>
+          <td class="num">{{ "{:,.2f}".format(r.crm_net) }}</td>
+          <td class="num">{{ "{:,.2f}".format(r.crm_deposits) }}</td>
+          <td class="num">{{ "{:,.2f}".format(r.crm_withdrawals) }}</td>
+          <td class="num {% if r.difference > 0.01 %}pos{% elif r.difference < -0.01 %}neg{% endif %}">
+            {% if r.difference != 0 %}{{ "{:+,.2f}".format(r.difference) }}{% else %}—{% endif %}
+          </td>
+          <td><span class="badge {{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
+          <td style="color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;" title="{{ r.payment_methods }}">
+            {{ r.payment_methods or '—' }}
+          </td>
+          <td class="num">{{ r.tx_count or '—' }}</td>
+          <td>{{ r.currency }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="10" class="empty">No results for this filter.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

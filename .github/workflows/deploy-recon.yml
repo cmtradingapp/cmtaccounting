@@ -1,0 +1,36 @@
+name: Deploy recon-app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'recon-app/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 213.199.45.213
+          username: root
+          password: ${{ secrets.SERVER_PASS }}
+          source: "recon-app/"
+          target: "/root/"
+          strip_components: 0
+
+      - name: Rebuild and restart container
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 213.199.45.213
+          username: root
+          password: ${{ secrets.SERVER_PASS }}
+          script: |
+            set -e
+            cd /root/recon-app
+            docker compose up -d --build
+            docker compose ps
