@@ -196,14 +196,33 @@
       border-bottom: 1px solid var(--border);
     }
 
+    /* ── Form wrapper — centers header + card together ──────────── */
+    .form-wrapper { max-width: 840px; margin: 0 auto; width: 100%; }
+
+    @keyframes formEnter {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fee-form { animation: formEnter .2s ease-out both; }
+
+    /* ── Back link ──────────────────────────────────────────────── */
+    .back-link {
+      font-size: 12px; color: var(--muted); text-decoration: none;
+      display: inline-flex; align-items: center; gap: 4px;
+      margin-bottom: 6px; transition: color .15s;
+    }
+    .back-link:hover { color: var(--text); }
+
     /* ── Fee forms ───────────────────────────────────────────── */
     .fee-form {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-md); padding: var(--sp-4);
+      background: linear-gradient(160deg, var(--surface) 0%, rgba(22,26,40,.95) 100%);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: var(--radius-md); padding: 28px 32px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
     }
     .form-row {
       display: grid; grid-template-columns: repeat(2, 1fr);
-      gap: var(--sp-3); margin-bottom: var(--sp-3);
+      gap: 24px; margin-bottom: var(--sp-3);
     }
     .form-row.cols-1 { grid-template-columns: 1fr; }
     .form-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
@@ -214,12 +233,16 @@
     }
     .fee-form input, .fee-form select, .fee-form textarea {
       height: 40px; padding: 0 12px;
-      background: var(--bg); border: 1px solid var(--border);
+      background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.07);
       color: var(--text); border-radius: var(--radius-sm);
       font-size: 13px; width: 100%;
       transition: border-color .15s;
     }
+    .fee-form input:hover, .fee-form select:hover, .fee-form textarea:hover {
+      border-color: rgba(255,255,255,.14);
+    }
     .fee-form input[type=date] { color-scheme: dark; }
+    .fee-form option { background: var(--surface-alt); color: var(--text); }
     .fee-form textarea { height: auto; min-height: 72px; padding: 10px 12px; resize: vertical; }
     .fee-form input:focus, .fee-form select:focus, .fee-form textarea:focus {
       border-color: var(--accent); outline: none;
@@ -237,19 +260,43 @@
     .fee-fields { margin-top: 4px; }
     .form-section-label {
       font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .1em; color: var(--muted);
+      letter-spacing: .1em; color: #9ca3af;
       margin-bottom: 14px; margin-top: 4px;
     }
+    .form-section-divider {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: #9ca3af;
+      border-top: 1px solid rgba(255,255,255,.06);
+      padding-top: 20px; margin-top: 24px; margin-bottom: 14px;
+    }
     .check-card {
-      display: flex; align-items: center; gap: 10px;
-      background: rgba(255,255,255,.025); border: 1px solid var(--border);
-      border-radius: var(--radius-sm); padding: 10px 14px;
-      font-size: 13px; color: var(--text);
+      display: flex; align-items: flex-start; gap: 12px;
+      background: transparent; border: 1px solid rgba(255,255,255,.07);
+      border-radius: var(--radius-sm); padding: 14px;
+      cursor: pointer; transition: border-color .15s;
+      text-transform: none; letter-spacing: 0; font-weight: 400;
     }
+    .check-card:hover { border-color: rgba(79,142,247,.4); }
     .check-card input[type=checkbox] {
-      width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0;
+      width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;
+      flex-shrink: 0; margin-top: 1px;
     }
+    .check-card-label { font-size: 13px; color: var(--text); font-weight: 500; }
+    .check-card-hint  { font-size: 12px; color: var(--muted); margin-top: 2px; }
     .fee-form .actions { display: flex; gap: 8px; margin-top: var(--sp-3); }
+    .form-footer {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+      padding-top: 16px; margin-top: 32px; border-top: 1px solid var(--border);
+    }
+    .form-footer-actions { display: flex; gap: 8px; }
+    .form-hint { font-size: 12px; color: var(--muted); }
+    .form-hint kbd {
+      font-family: inherit; font-size: 11px;
+      background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1);
+      border-radius: 4px; padding: 1px 5px;
+    }
+    .btn-cancel { color: var(--text-2); border-color: var(--border); background: transparent; }
+    .btn-cancel:hover { color: var(--text); background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.15); }
 
     /* ── Tier table ──────────────────────────────────────────── */
     .tier-table { width: 100%; border-collapse: collapse; margin-top: 8px; }

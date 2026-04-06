@@ -2,40 +2,36 @@
 {% block title %} — {{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}{% endblock %}
 {% block content %}
 
-<!-- Nav breadcrumb -->
-<div style="margin-bottom:6px;">
-  <a href="/fees"
-     style="font-size:12px;color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:4px;transition:color .15s;"
-     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
-    ← Fees
-  </a>
-</div>
+<div class="form-wrapper">
 
-<div class="page-header" style="margin-bottom:var(--sp-4);">
-  <div class="page-title">{{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}</div>
+<div style="margin-bottom:16px;">
+  <a href="/fees" class="back-link">← Fees</a>
+  <div class="page-title" id="form-title">{{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}</div>
 </div>
 
 <form class="fee-form" method="POST"
       action="{{ '/fees/' ~ agreement.id ~ '/edit' if agreement else '/fees/new' }}"
-      style="max-width:760px;">
+      id="psp-form">
 
-  <!-- Section: Identity -->
-  <div class="form-section-label">Identity</div>
+  <!-- Section 1: Identity -->
+  <div class="form-section-label">1 · Identity</div>
   <div class="form-row">
-    <label>PSP Name *
-      <input type="text" name="psp_name" required autofocus
+    <label><span>PSP Name <span style="color:var(--red);">*</span></span>
+      <input type="text" name="psp_name" id="psp_name" required autofocus
              value="{{ agreement.psp_name if agreement else '' }}"
-             placeholder="e.g. NUVEI">
+             placeholder="e.g. NUVEI"
+             oninput="this.value=this.value.toUpperCase();updateTitle(this.value)">
     </label>
     <label>Provider Company Name
       <input type="text" name="provider_name"
              value="{{ agreement.provider_name if agreement else '' }}"
-             placeholder="e.g. NUVEI LIMITED">
+             placeholder="e.g. NUVEI LIMITED"
+             oninput="this.value=this.value.toUpperCase()">
     </label>
   </div>
 
-  <!-- Section: Agreement -->
-  <div class="form-section-label" style="margin-top:20px;">Agreement</div>
+  <!-- Section 2: Agreement -->
+  <div class="form-section-divider">2 · Agreement</div>
   <div class="form-row">
     <label>Agreement Entity
       <select name="agreement_entity">
@@ -49,12 +45,13 @@
       <input type="text" name="settlement_bank"
              value="{{ agreement.settlement_bank if agreement else '' }}"
              placeholder="e.g. Absa 242586-USD-1046-11">
+      <span style="font-size:11px;color:var(--muted);margin-top:2px;">Bank · Account · Currency · Number</span>
     </label>
   </div>
   <div class="form-row">
     <label>Agreement Date
       <input type="date" name="agreement_date"
-             value="{{ agreement.agreement_date if agreement else '' }}">
+             value="{{ agreement.agreement_date if agreement else today }}">
     </label>
     <label>Addendum Date
       <input type="date" name="addendum_date"
@@ -62,29 +59,64 @@
     </label>
   </div>
 
-  <!-- Section: Settlement -->
-  <div class="form-section-label" style="margin-top:20px;">Settlement</div>
-  <div class="check-card">
-    <input type="checkbox" name="auto_settlement"
+  <!-- Section 3: Settlement -->
+  <div class="form-section-divider">3 · Settlement</div>
+  <label class="check-card" for="auto_settlement">
+    <input type="checkbox" id="auto_settlement" name="auto_settlement"
            {{ 'checked' if agreement and agreement.auto_settlement }}>
-    Enable Auto Settlement
-    <span style="color:var(--muted);font-size:12px;margin-left:6px;">
-      — PSP sends funds automatically without manual trigger
-    </span>
-  </div>
+    <div>
+      <div class="check-card-label">Enable Auto Settlement</div>
+      <div class="check-card-hint">PSP sends funds automatically without manual trigger</div>
+    </div>
+  </label>
 
   <!-- Action bar -->
-  <div style="display:flex;align-items:center;gap:8px;
-              padding-top:16px;margin-top:24px;border-top:1px solid var(--border);">
-    <button type="submit" class="btn btn-primary">
-      {{ 'Save Changes' if agreement else 'Create PSP' }}
-    </button>
-    <a class="btn" href="/fees">Cancel</a>
-    <span style="margin-left:auto;font-size:12px;color:var(--muted);">
-      All fields except PSP Name are optional
-    </span>
+  <div class="form-footer">
+    <div class="form-footer-actions">
+      <button type="submit" class="btn btn-primary">
+        {{ 'Save Changes' if agreement else 'Create PSP' }}
+      </button>
+      <a class="btn btn-cancel" href="/fees">Cancel</a>
+    </div>
+    <span class="form-hint"><span style="color:var(--red);">*</span> PSP Name required · all other fields optional · <kbd>Ctrl+Enter</kbd> to submit</span>
   </div>
 
 </form>
+
+</div>{# /.form-wrapper #}
+
+<script>
+(function () {
+  var initialTitle = document.getElementById('form-title').textContent.trim();
+  var isDirty = false;
+
+  // Live title preview
+  function updateTitle(val) {
+    var t = document.getElementById('form-title');
+    t.textContent = val.trim() ? val.trim() : initialTitle;
+  }
+  window.updateTitle = updateTitle;
+
+  // Keyboard submit
+  document.getElementById('psp-form').addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      this.submit();
+    }
+  });
+
+  // Unsaved changes warning (new form only)
+  {% if not agreement %}
+  document.getElementById('psp-form').addEventListener('input', function () { isDirty = true; });
+  window.addEventListener('beforeunload', function (e) {
+    if (!isDirty) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+  document.getElementById('psp-form').addEventListener('submit', function () { isDirty = false; });
+  document.querySelector('.btn-cancel').addEventListener('click', function () { isDirty = false; });
+  {% endif %}
+})();
+</script>
 
 {% endblock %}

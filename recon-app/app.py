@@ -1,6 +1,7 @@
 import io
 import os
 import functools
+from datetime import date
 from flask import Flask, render_template, request, jsonify, send_file, abort, Response, redirect, url_for
 from dotenv import load_dotenv
 
@@ -196,7 +197,8 @@ def fees_new():
             abort(400, "PSP name is required")
         psp_id = queries.create_agreement(data)
         return redirect(url_for("fees_detail", psp_id=psp_id))
-    return render_template("fee_form.html", agreement=None, entities=queries.get_entities())
+    return render_template("fee_form.html", agreement=None, entities=queries.get_entities(),
+                           today=date.today().isoformat())
 
 
 @app.route("/fees/<int:psp_id>")
