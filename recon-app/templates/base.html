@@ -310,6 +310,18 @@
                    font-size: 16px; padding: 2px 6px; opacity: 0; transition: opacity .15s, color .15s; }
     tr:hover .tier-remove { opacity: 1; }
     .tier-remove:hover { color: var(--red); }
+    .btn-rule-edit {
+      color: var(--muted); background: none; border: none; cursor: pointer;
+      font-size: 13px; padding: 2px 6px; opacity: 0; transition: opacity .15s, color .15s;
+    }
+    tr:hover .btn-rule-edit { opacity: 1; }
+    .btn-rule-edit:hover { color: var(--accent); }
+    .edit-rule-banner {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; margin-bottom: 12px;
+      background: rgba(79,142,247,.08); border: 1px solid rgba(79,142,247,.2);
+      border-radius: var(--radius-sm); font-size: 13px; color: var(--accent);
+    }
     .rule-value { font-family: monospace; font-weight: 600; font-size: 13px; }
 
     /* ── Table meta ─────────────────────────────────────────── */
@@ -326,6 +338,50 @@
     }
     tr:hover .btn-danger-sm { opacity: 1; }
     .btn-danger-sm:hover { color: var(--red); background: rgba(239,68,68,.08); border-color: transparent; }
+
+    /* ── PSP Detail two-column layout ───────────────────────── */
+    .detail-layout {
+      display: grid; grid-template-columns: 300px 1fr;
+      gap: var(--sp-5); align-items: start;
+    }
+    .detail-sidebar { position: sticky; top: 24px; }
+
+    /* ── PSP identity card ───────────────────────────────────── */
+    .psp-card {
+      background: linear-gradient(160deg, var(--surface) 0%, rgba(22,26,40,.95) 100%);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,.3);
+      overflow: hidden;
+    }
+    .psp-card-header { padding: 20px 20px 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .psp-card-name { font-size: 18px; font-weight: 700; letter-spacing: -.02em; color: var(--text); margin-bottom: 4px; }
+    .psp-card-sub  { font-size: 12px; color: var(--muted); }
+    .psp-card-body { padding: 16px 20px; }
+    .psp-meta-item { margin-bottom: 14px; }
+    .psp-meta-item:last-child { margin-bottom: 0; }
+    .psp-meta-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--muted); margin-bottom: 3px;
+    }
+    .psp-meta-value { font-size: 13px; color: var(--text); font-weight: 500; }
+    .psp-meta-value.muted { color: var(--text-2); font-weight: 400; }
+    .psp-card-actions {
+      padding: 14px 16px; border-top: 1px solid rgba(255,255,255,.06);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .psp-card-actions .btn { width: 100%; justify-content: center; }
+
+    /* ── Rules section header ────────────────────────────────── */
+    .rules-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: var(--sp-2);
+    }
+    .rules-header .section-title { margin: 0; border: none; padding: 0; }
+    .rules-count {
+      display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+      background: rgba(79,142,247,.12); color: var(--accent);
+      border-radius: 999px; font-size: 11px; font-weight: 700;
+    }
 
     /* ── Entity panel — acts as combined input container ────── */
     .entity-panel {

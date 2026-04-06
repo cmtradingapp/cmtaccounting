@@ -280,6 +280,47 @@ def fees_add_rule(psp_id):
     return redirect(url_for("fees_detail", psp_id=psp_id))
 
 
+@app.route("/fees/rules/<int:rule_id>/edit", methods=["POST"])
+@require_auth
+def fees_edit_rule(rule_id):
+    psp_id = request.form.get("psp_id", type=int)
+    kind = request.form["fee_kind"]
+    data = {
+        "payment_method": request.form.get("payment_method", "").strip() or None,
+        "fee_type":       request.form["fee_type"],
+        "country":        request.form.get("country", "GLOBAL").strip() or "GLOBAL",
+        "sub_provider":   request.form.get("sub_provider", "").strip() or None,
+        "fee_kind":       kind,
+        "pct_rate":       None,
+        "fixed_amount":   None,
+        "fixed_currency": None,
+        "description":    request.form.get("description", "").strip() or None,
+        "tiers":          [],
+    }
+    if kind in ("percentage", "fixed_plus_pct"):
+        raw = request.form.get("pct_rate", "")
+        if raw:
+            data["pct_rate"] = float(raw) / 100.0
+    if kind in ("fixed", "fixed_plus_pct"):
+        raw = request.form.get("fixed_amount", "")
+        if raw:
+            data["fixed_amount"] = float(raw)
+        data["fixed_currency"] = request.form.get("fixed_currency", "USD")
+    if kind == "tiered":
+        froms = request.form.getlist("tier_from")
+        tos   = request.form.getlist("tier_to")
+        rates = request.form.getlist("tier_rate")
+        for f, t, r in zip(froms, tos, rates):
+            if r:
+                data["tiers"].append({
+                    "volume_from": float(f) if f else 0,
+                    "volume_to":   float(t) if t else None,
+                    "pct_rate":    float(r) / 100.0,
+                })
+    queries.update_fee_rule(rule_id, data)
+    return redirect(url_for("fees_detail", psp_id=psp_id))
+
+
 @app.route("/fees/rules/<int:rule_id>/delete", methods=["POST"])
 @require_auth
 def fees_delete_rule(rule_id):

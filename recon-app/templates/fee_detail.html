@@ -1,74 +1,102 @@
 {% extends "base.html" %}
 {% block title %} — {{ agreement.psp_name }}{% endblock %}
+
 {% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<style>
+  /* Tom Select — dark theme, single-select */
+  .ts-wrapper { width: 100%; }
+  .ts-wrapper.single .ts-control {
+    background: rgba(0,0,0,.25) !important;
+    border: 1px solid rgba(255,255,255,.07) !important;
+    border-radius: var(--radius-sm) !important;
+    min-height: 40px !important; height: 40px;
+    padding: 0 36px 0 12px !important;
+    box-shadow: none !important;
+    display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; cursor: pointer !important;
+  }
+  .ts-wrapper.focus .ts-control,
+  .ts-wrapper.single .ts-control:focus-within {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(79,142,247,.1) !important;
+  }
+  .ts-wrapper.single .ts-control .item {
+    color: var(--text) !important; font-size: 13px;
+    display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+  }
+  .ts-wrapper.single .ts-control input {
+    color: var(--text) !important; font-size: 13px !important;
+    font-family: inherit !important; background: transparent !important;
+    min-width: 0 !important; max-width: 100% !important; flex: 1;
+    height: 38px !important; line-height: 38px !important;
+  }
+  .ts-control input::placeholder { color: var(--muted) !important; }
+  /* Arrow indicator */
+  .ts-wrapper.single:after {
+    content: ''; display: block; position: absolute;
+    right: 14px; top: 50%; transform: translateY(-50%);
+    width: 8px; height: 8px;
+    border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+    transform: translateY(-65%) rotate(45deg); pointer-events: none;
+  }
+  /* Clear button */
+  .ts-wrapper.single .clear-button {
+    position: absolute !important; right: 30px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted) !important; background: none !important;
+    border: none !important; font-size: 16px !important;
+    cursor: pointer; opacity: 0; transition: opacity .15s, color .15s;
+    padding: 0 4px !important;
+  }
+  .ts-wrapper.single:hover .clear-button,
+  .ts-wrapper.focus .clear-button { opacity: 1 !important; }
+  .ts-wrapper.single .clear-button:hover { color: var(--red) !important; }
+  /* Dropdown */
+  .ts-dropdown {
+    background: var(--surface-alt) !important;
+    border: 1px solid rgba(255,255,255,.1) !important;
+    border-radius: var(--radius-sm) !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5) !important;
+    font-family: inherit !important; font-size: 13px !important;
+  }
+  .ts-dropdown .ts-dropdown-content { max-height: 240px; }
+  .ts-dropdown .option {
+    padding: 7px 12px !important; cursor: pointer;
+    display: flex; align-items: center; gap: 8px; color: var(--text) !important;
+  }
+  .ts-dropdown .option:hover,
+  .ts-dropdown .option.active  { background: rgba(255,255,255,.06) !important; }
+  .ts-dropdown .option.selected { color: var(--accent) !important; background: rgba(79,142,247,.08) !important; }
+  .ts-dropdown .create { color: var(--muted) !important; font-style: italic; }
+  /* flag-icons sizing inside picker */
+  .ts-control .fi, .ts-dropdown .fi { font-size: 14px; flex-shrink: 0; border-radius: 2px; }
+  /* country flag in table */
+  .fi-cell { display:inline-flex; align-items:center; gap:7px; }
+  .fi-cell .fi { font-size:13px; border-radius:2px; flex-shrink:0; }
+</style>
 
-<!-- Back -->
-<div style="margin-bottom:var(--sp-2);">
-  <a class="btn" href="/fees" style="height:30px;font-size:12px;padding:0 10px;">← Fees</a>
+<!-- Back link -->
+<div style="margin-bottom:16px;">
+  <a href="/fees" class="back-link">← Fees</a>
 </div>
 
-<!-- Title -->
-<div style="margin-bottom:var(--sp-4);">
-  <div class="page-title">{{ agreement.psp_name }}</div>
-  {% if agreement.provider_name %}
-  <div class="page-sub">{{ agreement.provider_name }}</div>
-  {% endif %}
-</div>
-
-<!-- Summary cards -->
-<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:var(--sp-3);">
-  <div class="stat-card">
-    <div class="label">Entity</div>
-    <div style="font-size:13px;font-weight:500;margin-top:4px;">{{ agreement.agreement_entity or '—' }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Agreement Date</div>
-    <div style="font-size:13px;font-weight:500;margin-top:4px;">{{ agreement.agreement_date or '—' }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Addendum</div>
-    <div style="font-size:13px;font-weight:500;margin-top:4px;">{{ agreement.addendum_date or '—' }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Auto Settlement</div>
-    <div style="margin-top:6px;">
-      {% if agreement.auto_settlement %}
-        <span class="badge matched">Yes</span>
-      {% else %}
-        <span style="color:var(--muted);font-size:13px;">No</span>
-      {% endif %}
-    </div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Settlement Bank</div>
-    <div style="font-size:12px;color:var(--text-2);margin-top:4px;">{{ agreement.settlement_bank or '—' }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Fee Rules</div>
-    <div class="value">{{ rules|length }}</div>
-  </div>
-</div>
-
-<!-- Actions -->
-<div style="display:flex;gap:8px;align-items:center;margin-bottom:var(--sp-5);
-            padding-top:var(--sp-2);border-top:1px solid var(--border);">
-  <button class="btn" onclick="
-    var f=document.getElementById('editForm');
-    f.style.display = f.style.display==='none'?'':'none';
-  ">Edit Agreement</button>
-  <form method="POST" action="/fees/{{ agreement.id }}/delete"
-        onsubmit="return confirm('Deactivate {{ agreement.psp_name }}?')">
-    <button type="submit" class="btn btn-danger">Deactivate</button>
-  </form>
-</div>
-
-<!-- Inline edit form -->
+<!-- Inline edit form — full-width, hidden by default -->
 <div id="editForm" style="display:none;margin-bottom:var(--sp-5);">
   <form class="fee-form" method="POST" action="/fees/{{ agreement.id }}/edit">
+    <div class="form-section-label">Identity</div>
     <div class="form-row">
-      <label>PSP Name *<input type="text" name="psp_name" required value="{{ agreement.psp_name }}"></label>
-      <label>Provider<input type="text" name="provider_name" value="{{ agreement.provider_name or '' }}"></label>
+      <label>PSP Name *
+        <input type="text" name="psp_name" required value="{{ agreement.psp_name }}"
+               oninput="this.value=this.value.toUpperCase()">
+      </label>
+      <label>Provider Company Name
+        <input type="text" name="provider_name" value="{{ agreement.provider_name or '' }}"
+               oninput="this.value=this.value.toUpperCase()">
+      </label>
     </div>
+    <div class="form-section-divider">Agreement</div>
     <div class="form-row">
       <label>Entity
         <select name="agreement_entity">
@@ -76,193 +104,661 @@
           {% for e in entities %}<option value="{{ e }}" {{ 'selected' if agreement.agreement_entity == e }}>{{ e }}</option>{% endfor %}
         </select>
       </label>
-      <label>Settlement Bank<input type="text" name="settlement_bank" value="{{ agreement.settlement_bank or '' }}"></label>
-    </div>
-    <div class="form-row">
-      <label>Agreement Date<input type="date" name="agreement_date" value="{{ agreement.agreement_date or '' }}"></label>
-      <label>Addendum Date<input type="date" name="addendum_date" value="{{ agreement.addendum_date or '' }}"></label>
-    </div>
-    <div class="form-row cols-1" style="margin-bottom:var(--sp-3);">
-      <label class="check-row" style="text-transform:none;letter-spacing:0;font-size:13px;font-weight:400;">
-        <input type="checkbox" name="auto_settlement" {{ 'checked' if agreement.auto_settlement }}> Enable Auto Settlement
+      <label>Settlement Bank
+        <input type="text" name="settlement_bank" value="{{ agreement.settlement_bank or '' }}">
       </label>
     </div>
-    <div class="actions" style="padding-top:var(--sp-2);border-top:1px solid var(--border);">
-      <button type="submit" class="btn btn-primary">Save</button>
-      <button type="button" class="btn" onclick="document.getElementById('editForm').style.display='none'">Cancel</button>
+    <div class="form-row">
+      <label>Agreement Date
+        <input type="date" name="agreement_date" value="{{ agreement.agreement_date or '' }}">
+      </label>
+      <label>Addendum Date
+        <input type="date" name="addendum_date" value="{{ agreement.addendum_date or '' }}">
+      </label>
+    </div>
+    <div class="form-section-divider">Settlement</div>
+    <label class="check-card" for="edit_auto_settlement">
+      <input type="checkbox" id="edit_auto_settlement" name="auto_settlement"
+             {{ 'checked' if agreement.auto_settlement }}>
+      <div>
+        <div class="check-card-label">Enable Auto Settlement</div>
+        <div class="check-card-hint">PSP sends funds automatically without manual trigger</div>
+      </div>
+    </label>
+    <div class="form-footer">
+      <div class="form-footer-actions">
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+        <button type="button" class="btn btn-cancel" onclick="toggleEdit()">Cancel</button>
+      </div>
     </div>
   </form>
 </div>
 
-<!-- Fee Rules -->
-<div class="section-title">Fee Rules</div>
+<!-- Two-column layout -->
+<div class="detail-layout">
 
-{% if rules %}
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr>
-        <th>Payment Method</th>
-        <th>Type</th>
-        <th>Country</th>
-        <th>Sub-Provider</th>
-        <th class="num">Fee</th>
-        <th>Description</th>
-        <th style="width:40px;"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rules %}
-      <tr>
-        <td>{{ r.payment_method or '—' }}</td>
-        <td>
-          <span class="badge {% if r.fee_type == 'Deposit' %}matched{% elif r.fee_type == 'Withdrawal' %}discrepancy{% else %}mt4_only{% endif %}">
-            {{ r.fee_type }}
-          </span>
-        </td>
-        <td>{{ r.country or 'Global' }}</td>
-        <td style="color:var(--text-2);">{{ r.sub_provider or '—' }}</td>
-        <td class="num rule-value">
-          {% if r.fee_kind == 'percentage' %}
-            {{ "%.2f"|format((r.pct_rate or 0) * 100) }}%
-          {% elif r.fee_kind == 'fixed' %}
-            {{ "%.2f"|format(r.fixed_amount or 0) }} {{ r.fixed_currency or '' }}
-          {% elif r.fee_kind == 'fixed_plus_pct' %}
-            {{ "%.2f"|format(r.fixed_amount or 0) }} {{ r.fixed_currency or '' }} + {{ "%.2f"|format((r.pct_rate or 0) * 100) }}%
-          {% elif r.fee_kind == 'tiered' %}
-            <span class="badge crm_only" style="cursor:pointer;"
-                  onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='none'?'':'none'">
-              Tiered ({{ r.tiers|length }})
-            </span>
-            <div style="display:none;margin-top:8px;text-align:left;">
-              {% for t in r.tiers %}
-              <div style="color:var(--muted);font-size:12px;font-family:monospace;padding:2px 0;">
-                {{ "{:,.0f}".format(t.volume_from) }}{% if t.volume_to %} – {{ "{:,.0f}".format(t.volume_to) }}{% else %}+{% endif %}
-                <span style="color:var(--text);font-weight:600;margin-left:8px;">{{ "%.2f"|format(t.pct_rate * 100) }}%</span>
-              </div>
-              {% endfor %}
-            </div>
-          {% endif %}
-        </td>
-        <td style="color:var(--text-2);max-width:220px;overflow:hidden;
-                   text-overflow:ellipsis;font-size:12px;" title="{{ r.description or '' }}">
-          {{ r.description or '—' }}
-        </td>
-        <td>
-          <form method="POST" action="/fees/rules/{{ r.id }}/delete"
-                onsubmit="return confirm('Delete this fee rule?')">
-            <input type="hidden" name="psp_id" value="{{ agreement.id }}">
-            <button type="submit" class="tier-remove" title="Delete rule">✕</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% else %}
-<div style="color:var(--muted);text-align:center;padding:32px;
-            background:var(--surface);border:1px solid var(--border);
-            border-radius:var(--radius-md);">
-  No fee rules yet. Use the form below to add the first one.
-</div>
-{% endif %}
+  <!-- LEFT: sticky sidebar -->
+  <aside class="detail-sidebar">
+    <div class="psp-card">
 
-<!-- Add Fee Rule -->
-<div class="section-title">Add Fee Rule</div>
-<form class="fee-form" method="POST" action="/fees/{{ agreement.id }}/rules/add">
+      <div class="psp-card-header">
+        <div class="psp-card-name">{{ agreement.psp_name }}</div>
+        <div class="psp-card-sub">{{ agreement.provider_name or '—' }}</div>
+      </div>
 
-  <div class="form-row">
-    <label>Payment Method
-      <select name="payment_method">
-        <option value="">— Any —</option>
-        {% for m in payment_methods %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Fee Type *
-      <select name="fee_type" required>
-        {% for t in fee_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
-      </select>
-    </label>
-  </div>
+      <div class="psp-card-body">
+        <div class="psp-meta-item">
+          <div class="psp-meta-label">Entity</div>
+          <div class="psp-meta-value {% if not agreement.agreement_entity %}muted{% endif %}">
+            {{ agreement.agreement_entity or '—' }}
+          </div>
+        </div>
+        <div class="psp-meta-item">
+          <div class="psp-meta-label">Agreement Date</div>
+          <div class="psp-meta-value {% if not agreement.agreement_date %}muted{% endif %}">
+            {{ agreement.agreement_date or '—' }}
+          </div>
+        </div>
+        <div class="psp-meta-item">
+          <div class="psp-meta-label">Addendum Date</div>
+          <div class="psp-meta-value muted">{{ agreement.addendum_date or '—' }}</div>
+        </div>
+        <div class="psp-meta-item">
+          <div class="psp-meta-label">Settlement Bank</div>
+          <div class="psp-meta-value {% if not agreement.settlement_bank %}muted{% endif %}"
+               style="word-break:break-word;white-space:normal;">
+            {{ agreement.settlement_bank or '—' }}
+          </div>
+        </div>
+        <div class="psp-meta-item">
+          <div class="psp-meta-label">Auto Settlement</div>
+          <div style="margin-top:4px;">
+            {% if agreement.auto_settlement %}
+              <span class="badge matched">Yes</span>
+            {% else %}
+              <span style="font-size:13px;color:var(--muted);">No</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
 
-  <div class="form-row">
-    <label>Country
-      <input type="text" name="country" value="GLOBAL">
-    </label>
-    <label>Sub-Provider
-      <input type="text" name="sub_provider" placeholder="Optional — e.g. MTN, Airtel">
-    </label>
-  </div>
+      <div class="psp-card-actions">
+        <button class="btn btn-ghost" onclick="toggleEdit()">✎ Edit Agreement</button>
+        <form method="POST" action="/fees/{{ agreement.id }}/delete"
+              onsubmit="return confirm('Deactivate {{ agreement.psp_name }}?')">
+          <button type="submit" class="btn btn-danger">Deactivate</button>
+        </form>
+      </div>
 
-  <div class="form-row cols-1" style="margin-bottom:var(--sp-2);">
-    <label>Fee Structure *
-      <select name="fee_kind" id="feeKind" onchange="toggleFeeFields()" required
-              style="max-width:320px;">
-        <option value="percentage">Percentage</option>
-        <option value="fixed">Fixed Amount</option>
-        <option value="fixed_plus_pct">Fixed + Percentage</option>
-        <option value="tiered">Volume Tiered</option>
-      </select>
-    </label>
-  </div>
-
-  <!-- Percentage -->
-  <div id="pctFields" class="fee-fields">
-    <div class="form-row">
-      <label>Rate (%)
-        <input type="number" name="pct_rate" step="0.001" min="0" max="100" placeholder="e.g. 3.5">
-      </label>
-      <div></div>
     </div>
-  </div>
+  </aside>
 
-  <!-- Fixed -->
-  <div id="fixedFields" class="fee-fields" style="display:none;">
-    <div class="form-row">
-      <label>Amount
-        <input type="number" name="fixed_amount" step="0.01" min="0" placeholder="e.g. 100">
-      </label>
-      <label>Currency
-        <select name="fixed_currency">
-          {% for c in currencies %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
-        </select>
-      </label>
+  <!-- RIGHT: main content -->
+  <div>
+
+    <!-- Fee Rules -->
+    <div class="rules-header">
+      <div class="section-title">Fee Rules</div>
+      <span class="rules-count">{{ rules|length }}</span>
     </div>
-  </div>
 
-  <!-- Tiered -->
-  <div id="tieredFields" class="fee-fields" style="display:none;">
-    <table class="tier-table" id="tierTable">
-      <thead>
-        <tr><th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th style="width:40px;"></th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <button type="button" class="btn" onclick="addTierRow()"
-            style="margin-top:10px;height:30px;font-size:12px;padding:0 12px;">+ Add Tier</button>
-  </div>
+    {% if rules %}
+    <div class="table-wrap" style="margin-bottom:var(--sp-5);">
+      <table>
+        <thead>
+          <tr>
+            <th>Payment Method</th>
+            <th>Type</th>
+            <th>Country</th>
+            <th>Sub-Provider</th>
+            <th class="num">Fee</th>
+            <th>Description</th>
+            <th style="width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rules %}
+          <tr>
+            <td>
+              {% if r.payment_method %}
+                {{ r.payment_method }}
+              {% else %}
+                <span style="color:var(--muted);font-size:12px;">Any</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="badge {% if r.fee_type == 'Deposit' %}matched{% elif r.fee_type == 'Withdrawal' %}discrepancy{% else %}mt4_only{% endif %}">
+                {{ r.fee_type }}
+              </span>
+            </td>
+            <td class="country-cell" data-country="{{ r.country or 'GLOBAL' }}">{{ r.country or 'Global' }}</td>
+            <td style="color:var(--text-2);">{{ r.sub_provider or '—' }}</td>
+            <td class="num rule-value">
+              {% if r.fee_kind == 'percentage' %}
+                {{ "%.2f"|format((r.pct_rate or 0) * 100) }}%
+              {% elif r.fee_kind == 'fixed' %}
+                {{ "%.2f"|format(r.fixed_amount or 0) }} {{ r.fixed_currency or '' }}
+              {% elif r.fee_kind == 'fixed_plus_pct' %}
+                {{ "%.2f"|format(r.fixed_amount or 0) }} {{ r.fixed_currency or '' }} + {{ "%.2f"|format((r.pct_rate or 0) * 100) }}%
+              {% elif r.fee_kind == 'tiered' %}
+                <span class="badge crm_only" style="cursor:pointer;"
+                      onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='none'?'':'none'">
+                  Tiered ({{ r.tiers|length }})
+                </span>
+                <div style="display:none;margin-top:8px;text-align:left;">
+                  {% for t in r.tiers %}
+                  <div style="color:var(--muted);font-size:12px;font-family:monospace;padding:2px 0;">
+                    {{ "{:,.0f}".format(t.volume_from) }}{% if t.volume_to %} – {{ "{:,.0f}".format(t.volume_to) }}{% else %}+{% endif %}
+                    <span style="color:var(--text);font-weight:600;margin-left:8px;">{{ "%.2f"|format(t.pct_rate * 100) }}%</span>
+                  </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </td>
+            <td style="color:var(--text-2);max-width:200px;overflow:hidden;
+                       text-overflow:ellipsis;font-size:12px;" title="{{ r.description or '' }}">
+              {{ r.description or '—' }}
+            </td>
+            <td style="text-align:right;">
+              <button type="button" class="btn-rule-edit" onclick="editRule({{ r.id }})" title="Edit rule">✎</button>
+              <form method="POST" action="/fees/rules/{{ r.id }}/delete"
+                    onsubmit="return confirm('Delete this fee rule?')"
+                    style="display:inline;">
+                <input type="hidden" name="psp_id" value="{{ agreement.id }}">
+                <button type="submit" class="tier-remove" title="Delete rule">✕</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="text-align:center;padding:40px 32px;margin-bottom:var(--sp-5);
+                background:var(--surface);border:1px solid var(--border);
+                border-radius:var(--radius-md);color:var(--muted);">
+      <div style="font-size:28px;margin-bottom:10px;opacity:.35;">📋</div>
+      <div style="font-size:14px;font-weight:600;color:var(--text-2);margin-bottom:4px;">No fee rules yet</div>
+      <div style="font-size:13px;">Use the form below to add the first rule.</div>
+    </div>
+    {% endif %}
 
-  <div class="form-row cols-1" style="margin-top:var(--sp-2);">
-    <label>Notes
-      <textarea name="description" placeholder="Optional — any relevant notes about this fee rule"></textarea>
-    </label>
-  </div>
+    <!-- Inline rule edit form -->
+    <div id="editRuleWrap" style="display:none;margin-bottom:var(--sp-4);">
+      <div class="edit-rule-banner">
+        <span id="editRuleBannerText">Editing fee rule</span>
+        <button type="button" onclick="closeEditRule()"
+                style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:16px;line-height:1;">×</button>
+      </div>
+      <form class="fee-form" method="POST" action="" id="editRuleFormEl">
+        <input type="hidden" name="psp_id" value="{{ agreement.id }}">
 
-  <div class="actions" style="padding-top:var(--sp-2);border-top:1px solid var(--border);">
-    <button type="submit" class="btn btn-primary">Add Rule</button>
-  </div>
-</form>
+        <div class="form-section-label">Classification</div>
+        <div class="form-row">
+          <label>Payment Method
+            <select name="payment_method">
+              <option value="">— Any —</option>
+              {% for m in payment_methods %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>Fee Type *
+            <select name="fee_type" required>
+              {% for t in fee_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Country
+            <select id="editCountryInput" name="country"><option value="GLOBAL" selected>Global</option></select>
+          </label>
+          <label>Sub-Provider
+            <input type="text" name="sub_provider" placeholder="Optional — e.g. MTN, Airtel">
+          </label>
+        </div>
+
+        <div class="form-section-divider">Fee Structure</div>
+        <div class="form-row" style="margin-bottom:var(--sp-3);">
+          <label>Structure *
+            <select name="fee_kind" id="editFeeKind" onchange="toggleEditFeeFields()" required>
+              <option value="percentage">Percentage</option>
+              <option value="fixed">Fixed Amount</option>
+              <option value="fixed_plus_pct">Fixed + Percentage</option>
+              <option value="tiered">Volume Tiered</option>
+            </select>
+          </label>
+          <div></div>
+        </div>
+
+        <div id="editPctFields" class="fee-fields">
+          <div class="form-row">
+            <label>Rate (%)
+              <input type="number" name="pct_rate" step="0.001" min="0" max="100" placeholder="e.g. 3.5">
+            </label>
+            <div></div>
+          </div>
+        </div>
+        <div id="editFixedFields" class="fee-fields" style="display:none;">
+          <div class="form-row">
+            <label>Amount
+              <input type="number" name="fixed_amount" step="0.01" min="0" placeholder="e.g. 100">
+            </label>
+            <label>Currency
+              <select id="editCurrencyInput" name="fixed_currency"><option value="USD" selected>USD</option></select>
+            </label>
+          </div>
+        </div>
+        <div id="editTieredFields" class="fee-fields" style="display:none;">
+          <table class="tier-table" id="editTierTable">
+            <thead>
+              <tr><th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th style="width:40px;"></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <button type="button" class="btn" onclick="addEditTierRow()"
+                  style="margin-top:10px;height:30px;font-size:12px;padding:0 12px;">+ Add Tier</button>
+        </div>
+
+        <div class="form-section-divider">Notes</div>
+        <div class="form-row cols-1">
+          <label>Description
+            <textarea name="description" placeholder="Optional — any relevant notes about this fee rule"></textarea>
+          </label>
+        </div>
+
+        <div class="form-footer">
+          <div class="form-footer-actions">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <button type="button" class="btn btn-cancel" onclick="closeEditRule()">Cancel</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- Add Fee Rule -->
+    <div class="section-title">Add Fee Rule</div>
+    <form class="fee-form" method="POST" action="/fees/{{ agreement.id }}/rules/add">
+
+      <div class="form-section-label">Classification</div>
+      <div class="form-row">
+        <label>Payment Method
+          <select name="payment_method">
+            <option value="">— Any —</option>
+            {% for m in payment_methods %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Fee Type *
+          <select name="fee_type" required>
+            {% for t in fee_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Country
+          <select id="addCountryInput" name="country"><option value="GLOBAL" selected>Global</option></select>
+        </label>
+        <label>Sub-Provider
+          <input type="text" name="sub_provider" placeholder="Optional — e.g. MTN, Airtel">
+        </label>
+      </div>
+
+      <div class="form-section-divider">Fee Structure</div>
+      <div class="form-row" style="margin-bottom:var(--sp-3);">
+        <label>Structure *
+          <select name="fee_kind" id="feeKind" onchange="toggleFeeFields()" required>
+            <option value="percentage">Percentage</option>
+            <option value="fixed">Fixed Amount</option>
+            <option value="fixed_plus_pct">Fixed + Percentage</option>
+            <option value="tiered">Volume Tiered</option>
+          </select>
+        </label>
+        <div></div>
+      </div>
+
+      <div id="pctFields" class="fee-fields">
+        <div class="form-row">
+          <label>Rate (%)
+            <input type="number" name="pct_rate" step="0.001" min="0" max="100" placeholder="e.g. 3.5">
+          </label>
+          <div></div>
+        </div>
+      </div>
+
+      <div id="fixedFields" class="fee-fields" style="display:none;">
+        <div class="form-row">
+          <label>Amount
+            <input type="number" name="fixed_amount" step="0.01" min="0" placeholder="e.g. 100">
+          </label>
+          <label>Currency
+            <select id="addCurrencyInput" name="fixed_currency"><option value="USD" selected>USD</option></select>
+          </label>
+        </div>
+      </div>
+
+      <div id="tieredFields" class="fee-fields" style="display:none;">
+        <table class="tier-table" id="tierTable">
+          <thead>
+            <tr><th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th style="width:40px;"></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <button type="button" class="btn" onclick="addTierRow()"
+                style="margin-top:10px;height:30px;font-size:12px;padding:0 12px;">+ Add Tier</button>
+      </div>
+
+      <div class="form-section-divider">Notes</div>
+      <div class="form-row cols-1">
+        <label>Description
+          <textarea name="description" placeholder="Optional — any relevant notes about this fee rule"></textarea>
+        </label>
+      </div>
+
+      <div class="form-footer">
+        <div class="form-footer-actions">
+          <button type="submit" class="btn btn-primary">Add Rule</button>
+        </div>
+      </div>
+
+    </form>
+
+  </div>{# /.right column #}
+</div>{# /.detail-layout #}
 
 <script>
+var RULES = {{ rules | tojson }};
+
+/* ── Country data (value, label, ISO for flag-icons) ─────── */
+var COUNTRIES = [
+  {v:'GLOBAL',            l:'Global',                 i:null},
+  // Africa
+  {v:'Algeria',           l:'Algeria',                i:'dz'},
+  {v:'Angola',            l:'Angola',                 i:'ao'},
+  {v:'Benin',             l:'Benin',                  i:'bj'},
+  {v:'Botswana',          l:'Botswana',               i:'bw'},
+  {v:'Burkina Faso',      l:'Burkina Faso',           i:'bf'},
+  {v:'Burundi',           l:'Burundi',                i:'bi'},
+  {v:'Cameroon',          l:'Cameroon',               i:'cm'},
+  {v:'Cape Verde',        l:'Cape Verde',             i:'cv'},
+  {v:'CAR',               l:'Central African Rep.',   i:'cf'},
+  {v:'Chad',              l:'Chad',                   i:'td'},
+  {v:'Comoros',           l:'Comoros',                i:'km'},
+  {v:'Congo',             l:'Congo',                  i:'cg'},
+  {v:'DRC',               l:'DR Congo',               i:'cd'},
+  {v:'Djibouti',          l:'Djibouti',               i:'dj'},
+  {v:'Egypt',             l:'Egypt',                  i:'eg'},
+  {v:'Equatorial Guinea', l:'Equatorial Guinea',      i:'gq'},
+  {v:'Eritrea',           l:'Eritrea',                i:'er'},
+  {v:'Eswatini',          l:'Eswatini',               i:'sz'},
+  {v:'Ethiopia',          l:'Ethiopia',               i:'et'},
+  {v:'Gabon',             l:'Gabon',                  i:'ga'},
+  {v:'Gambia',            l:'Gambia',                 i:'gm'},
+  {v:'Ghana',             l:'Ghana',                  i:'gh'},
+  {v:'Guinea',            l:'Guinea',                 i:'gn'},
+  {v:'Guinea-Bissau',     l:'Guinea-Bissau',          i:'gw'},
+  {v:'Ivory Coast',       l:'Ivory Coast',            i:'ci'},
+  {v:'Kenya',             l:'Kenya',                  i:'ke'},
+  {v:'Lesotho',           l:'Lesotho',                i:'ls'},
+  {v:'Liberia',           l:'Liberia',                i:'lr'},
+  {v:'Libya',             l:'Libya',                  i:'ly'},
+  {v:'Madagascar',        l:'Madagascar',             i:'mg'},
+  {v:'Malawi',            l:'Malawi',                 i:'mw'},
+  {v:'Mali',              l:'Mali',                   i:'ml'},
+  {v:'Mauritania',        l:'Mauritania',             i:'mr'},
+  {v:'Mauritius',         l:'Mauritius',              i:'mu'},
+  {v:'Morocco',           l:'Morocco',                i:'ma'},
+  {v:'Mozambique',        l:'Mozambique',             i:'mz'},
+  {v:'Namibia',           l:'Namibia',                i:'na'},
+  {v:'Niger',             l:'Niger',                  i:'ne'},
+  {v:'Nigeria',           l:'Nigeria',                i:'ng'},
+  {v:'Rwanda',            l:'Rwanda',                 i:'rw'},
+  {v:'Sao Tome',          l:'São Tomé & Príncipe',    i:'st'},
+  {v:'Senegal',           l:'Senegal',                i:'sn'},
+  {v:'Seychelles',        l:'Seychelles',             i:'sc'},
+  {v:'Sierra Leone',      l:'Sierra Leone',           i:'sl'},
+  {v:'Somalia',           l:'Somalia',                i:'so'},
+  {v:'South Africa',      l:'South Africa',           i:'za'},
+  {v:'South Sudan',       l:'South Sudan',            i:'ss'},
+  {v:'Sudan',             l:'Sudan',                  i:'sd'},
+  {v:'Tanzania',          l:'Tanzania',               i:'tz'},
+  {v:'Togo',              l:'Togo',                   i:'tg'},
+  {v:'Tunisia',           l:'Tunisia',                i:'tn'},
+  {v:'Uganda',            l:'Uganda',                 i:'ug'},
+  {v:'Zambia',            l:'Zambia',                 i:'zm'},
+  {v:'Zimbabwe',          l:'Zimbabwe',               i:'zw'},
+  // Middle East
+  {v:'Bahrain',           l:'Bahrain',                i:'bh'},
+  {v:'Iran',              l:'Iran',                   i:'ir'},
+  {v:'Iraq',              l:'Iraq',                   i:'iq'},
+  {v:'Israel',            l:'Israel',                 i:'il'},
+  {v:'Jordan',            l:'Jordan',                 i:'jo'},
+  {v:'Kuwait',            l:'Kuwait',                 i:'kw'},
+  {v:'Lebanon',           l:'Lebanon',                i:'lb'},
+  {v:'Oman',              l:'Oman',                   i:'om'},
+  {v:'Palestine',         l:'Palestine',              i:'ps'},
+  {v:'Qatar',             l:'Qatar',                  i:'qa'},
+  {v:'Saudi Arabia',      l:'Saudi Arabia',           i:'sa'},
+  {v:'Syria',             l:'Syria',                  i:'sy'},
+  {v:'Turkey',            l:'Turkey',                 i:'tr'},
+  {v:'UAE',               l:'UAE',                    i:'ae'},
+  {v:'Yemen',             l:'Yemen',                  i:'ye'},
+  // Europe
+  {v:'Austria',           l:'Austria',                i:'at'},
+  {v:'Belgium',           l:'Belgium',                i:'be'},
+  {v:'Cyprus',            l:'Cyprus',                 i:'cy'},
+  {v:'Czech Republic',    l:'Czech Republic',         i:'cz'},
+  {v:'Denmark',           l:'Denmark',                i:'dk'},
+  {v:'Estonia',           l:'Estonia',                i:'ee'},
+  {v:'Finland',           l:'Finland',                i:'fi'},
+  {v:'France',            l:'France',                 i:'fr'},
+  {v:'Germany',           l:'Germany',                i:'de'},
+  {v:'Greece',            l:'Greece',                 i:'gr'},
+  {v:'Hungary',           l:'Hungary',                i:'hu'},
+  {v:'Ireland',           l:'Ireland',                i:'ie'},
+  {v:'Italy',             l:'Italy',                  i:'it'},
+  {v:'Latvia',            l:'Latvia',                 i:'lv'},
+  {v:'Lithuania',         l:'Lithuania',              i:'lt'},
+  {v:'Luxembourg',        l:'Luxembourg',             i:'lu'},
+  {v:'Malta',             l:'Malta',                  i:'mt'},
+  {v:'Netherlands',       l:'Netherlands',            i:'nl'},
+  {v:'Norway',            l:'Norway',                 i:'no'},
+  {v:'Poland',            l:'Poland',                 i:'pl'},
+  {v:'Portugal',          l:'Portugal',               i:'pt'},
+  {v:'Romania',           l:'Romania',                i:'ro'},
+  {v:'Russia',            l:'Russia',                 i:'ru'},
+  {v:'Slovakia',          l:'Slovakia',               i:'sk'},
+  {v:'Slovenia',          l:'Slovenia',               i:'si'},
+  {v:'Spain',             l:'Spain',                  i:'es'},
+  {v:'Sweden',            l:'Sweden',                 i:'se'},
+  {v:'Switzerland',       l:'Switzerland',            i:'ch'},
+  {v:'UK',                l:'UK',                     i:'gb'},
+  {v:'Ukraine',           l:'Ukraine',                i:'ua'},
+  // Americas
+  {v:'Argentina',         l:'Argentina',              i:'ar'},
+  {v:'Bolivia',           l:'Bolivia',                i:'bo'},
+  {v:'Brazil',            l:'Brazil',                 i:'br'},
+  {v:'Canada',            l:'Canada',                 i:'ca'},
+  {v:'Chile',             l:'Chile',                  i:'cl'},
+  {v:'Colombia',          l:'Colombia',               i:'co'},
+  {v:'Ecuador',           l:'Ecuador',                i:'ec'},
+  {v:'Mexico',            l:'Mexico',                 i:'mx'},
+  {v:'Panama',            l:'Panama',                 i:'pa'},
+  {v:'Peru',              l:'Peru',                   i:'pe'},
+  {v:'USA',               l:'USA',                    i:'us'},
+  {v:'Venezuela',         l:'Venezuela',              i:'ve'},
+  // Asia Pacific
+  {v:'Australia',         l:'Australia',              i:'au'},
+  {v:'Bangladesh',        l:'Bangladesh',             i:'bd'},
+  {v:'China',             l:'China',                  i:'cn'},
+  {v:'Hong Kong',         l:'Hong Kong',              i:'hk'},
+  {v:'India',             l:'India',                  i:'in'},
+  {v:'Indonesia',         l:'Indonesia',              i:'id'},
+  {v:'Japan',             l:'Japan',                  i:'jp'},
+  {v:'Malaysia',          l:'Malaysia',               i:'my'},
+  {v:'Myanmar',           l:'Myanmar',                i:'mm'},
+  {v:'New Zealand',       l:'New Zealand',            i:'nz'},
+  {v:'Pakistan',          l:'Pakistan',               i:'pk'},
+  {v:'Philippines',       l:'Philippines',            i:'ph'},
+  {v:'Singapore',         l:'Singapore',              i:'sg'},
+  {v:'South Korea',       l:'South Korea',            i:'kr'},
+  {v:'Sri Lanka',         l:'Sri Lanka',              i:'lk'},
+  {v:'Taiwan',            l:'Taiwan',                 i:'tw'},
+  {v:'Thailand',          l:'Thailand',               i:'th'},
+  {v:'Vietnam',           l:'Vietnam',                i:'vn'},
+];
+
+/* Build a lookup map for table flags */
+var COUNTRY_ISO = {};
+COUNTRIES.forEach(function(c) { if (c.i) COUNTRY_ISO[c.v] = c.i; });
+
+function flagHtml(iso) {
+  return iso ? '<span class="fi fi-' + iso + '"></span>' : '<span style="font-size:14px;">🌍</span>';
+}
+
+var TS_CONFIG = {
+  valueField:  'v',
+  labelField:  'l',
+  searchField: ['v', 'l'],
+  options:     COUNTRIES,
+  maxItems:    1,
+  allowEmptyOption: true,
+  create: function(input) { return {v: input, l: input, i: null}; },
+  maxOptions:  200,
+  plugins:     ['clear_button'],
+  placeholder: 'Search or type region…',
+  render: {
+    option: function(d) {
+      return '<div style="display:flex;align-items:center;gap:8px;">' +
+             flagHtml(d.i) + '<span>' + d.l + '</span></div>';
+    },
+    item: function(d) {
+      return '<div style="display:flex;align-items:center;gap:6px;">' +
+             flagHtml(d.i) + '<span>' + d.l + '</span></div>';
+    },
+  }
+};
+
+var addCountryTS  = new TomSelect('#addCountryInput',  Object.assign({}, TS_CONFIG));
+var editCountryTS = new TomSelect('#editCountryInput', Object.assign({}, TS_CONFIG));
+
+/* ── Currency data ───────────────────────────────────────── */
+var CURRENCIES_DATA = [
+  {v:'USD', s:'$',     l:'US Dollar',            i:'us'},
+  {v:'EUR', s:'€',     l:'Euro',                 i:'eu'},
+  {v:'GBP', s:'£',     l:'British Pound',        i:'gb'},
+  {v:'ZAR', s:'R',     l:'South African Rand',   i:'za'},
+  {v:'NGN', s:'₦',     l:'Nigerian Naira',       i:'ng'},
+  {v:'KES', s:'KSh',   l:'Kenyan Shilling',      i:'ke'},
+  {v:'GHS', s:'GH₵',   l:'Ghanaian Cedi',        i:'gh'},
+  {v:'UGX', s:'USh',   l:'Ugandan Shilling',     i:'ug'},
+  {v:'TZS', s:'TSh',   l:'Tanzanian Shilling',   i:'tz'},
+  {v:'RWF', s:'Fr',    l:'Rwandan Franc',        i:'rw'},
+  {v:'XOF', s:'CFA',   l:'West African CFA',     i:'sn'},
+  {v:'XAF', s:'FCFA',  l:'Central African CFA',  i:'cm'},
+  {v:'AED', s:'د.إ',   l:'UAE Dirham',           i:'ae'},
+  {v:'BRL', s:'R$',    l:'Brazilian Real',       i:'br'},
+  {v:'CLP', s:'CLP$',  l:'Chilean Peso',         i:'cl'},
+  {v:'COP', s:'COL$',  l:'Colombian Peso',       i:'co'},
+  {v:'MXN', s:'Mex$',  l:'Mexican Peso',         i:'mx'},
+  {v:'PEN', s:'S/',    l:'Peruvian Sol',         i:'pe'},
+];
+
+/* Country → preferred currency (falls back to USD) */
+var COUNTRY_CURRENCY = {
+  'Ghana':'GHS','Nigeria':'NGN','Kenya':'KES','Uganda':'UGX',
+  'Tanzania':'TZS','Rwanda':'RWF','South Africa':'ZAR',
+  'Namibia':'ZAR','Lesotho':'ZAR','Eswatini':'ZAR',
+  'Zambia':'USD','Zimbabwe':'USD',
+  'Benin':'XOF','Burkina Faso':'XOF','Guinea-Bissau':'XOF',
+  'Ivory Coast':'XOF','Mali':'XOF','Niger':'XOF','Senegal':'XOF','Togo':'XOF',
+  'Cameroon':'XAF','CAR':'XAF','Chad':'XAF','Congo':'XAF',
+  'DRC':'XAF','Equatorial Guinea':'XAF','Gabon':'XAF',
+  'UAE':'AED',
+  'UK':'GBP',
+  'Austria':'EUR','Belgium':'EUR','Cyprus':'EUR','Estonia':'EUR',
+  'Finland':'EUR','France':'EUR','Germany':'EUR','Greece':'EUR',
+  'Ireland':'EUR','Italy':'EUR','Latvia':'EUR','Lithuania':'EUR',
+  'Luxembourg':'EUR','Malta':'EUR','Netherlands':'EUR','Portugal':'EUR',
+  'Slovakia':'EUR','Slovenia':'EUR','Spain':'EUR',
+  'Brazil':'BRL','Chile':'CLP','Colombia':'COP','Mexico':'MXN','Peru':'PEN',
+  'USA':'USD','Ecuador':'USD','Panama':'USD',
+};
+
+function currencyFlagHtml(iso) {
+  return iso ? '<span class="fi fi-' + iso + '"></span>' : '';
+}
+
+var CUR_TS_CONFIG = {
+  valueField:  'v',
+  labelField:  'v',
+  searchField: ['v', 'l', 's'],
+  options:     CURRENCIES_DATA,
+  maxItems:    1,
+  allowEmptyOption: false,
+  maxOptions:  20,
+  render: {
+    option: function(d) {
+      return '<div style="display:flex;align-items:center;gap:10px;">' +
+             currencyFlagHtml(d.i) +
+             '<span style="background:rgba(255,255,255,.1);border-radius:4px;padding:1px 7px;' +
+             'font-family:monospace;font-weight:700;font-size:12px;min-width:32px;text-align:center;' +
+             'letter-spacing:.02em;">' + d.s + '</span>' +
+             '<span style="font-weight:600;">' + d.v + '</span>' +
+             '<span style="color:var(--muted);font-size:12px;">' + d.l + '</span>' +
+             '</div>';
+    },
+    item: function(d) {
+      return '<div style="display:flex;align-items:center;gap:7px;">' +
+             currencyFlagHtml(d.i) +
+             '<span style="font-family:monospace;font-weight:700;font-size:13px;' +
+             'color:var(--accent);">' + d.s + '</span>' +
+             '<span>' + d.v + '</span>' +
+             '</div>';
+    },
+  }
+};
+
+var addCurrencyTS  = new TomSelect('#addCurrencyInput',  Object.assign({}, CUR_TS_CONFIG, {items:['USD']}));
+var editCurrencyTS = new TomSelect('#editCurrencyInput', Object.assign({}, CUR_TS_CONFIG, {items:['USD']}));
+
+/* Auto-pick currency when country changes */
+addCountryTS.on('change', function(val) {
+  var cur = COUNTRY_CURRENCY[val] || 'USD';
+  addCurrencyTS.setValue(cur, true);
+});
+editCountryTS.on('change', function(val) {
+  var cur = COUNTRY_CURRENCY[val] || 'USD';
+  editCurrencyTS.setValue(cur, true);
+});
+
+/* ── Add flags to country cells in the rules table ────────── */
+document.querySelectorAll('.country-cell').forEach(function(cell) {
+  var name = cell.dataset.country;
+  var iso  = COUNTRY_ISO[name];
+  cell.innerHTML = '<span class="fi-cell">' + flagHtml(iso) + '<span>' + (name === 'GLOBAL' ? 'Global' : name) + '</span></span>';
+});
+
+/* ── Agreement edit toggle ──────────────────────────────── */
+function toggleEdit() {
+  var f = document.getElementById('editForm');
+  var open = f.style.display !== 'none';
+  f.style.display = open ? 'none' : '';
+  if (!open) {
+    f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(function(){ f.querySelector('input[name="psp_name"]').focus(); }, 300);
+  }
+}
+
+/* ── Add rule fee-field toggle ──────────────────────────── */
 function toggleFeeFields() {
   var kind = document.getElementById('feeKind').value;
   ['pctFields','fixedFields','tieredFields'].forEach(function(id){
     document.getElementById(id).style.display = 'none';
   });
-  if (kind === 'percentage')    { document.getElementById('pctFields').style.display = ''; }
-  if (kind === 'fixed')         { document.getElementById('fixedFields').style.display = ''; }
-  if (kind === 'fixed_plus_pct'){ document.getElementById('pctFields').style.display = ''; document.getElementById('fixedFields').style.display = ''; }
+  if (kind === 'percentage')     { document.getElementById('pctFields').style.display = ''; }
+  if (kind === 'fixed')          { document.getElementById('fixedFields').style.display = ''; }
+  if (kind === 'fixed_plus_pct') {
+    document.getElementById('pctFields').style.display = '';
+    document.getElementById('fixedFields').style.display = '';
+  }
   if (kind === 'tiered') {
     document.getElementById('tieredFields').style.display = '';
     if (!document.querySelector('#tierTable tbody tr')) addTierRow();
@@ -272,12 +768,89 @@ function toggleFeeFields() {
 function addTierRow() {
   var tbody = document.querySelector('#tierTable tbody');
   var tr = document.createElement('tr');
-  tr.innerHTML =
-    '<td><input type="number" name="tier_from" step="0.01" min="0" value="0"></td>' +
-    '<td><input type="number" name="tier_to"   step="0.01" min="0" placeholder="unlimited"></td>' +
-    '<td><input type="number" name="tier_rate" step="0.001" min="0" max="100" required placeholder="e.g. 3.5"></td>' +
-    '<td><button type="button" class="tier-remove" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+  tr.innerHTML = tierRowHtml('', '', '');
   tbody.appendChild(tr);
+}
+
+/* ── Edit rule ──────────────────────────────────────────── */
+function editRule(id) {
+  var rule = RULES.find(function(r) { return r.id === id; });
+  if (!rule) return;
+
+  var wrap = document.getElementById('editRuleWrap');
+  var fel  = document.getElementById('editRuleFormEl');
+
+  fel.action = '/fees/rules/' + id + '/edit';
+  document.getElementById('editRuleBannerText').textContent =
+    'Editing: ' + (rule.payment_method || 'Any') + ' · ' + rule.fee_type;
+
+  setVal(fel, 'payment_method', rule.payment_method || '');
+  setVal(fel, 'fee_type',       rule.fee_type);
+  editCountryTS.setValue(rule.country || 'GLOBAL', true);
+  setVal(fel, 'sub_provider',   rule.sub_provider || '');
+  setVal(fel, 'fee_kind',       rule.fee_kind);
+  setVal(fel, 'description',    rule.description || '');
+
+  toggleEditFeeFields(rule.fee_kind);
+
+  var pctIn = fel.querySelector('[name=pct_rate]');
+  if (pctIn) pctIn.value = rule.pct_rate !== null ? (rule.pct_rate * 100).toFixed(3) : '';
+
+  var fixIn = fel.querySelector('[name=fixed_amount]');
+  if (fixIn) fixIn.value = rule.fixed_amount !== null ? rule.fixed_amount : '';
+
+  editCurrencyTS.setValue(rule.fixed_currency || 'USD', true);
+
+  var tbody = document.querySelector('#editTierTable tbody');
+  tbody.innerHTML = '';
+  if (rule.fee_kind === 'tiered') {
+    (rule.tiers || []).forEach(function(t) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = tierRowHtml(t.volume_from, t.volume_to !== null ? t.volume_to : '', (t.pct_rate * 100).toFixed(3));
+      tbody.appendChild(tr);
+    });
+  }
+
+  wrap.style.display = '';
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeEditRule() {
+  document.getElementById('editRuleWrap').style.display = 'none';
+}
+
+function toggleEditFeeFields(kind) {
+  kind = kind || document.getElementById('editFeeKind').value;
+  ['editPctFields','editFixedFields','editTieredFields'].forEach(function(id){
+    document.getElementById(id).style.display = 'none';
+  });
+  if (kind === 'percentage')     { document.getElementById('editPctFields').style.display = ''; }
+  if (kind === 'fixed')          { document.getElementById('editFixedFields').style.display = ''; }
+  if (kind === 'fixed_plus_pct') {
+    document.getElementById('editPctFields').style.display = '';
+    document.getElementById('editFixedFields').style.display = '';
+  }
+  if (kind === 'tiered')         { document.getElementById('editTieredFields').style.display = ''; }
+}
+
+function addEditTierRow() {
+  var tbody = document.querySelector('#editTierTable tbody');
+  var tr = document.createElement('tr');
+  tr.innerHTML = tierRowHtml('', '', '');
+  tbody.appendChild(tr);
+}
+
+/* ── Helpers ─────────────────────────────────────────────── */
+function setVal(form, name, val) {
+  var el = form.querySelector('[name="' + name + '"]');
+  if (el) el.value = val;
+}
+
+function tierRowHtml(from, to, rate) {
+  return '<td><input type="number" name="tier_from" step="0.01" min="0" value="' + from + '"></td>' +
+         '<td><input type="number" name="tier_to"   step="0.01" min="0" placeholder="unlimited" value="' + (to !== null ? to : '') + '"></td>' +
+         '<td><input type="number" name="tier_rate" step="0.001" min="0" max="100" required placeholder="e.g. 3.5" value="' + rate + '"></td>' +
+         '<td><button type="button" class="tier-remove" onclick="this.closest(\'tr\').remove()">✕</button></td>';
 }
 </script>
 

@@ -393,6 +393,25 @@ def create_fee_rule(agreement_id, data):
         return rule_id
 
 
+def update_fee_rule(rule_id, data):
+    with fees_db() as conn:
+        conn.execute("""
+            UPDATE psp_fee_rules
+            SET payment_method=?, fee_type=?, country=?, sub_provider=?,
+                fee_kind=?, pct_rate=?, fixed_amount=?, fixed_currency=?, description=?
+            WHERE id=?
+        """, (data["payment_method"], data["fee_type"], data["country"],
+              data["sub_provider"], data["fee_kind"], data["pct_rate"],
+              data["fixed_amount"], data["fixed_currency"], data["description"], rule_id))
+        conn.execute("DELETE FROM psp_fee_tiers WHERE fee_rule_id=?", (rule_id,))
+        if data["fee_kind"] == "tiered" and data.get("tiers"):
+            for t in data["tiers"]:
+                conn.execute("""
+                    INSERT INTO psp_fee_tiers (fee_rule_id, volume_from, volume_to, pct_rate)
+                    VALUES (?, ?, ?, ?)
+                """, (rule_id, t["volume_from"], t["volume_to"], t["pct_rate"]))
+
+
 def delete_fee_rule(rule_id):
     with fees_db() as conn:
         conn.execute("DELETE FROM psp_fee_rules WHERE id = ?", (rule_id,))
