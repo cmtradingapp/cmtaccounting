@@ -341,9 +341,6 @@ ALLOWED_UPLOAD_EXTS = {"pdf", "docx", "doc"}
 @app.route("/fees/upload", methods=["GET", "POST"])
 @require_auth
 def fees_upload():
-    if request.method == "GET":
-        return render_template("fee_upload.html")
-
     templates = queries.get_prompt_templates()
     default_tpl = next((t for t in templates if t["is_default"]), templates[0] if templates else None)
 

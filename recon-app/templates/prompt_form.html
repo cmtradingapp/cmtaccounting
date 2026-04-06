@@ -5,10 +5,12 @@
   .prompt-editor {
     font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
     font-size: 12.5px; line-height: 1.6;
-    min-height: 520px; resize: vertical;
+    min-height: 600px; resize: vertical;
     tab-size: 2;
-    white-space: pre;
-    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
   .prompt-meta {
     display: flex; align-items: center; gap: 8px;
@@ -20,7 +22,7 @@
   .char-count { font-family: monospace; color: var(--text-2); }
 </style>
 
-<div class="form-wrapper">
+<div class="form-wrapper" style="max-width:1000px;">
   <div style="margin-bottom:16px;">
     <a href="/fees/prompts" class="back-link">← Prompt Templates</a>
     <div class="page-title" style="margin-top:6px;">
@@ -66,7 +68,8 @@
       <div style="border:1px solid rgba(255,255,255,.07);border-radius:var(--radius-sm);overflow:hidden;">
         <textarea name="system_prompt" class="prompt-editor"
                   id="promptText"
-                  style="width:100%;padding:16px;background:rgba(0,0,0,.3);
+                  style="width:100%;min-height:640px;height:640px;padding:16px;
+                         background:rgba(0,0,0,.3);
                          border:none;color:var(--text);border-radius:0;outline:none;"
                   oninput="updateCount()"
                   spellcheck="false"
