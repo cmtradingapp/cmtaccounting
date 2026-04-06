@@ -242,6 +242,29 @@
     .tier-remove:hover { color: var(--red); }
     .rule-value { font-family: monospace; font-weight: 600; font-size: 13px; }
 
+    /* ── Table meta ─────────────────────────────────────────── */
+    .table-meta { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+
+    /* ── Ghost button (primary row action) ───────────────────── */
+    .btn-ghost { background: transparent; border-color: transparent; color: var(--accent); font-weight: 600; }
+    .btn-ghost:hover { background: rgba(79,142,247,.08); border-color: transparent; }
+
+    /* ── Subtle danger (row-level, fades in on hover) ────────── */
+    .btn-danger-sm {
+      background: transparent; border-color: transparent; color: var(--muted); opacity: 0;
+      transition: opacity .15s, color .15s, background .15s;
+    }
+    tr:hover .btn-danger-sm { opacity: 1; }
+    .btn-danger-sm:hover { color: var(--red); background: rgba(239,68,68,.08); border-color: transparent; }
+
+    /* ── Entity panel ────────────────────────────────────────── */
+    .entity-panel {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      padding: 12px 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+
     /* ── Entity chips ────────────────────────────────────────── */
     .entity-chip {
       display: inline-flex; align-items: center; gap: 6px; height: 36px;

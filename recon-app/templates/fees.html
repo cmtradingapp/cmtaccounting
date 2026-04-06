@@ -3,11 +3,12 @@
 {% block content %}
 
 <div class="page-header">
-  <div class="page-title" style="flex:1;">PSP Fee Agreements</div>
+  <div class="page-title">PSP Fee Agreements</div>
   <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
 </div>
 
 {% if agreements %}
+<div class="table-meta">{{ agreements|length }} agreement{{ 's' if agreements|length != 1 }}</div>
 <div class="table-wrap">
   <table>
     <thead>
@@ -43,26 +44,19 @@
         <td style="color:var(--text-2);max-width:200px;overflow:hidden;text-overflow:ellipsis;"
             title="{{ a.settlement_bank or '' }}">{{ a.settlement_bank or '—' }}</td>
         <td class="num" style="font-weight:600;">{{ a.rule_count }}</td>
-        <td style="display:flex;gap:6px;align-items:center;">
-          <a class="btn" href="/fees/{{ a.id }}"
-             style="height:28px;padding:0 10px;font-size:12px;color:var(--accent);border-color:transparent;">
-            View →
-          </a>
-          <form method="POST" action="/fees/{{ a.id }}/delete"
-                onsubmit="return confirm('Deactivate {{ a.psp_name }}?')">
-            <button type="submit" class="btn btn-danger"
-                    style="height:28px;padding:0 10px;font-size:12px;">
-              Terminate
-            </button>
+        <td style="white-space:nowrap;">
+          <a class="btn btn-ghost" href="/fees/{{ a.id }}"
+             style="height:30px;padding:0 10px;font-size:12px;">View →</a>
+          <form method="POST" action="/fees/{{ a.id }}/delete" style="display:inline;"
+                onsubmit="return confirm('Terminate {{ a.psp_name }}?')">
+            <button type="submit" class="btn btn-danger-sm"
+                    style="height:30px;padding:0 10px;font-size:12px;">Terminate</button>
           </form>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-</div>
-<div style="color:var(--muted);font-size:12px;margin-top:8px;text-align:right;">
-  {{ agreements|length }} agreement{{ 's' if agreements|length != 1 }}
 </div>
 {% else %}
 <div class="card empty" style="padding:64px;">
@@ -75,7 +69,7 @@
 
 <!-- Agreement Entities -->
 <div class="section-title">Agreement Entities</div>
-<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+<div class="entity-panel">
   {% for e in entities %}
   <span class="entity-chip">
     {{ e }}
@@ -88,14 +82,14 @@
   {% endfor %}
   <form method="POST" action="/fees/entities/add"
         style="display:flex;align-items:center;gap:6px;">
-    <input type="text" name="name" required placeholder="Add entity name…"
-           style="height:36px;background:var(--surface);border:1px solid var(--border);
-                  color:var(--text);padding:0 14px;border-radius:999px;font-size:13px;
-                  width:220px;outline:none;transition:border-color .15s;"
+    <input type="text" name="name" required placeholder="New entity…"
+           style="height:34px;background:var(--bg);border:1px solid var(--border);
+                  color:var(--text);padding:0 12px;border-radius:var(--radius-sm);
+                  font-size:13px;width:200px;outline:none;transition:border-color .15s;"
            onfocus="this.style.borderColor='var(--accent)'"
            onblur="this.style.borderColor='var(--border)'">
     <button type="submit" class="btn btn-primary"
-            style="border-radius:999px;height:36px;padding:0 16px;">Add</button>
+            style="height:34px;padding:0 14px;font-size:13px;">Add</button>
   </form>
 </div>
 
