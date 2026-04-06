@@ -112,5 +112,19 @@ def export(month):
     )
 
 
+@app.route("/recon/<month>/<int:login>")
+@require_auth
+def login_detail(month, login):
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+    except (ValueError, IndexError):
+        abort(400)
+    crm_rows  = queries.login_detail(year, mon, login)
+    mt4_rows  = queries.login_mt4_detail(year, mon, login)
+    months    = queries.available_months()
+    return render_template("detail.html", month=month, login=login,
+                           crm_rows=crm_rows, mt4_rows=mt4_rows, months=months)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5050, debug=False)
