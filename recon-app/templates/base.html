@@ -50,12 +50,12 @@
     nav a:hover { color: var(--text); background: rgba(255,255,255,.04); }
 
     /* ── Layout ──────────────────────────────────────────────── */
-    main { max-width: 1280px; margin: 0 auto; padding: var(--sp-5) var(--sp-4); }
+    main { max-width: 1100px; margin: 0 auto; padding: var(--sp-5) var(--sp-4); }
 
     /* ── Page header row ─────────────────────────────────────── */
     .page-header {
-      display: flex; align-items: center; gap: var(--sp-2);
-      margin-bottom: var(--sp-4);
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: var(--sp-2);
     }
     .page-title { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
     .page-sub   { font-size: 14px; color: var(--text-2); margin-left: 4px; }
@@ -118,7 +118,7 @@
 
     /* ── Tables ──────────────────────────────────────────────── */
     .table-wrap {
-      overflow-x: auto; border-radius: var(--radius-md);
+      overflow-x: auto; border-radius: 14px;
       border: 1px solid var(--border);
     }
     table { width: 100%; border-collapse: collapse; }
@@ -131,8 +131,11 @@
     }
     tbody tr { border-bottom: 1px solid var(--border); }
     tbody tr:last-child { border-bottom: none; }
+    tbody tr { cursor: default; }
+    tbody tr.clickable { cursor: pointer; }
     tbody tr:hover { background: rgba(255,255,255,.025); }
     td { padding: 13px 16px; white-space: nowrap; font-size: 13px; }
+    td:last-child { text-align: right; padding-right: 20px; }
 
     /* ── Badges ──────────────────────────────────────────────── */
     .badge {
@@ -243,7 +246,7 @@
     .rule-value { font-family: monospace; font-weight: 600; font-size: 13px; }
 
     /* ── Table meta ─────────────────────────────────────────── */
-    .table-meta { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .table-meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 
     /* ── Ghost button (primary row action) ───────────────────── */
     .btn-ghost { background: transparent; border-color: transparent; color: var(--accent); font-weight: 600; }
@@ -257,20 +260,27 @@
     tr:hover .btn-danger-sm { opacity: 1; }
     .btn-danger-sm:hover { color: var(--red); background: rgba(239,68,68,.08); border-color: transparent; }
 
-    /* ── Entity panel ────────────────────────────────────────── */
+    /* ── Entity panel — acts as combined input container ────── */
     .entity-panel {
       display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-      padding: 12px 14px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 14px; transition: border-color .15s;
     }
+    .entity-panel:focus-within { border-color: var(--accent); }
+    .entity-panel input {
+      flex: 1; min-width: 160px; height: 30px;
+      background: transparent; border: none; outline: none;
+      color: var(--text); font-size: 13px; padding: 0 4px;
+    }
+    .entity-panel input::placeholder { color: var(--muted); }
 
     /* ── Entity chips ────────────────────────────────────────── */
     .entity-chip {
-      display: inline-flex; align-items: center; gap: 6px; height: 36px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 999px; padding: 0 12px 0 14px;
-      font-size: 13px; font-weight: 500;
+      display: inline-flex; align-items: center; gap: 6px; height: 30px;
+      background: var(--surface-alt); border: 1px solid var(--border);
+      border-radius: 999px; padding: 0 10px 0 12px;
+      font-size: 12px; font-weight: 500;
     }
     .entity-chip button {
       background: none; border: none; color: var(--muted); cursor: pointer;

@@ -26,10 +26,8 @@
     </thead>
     <tbody>
       {% for a in agreements %}
-      <tr>
-        <td style="font-weight:600;">
-          <a class="login-link" href="/fees/{{ a.id }}" style="font-family:inherit;">{{ a.psp_name }}</a>
-        </td>
+      <tr class="clickable" onclick="window.location='/fees/{{ a.id }}'">
+        <td style="font-weight:600;color:var(--accent);">{{ a.psp_name }}</td>
         <td style="color:var(--text-2);">{{ a.provider_name or '—' }}</td>
         <td style="color:var(--text-2);">{{ a.agreement_entity or '—' }}</td>
         <td>{{ a.agreement_date or '—' }}</td>
@@ -41,16 +39,15 @@
             <span style="color:var(--muted);">—</span>
           {% endif %}
         </td>
-        <td style="color:var(--text-2);max-width:200px;overflow:hidden;text-overflow:ellipsis;"
+        <td style="color:var(--text-2);max-width:180px;overflow:hidden;text-overflow:ellipsis;"
             title="{{ a.settlement_bank or '' }}">{{ a.settlement_bank or '—' }}</td>
         <td class="num" style="font-weight:600;">{{ a.rule_count }}</td>
-        <td style="white-space:nowrap;">
-          <a class="btn btn-ghost" href="/fees/{{ a.id }}"
-             style="height:30px;padding:0 10px;font-size:12px;">View →</a>
-          <form method="POST" action="/fees/{{ a.id }}/delete" style="display:inline;"
+        <td>
+          <form method="POST" action="/fees/{{ a.id }}/delete"
+                onclick="event.stopPropagation()"
                 onsubmit="return confirm('Terminate {{ a.psp_name }}?')">
             <button type="submit" class="btn btn-danger-sm"
-                    style="height:30px;padding:0 10px;font-size:12px;">Terminate</button>
+                    style="height:28px;padding:0 10px;font-size:12px;">Terminate</button>
           </form>
         </td>
       </tr>
@@ -59,10 +56,10 @@
   </table>
 </div>
 {% else %}
-<div class="card empty" style="padding:64px;">
-  <div style="font-size:36px;margin-bottom:16px;opacity:.5;">📋</div>
-  <div style="font-size:16px;font-weight:600;margin-bottom:6px;">No PSP agreements yet</div>
-  <div style="color:var(--muted);margin-bottom:20px;">Add your first PSP to start tracking fee agreements.</div>
+<div class="table-wrap empty" style="padding:64px;">
+  <div style="font-size:32px;margin-bottom:14px;opacity:.4;">📋</div>
+  <div style="font-size:15px;font-weight:600;margin-bottom:6px;">No PSP agreements yet</div>
+  <div style="color:var(--muted);margin-bottom:20px;font-size:13px;">Add your first PSP to start tracking fee agreements.</div>
   <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
 </div>
 {% endif %}
@@ -80,16 +77,10 @@
     </form>
   </span>
   {% endfor %}
-  <form method="POST" action="/fees/entities/add"
-        style="display:flex;align-items:center;gap:6px;">
-    <input type="text" name="name" required placeholder="New entity…"
-           style="height:34px;background:var(--bg);border:1px solid var(--border);
-                  color:var(--text);padding:0 12px;border-radius:var(--radius-sm);
-                  font-size:13px;width:200px;outline:none;transition:border-color .15s;"
-           onfocus="this.style.borderColor='var(--accent)'"
-           onblur="this.style.borderColor='var(--border)'">
+  <form method="POST" action="/fees/entities/add" style="display:contents;">
+    <input type="text" name="name" required placeholder="Add entity…">
     <button type="submit" class="btn btn-primary"
-            style="height:34px;padding:0 14px;font-size:13px;">Add</button>
+            style="height:30px;padding:0 12px;font-size:12px;flex-shrink:0;">Add</button>
   </form>
 </div>
 
