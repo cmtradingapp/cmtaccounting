@@ -75,6 +75,35 @@
   /* country flag in table */
   .fi-cell { display:inline-flex; align-items:center; gap:7px; }
   .fi-cell .fi { font-size:13px; border-radius:2px; flex-shrink:0; }
+
+  /* Tier popover */
+  .tier-popover {
+    position: fixed; z-index: 1000;
+    background: var(--surface-alt);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: var(--radius-md);
+    box-shadow: 0 12px 32px rgba(0,0,0,.55);
+    min-width: 220px;
+    animation: formEnter .15s ease-out both;
+  }
+  .tier-popover table { width: 100%; border-collapse: collapse; }
+  .tier-popover thead th {
+    padding: 8px 14px 6px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--muted);
+    text-align: right; border-bottom: 1px solid rgba(255,255,255,.07);
+  }
+  .tier-popover thead th:first-child { text-align: left; }
+  .tier-popover tbody td {
+    padding: 7px 14px; font-size: 12px;
+    font-family: monospace; color: var(--text-2);
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    text-align: right;
+  }
+  .tier-popover tbody td:first-child { text-align: left; }
+  .tier-popover tbody tr:last-child td { border-bottom: none; }
+  .tier-popover tbody td.rate { color: var(--text); font-weight: 700; }
+  .tier-popover tbody tr:hover td { background: rgba(255,255,255,.03); }
 </style>
 
 <!-- Back link -->
@@ -184,27 +213,41 @@
 
       <div class="psp-card-actions">
         <button class="btn btn-ghost" onclick="toggleEdit()">✎ Edit Agreement</button>
-        <form method="POST" action="/fees/{{ agreement.id }}/delete"
-              onsubmit="return confirm('Deactivate {{ agreement.psp_name }}?')">
-          <button type="submit" class="btn btn-danger">Deactivate</button>
-        </form>
+        <div id="terminateArea">
+          <button class="btn btn-danger" id="terminateBtn" onclick="showTerminateConfirm()">Terminate</button>
+          <div id="terminateConfirm" style="display:none;">
+            <div style="font-size:12px;color:var(--text-2);margin-bottom:8px;text-align:center;line-height:1.5;">
+              This will deactivate <strong style="color:var(--text);">{{ agreement.psp_name }}</strong>.<br>Are you sure?
+            </div>
+            <div style="display:flex;gap:6px;">
+              <form method="POST" action="/fees/{{ agreement.id }}/delete" style="flex:1;">
+                <button type="submit" class="btn btn-danger" style="width:100%;font-size:12px;">Yes, Terminate</button>
+              </form>
+              <button class="btn btn-cancel" style="flex:1;font-size:12px;" onclick="hideTerminateConfirm()">Cancel</button>
+            </div>
+          </div>
+        </div>
       </div>
 
     </div>
   </aside>
 
   <!-- RIGHT: main content -->
-  <div>
+  <div style="padding-top:12px;">
 
     <!-- Fee Rules -->
     <div class="rules-header">
-      <div class="section-title">Fee Rules</div>
-      <span class="rules-count">{{ rules|length }}</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="section-title">Fee Rules</div>
+        <span class="rules-count">{{ rules|length }}</span>
+      </div>
     </div>
 
+    <div id="filterPills" class="filter-bar" style="display:none;"></div>
+
     {% if rules %}
-    <div class="table-wrap" style="margin-bottom:var(--sp-5);">
-      <table>
+    <div class="table-wrap" style="margin-bottom:var(--sp-3);">
+      <table id="rulesTable">
         <thead>
           <tr>
             <th>Payment Method</th>
@@ -218,7 +261,7 @@
         </thead>
         <tbody>
           {% for r in rules %}
-          <tr>
+          <tr data-fee-type="{{ r.fee_type }}">
             <td>
               {% if r.payment_method %}
                 {{ r.payment_method }}
@@ -227,7 +270,7 @@
               {% endif %}
             </td>
             <td>
-              <span class="badge {% if r.fee_type == 'Deposit' %}matched{% elif r.fee_type == 'Withdrawal' %}discrepancy{% else %}mt4_only{% endif %}">
+              <span class="badge {% if r.fee_type == 'Deposit' %}matched{% elif r.fee_type == 'Withdrawal' %}discrepancy{% elif r.fee_type == 'Settlement' %}fee-settlement{% elif r.fee_type == 'Chargeback' %}fee-chargeback{% elif r.fee_type == 'Refund' %}fee-refund{% elif r.fee_type == 'Rolling Reserve' %}fee-rolling{% elif r.fee_type == 'Holdback' %}fee-holdback{% elif r.fee_type == 'Setup' %}fee-setup{% elif r.fee_type == 'Registration' %}fee-registration{% elif r.fee_type == 'Minimum Monthly' %}fee-minmonthly{% else %}mt4_only{% endif %}">
                 {{ r.fee_type }}
               </span>
             </td>
@@ -241,18 +284,11 @@
               {% elif r.fee_kind == 'fixed_plus_pct' %}
                 {{ "%.2f"|format(r.fixed_amount or 0) }} {{ r.fixed_currency or '' }} + {{ "%.2f"|format((r.pct_rate or 0) * 100) }}%
               {% elif r.fee_kind == 'tiered' %}
-                <span class="badge crm_only" style="cursor:pointer;"
-                      onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='none'?'':'none'">
+                <span class="badge crm_only tier-badge" style="cursor:pointer;"
+                      data-tiers='{{ r.tiers | tojson }}'
+                      onclick="toggleTierPopover(this)">
                   Tiered ({{ r.tiers|length }})
                 </span>
-                <div style="display:none;margin-top:8px;text-align:left;">
-                  {% for t in r.tiers %}
-                  <div style="color:var(--muted);font-size:12px;font-family:monospace;padding:2px 0;">
-                    {{ "{:,.0f}".format(t.volume_from) }}{% if t.volume_to %} – {{ "{:,.0f}".format(t.volume_to) }}{% else %}+{% endif %}
-                    <span style="color:var(--text);font-weight:600;margin-left:8px;">{{ "%.2f"|format(t.pct_rate * 100) }}%</span>
-                  </div>
-                  {% endfor %}
-                </div>
               {% endif %}
             </td>
             <td style="color:var(--text-2);max-width:200px;overflow:hidden;
@@ -274,7 +310,7 @@
       </table>
     </div>
     {% else %}
-    <div style="text-align:center;padding:40px 32px;margin-bottom:var(--sp-5);
+    <div style="text-align:center;padding:40px 32px;margin-bottom:var(--sp-3);
                 background:var(--surface);border:1px solid var(--border);
                 border-radius:var(--radius-md);color:var(--muted);">
       <div style="font-size:28px;margin-bottom:10px;opacity:.35;">📋</div>
@@ -282,6 +318,14 @@
       <div style="font-size:13px;">Use the form below to add the first rule.</div>
     </div>
     {% endif %}
+
+    <!-- Add Rule toggle button -->
+    <button class="btn btn-ghost" onclick="openAddRule()"
+            id="addRuleBtn"
+            style="width:100%;justify-content:center;margin-bottom:var(--sp-4);
+                   border:1px dashed rgba(79,142,247,.3);height:40px;">
+      + Add Fee Rule
+    </button>
 
     <!-- Inline rule edit form -->
     <div id="editRuleWrap" style="display:none;margin-bottom:var(--sp-4);">
@@ -374,8 +418,13 @@
       </form>
     </div>
 
-    <!-- Add Fee Rule -->
-    <div class="section-title">Add Fee Rule</div>
+    <!-- Add Fee Rule (collapsed by default) -->
+    <div id="addRuleWrap" style="display:none;">
+    <div class="edit-rule-banner">
+      <span>Add Fee Rule</span>
+      <button type="button" onclick="closeAddRule()"
+              style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:16px;line-height:1;">×</button>
+    </div>
     <form class="fee-form" method="POST" action="/fees/{{ agreement.id }}/rules/add">
 
       <div class="form-section-label">Classification</div>
@@ -455,10 +504,12 @@
       <div class="form-footer">
         <div class="form-footer-actions">
           <button type="submit" class="btn btn-primary">Add Rule</button>
+          <button type="button" class="btn btn-cancel" onclick="closeAddRule()">Cancel</button>
         </div>
       </div>
 
     </form>
+    </div>{# /#addRuleWrap #}
 
   </div>{# /.right column #}
 </div>{# /.detail-layout #}
@@ -641,45 +692,140 @@ var editCountryTS = new TomSelect('#editCountryInput', Object.assign({}, TS_CONF
 
 /* ── Currency data ───────────────────────────────────────── */
 var CURRENCIES_DATA = [
-  {v:'USD', s:'$',     l:'US Dollar',            i:'us'},
-  {v:'EUR', s:'€',     l:'Euro',                 i:'eu'},
-  {v:'GBP', s:'£',     l:'British Pound',        i:'gb'},
-  {v:'ZAR', s:'R',     l:'South African Rand',   i:'za'},
-  {v:'NGN', s:'₦',     l:'Nigerian Naira',       i:'ng'},
-  {v:'KES', s:'KSh',   l:'Kenyan Shilling',      i:'ke'},
-  {v:'GHS', s:'GH₵',   l:'Ghanaian Cedi',        i:'gh'},
-  {v:'UGX', s:'USh',   l:'Ugandan Shilling',     i:'ug'},
-  {v:'TZS', s:'TSh',   l:'Tanzanian Shilling',   i:'tz'},
-  {v:'RWF', s:'Fr',    l:'Rwandan Franc',        i:'rw'},
-  {v:'XOF', s:'CFA',   l:'West African CFA',     i:'sn'},
-  {v:'XAF', s:'FCFA',  l:'Central African CFA',  i:'cm'},
-  {v:'AED', s:'د.إ',   l:'UAE Dirham',           i:'ae'},
-  {v:'BRL', s:'R$',    l:'Brazilian Real',       i:'br'},
-  {v:'CLP', s:'CLP$',  l:'Chilean Peso',         i:'cl'},
-  {v:'COP', s:'COL$',  l:'Colombian Peso',       i:'co'},
-  {v:'MXN', s:'Mex$',  l:'Mexican Peso',         i:'mx'},
-  {v:'PEN', s:'S/',    l:'Peruvian Sol',         i:'pe'},
+  // Global / Major
+  {v:'USD', s:'$',      l:'US Dollar',              i:'us'},
+  {v:'EUR', s:'€',      l:'Euro',                   i:'eu'},
+  {v:'GBP', s:'£',      l:'British Pound',          i:'gb'},
+  {v:'JPY', s:'¥',      l:'Japanese Yen',           i:'jp'},
+  {v:'CHF', s:'Fr',     l:'Swiss Franc',            i:'ch'},
+  {v:'CAD', s:'C$',     l:'Canadian Dollar',        i:'ca'},
+  {v:'AUD', s:'A$',     l:'Australian Dollar',      i:'au'},
+  {v:'NZD', s:'NZ$',    l:'New Zealand Dollar',     i:'nz'},
+  {v:'HKD', s:'HK$',    l:'Hong Kong Dollar',       i:'hk'},
+  {v:'SGD', s:'S$',     l:'Singapore Dollar',       i:'sg'},
+  // Africa
+  {v:'ZAR', s:'R',      l:'South African Rand',     i:'za'},
+  {v:'NGN', s:'₦',      l:'Nigerian Naira',         i:'ng'},
+  {v:'KES', s:'KSh',    l:'Kenyan Shilling',        i:'ke'},
+  {v:'GHS', s:'GH₵',    l:'Ghanaian Cedi',          i:'gh'},
+  {v:'UGX', s:'USh',    l:'Ugandan Shilling',       i:'ug'},
+  {v:'TZS', s:'TSh',    l:'Tanzanian Shilling',     i:'tz'},
+  {v:'RWF', s:'Fr',     l:'Rwandan Franc',          i:'rw'},
+  {v:'ETB', s:'Br',     l:'Ethiopian Birr',         i:'et'},
+  {v:'XOF', s:'CFA',    l:'West African CFA',       i:'sn'},
+  {v:'XAF', s:'FCFA',   l:'Central African CFA',    i:'cm'},
+  {v:'EGP', s:'E£',     l:'Egyptian Pound',         i:'eg'},
+  {v:'MAD', s:'DH',     l:'Moroccan Dirham',        i:'ma'},
+  {v:'TND', s:'DT',     l:'Tunisian Dinar',         i:'tn'},
+  {v:'DZD', s:'DA',     l:'Algerian Dinar',         i:'dz'},
+  {v:'ZMW', s:'ZK',     l:'Zambian Kwacha',         i:'zm'},
+  {v:'BWP', s:'P',      l:'Botswana Pula',          i:'bw'},
+  {v:'MUR', s:'₨',      l:'Mauritian Rupee',        i:'mu'},
+  {v:'MZN', s:'MT',     l:'Mozambican Metical',     i:'mz'},
+  {v:'AOA', s:'Kz',     l:'Angolan Kwanza',         i:'ao'},
+  {v:'MWK', s:'MK',     l:'Malawian Kwacha',        i:'mw'},
+  {v:'GNF', s:'FG',     l:'Guinean Franc',          i:'gn'},
+  {v:'SLE', s:'Le',     l:'Sierra Leonean Leone',   i:'sl'},
+  {v:'SDG', s:'SDG',    l:'Sudanese Pound',         i:'sd'},
+  {v:'LYD', s:'LD',     l:'Libyan Dinar',           i:'ly'},
+  {v:'SOS', s:'Sh',     l:'Somali Shilling',        i:'so'},
+  {v:'BIF', s:'Fr',     l:'Burundian Franc',        i:'bi'},
+  {v:'MGA', s:'Ar',     l:'Malagasy Ariary',        i:'mg'},
+  {v:'SZL', s:'L',      l:'Swazi Lilangeni',        i:'sz'},
+  {v:'LSL', s:'L',      l:'Lesotho Loti',           i:'ls'},
+  {v:'NAD', s:'N$',     l:'Namibian Dollar',        i:'na'},
+  // Middle East
+  {v:'AED', s:'د.إ',    l:'UAE Dirham',             i:'ae'},
+  {v:'SAR', s:'SR',     l:'Saudi Riyal',            i:'sa'},
+  {v:'QAR', s:'QR',     l:'Qatari Riyal',           i:'qa'},
+  {v:'KWD', s:'KD',     l:'Kuwaiti Dinar',          i:'kw'},
+  {v:'BHD', s:'BD',     l:'Bahraini Dinar',         i:'bh'},
+  {v:'OMR', s:'RO',     l:'Omani Rial',             i:'om'},
+  {v:'JOD', s:'JD',     l:'Jordanian Dinar',        i:'jo'},
+  {v:'ILS', s:'₪',      l:'Israeli Shekel',         i:'il'},
+  {v:'TRY', s:'₺',      l:'Turkish Lira',           i:'tr'},
+  // Europe
+  {v:'SEK', s:'kr',     l:'Swedish Krona',          i:'se'},
+  {v:'NOK', s:'kr',     l:'Norwegian Krone',        i:'no'},
+  {v:'DKK', s:'kr',     l:'Danish Krone',           i:'dk'},
+  {v:'PLN', s:'zł',     l:'Polish Złoty',           i:'pl'},
+  {v:'CZK', s:'Kč',     l:'Czech Koruna',           i:'cz'},
+  {v:'HUF', s:'Ft',     l:'Hungarian Forint',       i:'hu'},
+  {v:'RON', s:'lei',    l:'Romanian Leu',           i:'ro'},
+  {v:'RUB', s:'₽',      l:'Russian Ruble',          i:'ru'},
+  {v:'UAH', s:'₴',      l:'Ukrainian Hryvnia',      i:'ua'},
+  {v:'GEL', s:'₾',      l:'Georgian Lari',          i:'ge'},
+  {v:'BGN', s:'лв',     l:'Bulgarian Lev',          i:'bg'},
+  {v:'HRK', s:'kn',     l:'Croatian Kuna',          i:'hr'},
+  {v:'ISK', s:'kr',     l:'Icelandic Króna',        i:'is'},
+  // Asia Pacific
+  {v:'CNY', s:'¥',      l:'Chinese Yuan',           i:'cn'},
+  {v:'KRW', s:'₩',      l:'South Korean Won',       i:'kr'},
+  {v:'INR', s:'₹',      l:'Indian Rupee',           i:'in'},
+  {v:'IDR', s:'Rp',     l:'Indonesian Rupiah',      i:'id'},
+  {v:'MYR', s:'RM',     l:'Malaysian Ringgit',      i:'my'},
+  {v:'THB', s:'฿',      l:'Thai Baht',              i:'th'},
+  {v:'PHP', s:'₱',      l:'Philippine Peso',        i:'ph'},
+  {v:'VND', s:'₫',      l:'Vietnamese Dong',        i:'vn'},
+  {v:'BDT', s:'৳',      l:'Bangladeshi Taka',       i:'bd'},
+  {v:'PKR', s:'₨',      l:'Pakistani Rupee',        i:'pk'},
+  {v:'LKR', s:'Rs',     l:'Sri Lankan Rupee',       i:'lk'},
+  {v:'TWD', s:'NT$',    l:'Taiwan Dollar',          i:'tw'},
+  {v:'MMK', s:'K',      l:'Myanmar Kyat',           i:'mm'},
+  // Americas
+  {v:'BRL', s:'R$',     l:'Brazilian Real',         i:'br'},
+  {v:'MXN', s:'$',      l:'Mexican Peso',           i:'mx'},
+  {v:'ARS', s:'$',      l:'Argentine Peso',         i:'ar'},
+  {v:'CLP', s:'$',      l:'Chilean Peso',           i:'cl'},
+  {v:'COP', s:'$',      l:'Colombian Peso',         i:'co'},
+  {v:'PEN', s:'S/',     l:'Peruvian Sol',           i:'pe'},
+  {v:'UYU', s:'$U',     l:'Uruguayan Peso',         i:'uy'},
+  {v:'BOB', s:'Bs.',    l:'Bolivian Boliviano',     i:'bo'},
+  {v:'PYG', s:'₲',      l:'Paraguayan Guaraní',     i:'py'},
+  {v:'GTQ', s:'Q',      l:'Guatemalan Quetzal',     i:'gt'},
+  {v:'CRC', s:'₡',      l:'Costa Rican Colón',      i:'cr'},
+  {v:'DOP', s:'RD$',    l:'Dominican Peso',         i:'do'},
+  {v:'JMD', s:'J$',     l:'Jamaican Dollar',        i:'jm'},
 ];
 
-/* Country → preferred currency (falls back to USD) */
+/* Country → preferred currency */
 var COUNTRY_CURRENCY = {
+  // Africa
   'Ghana':'GHS','Nigeria':'NGN','Kenya':'KES','Uganda':'UGX',
-  'Tanzania':'TZS','Rwanda':'RWF','South Africa':'ZAR',
-  'Namibia':'ZAR','Lesotho':'ZAR','Eswatini':'ZAR',
-  'Zambia':'USD','Zimbabwe':'USD',
+  'Tanzania':'TZS','Rwanda':'RWF','Ethiopia':'ETB',
+  'South Africa':'ZAR','Namibia':'NAD','Lesotho':'LSL','Eswatini':'SZL',
+  'Zambia':'ZMW','Botswana':'BWP','Mauritius':'MUR','Mozambique':'MZN',
+  'Angola':'AOA','Malawi':'MWK','Guinea':'GNF','Sierra Leone':'SLE',
+  'Sudan':'SDG','Libya':'LYD','Somalia':'SOS','Burundi':'BIF',
+  'Madagascar':'MGA','Zimbabwe':'USD',
   'Benin':'XOF','Burkina Faso':'XOF','Guinea-Bissau':'XOF',
   'Ivory Coast':'XOF','Mali':'XOF','Niger':'XOF','Senegal':'XOF','Togo':'XOF',
   'Cameroon':'XAF','CAR':'XAF','Chad':'XAF','Congo':'XAF',
-  'DRC':'XAF','Equatorial Guinea':'XAF','Gabon':'XAF',
-  'UAE':'AED',
-  'UK':'GBP',
+  'DRC':'XAF','Equatorial Guinea':'XAF','Gabon':'XAF','Sao Tome':'XAF',
+  'Egypt':'EGP','Morocco':'MAD','Tunisia':'TND','Algeria':'DZD',
+  // Middle East
+  'UAE':'AED','Saudi Arabia':'SAR','Qatar':'QAR','Kuwait':'KWD',
+  'Bahrain':'BHD','Oman':'OMR','Jordan':'JOD','Israel':'ILS',
+  'Turkey':'TRY',
+  // Europe
+  'UK':'GBP','Sweden':'SEK','Norway':'NOK','Denmark':'DKK',
+  'Poland':'PLN','Czech Republic':'CZK','Hungary':'HUF','Romania':'RON',
+  'Russia':'RUB','Ukraine':'UAH',
   'Austria':'EUR','Belgium':'EUR','Cyprus':'EUR','Estonia':'EUR',
   'Finland':'EUR','France':'EUR','Germany':'EUR','Greece':'EUR',
   'Ireland':'EUR','Italy':'EUR','Latvia':'EUR','Lithuania':'EUR',
   'Luxembourg':'EUR','Malta':'EUR','Netherlands':'EUR','Portugal':'EUR',
   'Slovakia':'EUR','Slovenia':'EUR','Spain':'EUR',
-  'Brazil':'BRL','Chile':'CLP','Colombia':'COP','Mexico':'MXN','Peru':'PEN',
-  'USA':'USD','Ecuador':'USD','Panama':'USD',
+  // Asia Pacific
+  'China':'CNY','South Korea':'KRW','India':'INR','Indonesia':'IDR',
+  'Malaysia':'MYR','Thailand':'THB','Philippines':'PHP','Vietnam':'VND',
+  'Bangladesh':'BDT','Pakistan':'PKR','Sri Lanka':'LKR','Taiwan':'TWD',
+  'Myanmar':'MMK','Hong Kong':'HKD','Singapore':'SGD',
+  'Japan':'JPY','Australia':'AUD','New Zealand':'NZD',
+  // Americas
+  'Brazil':'BRL','Mexico':'MXN','Argentina':'ARS','Chile':'CLP',
+  'Colombia':'COP','Peru':'PEN','Uruguay':'UYU','Bolivia':'BOB',
+  'USA':'USD','Canada':'CAD','Ecuador':'USD','Panama':'USD',
 };
 
 function currencyFlagHtml(iso) {
@@ -693,7 +839,7 @@ var CUR_TS_CONFIG = {
   options:     CURRENCIES_DATA,
   maxItems:    1,
   allowEmptyOption: false,
-  maxOptions:  20,
+  maxOptions:  300,
   render: {
     option: function(d) {
       return '<div style="display:flex;align-items:center;gap:10px;">' +
@@ -735,6 +881,58 @@ document.querySelectorAll('.country-cell').forEach(function(cell) {
   var iso  = COUNTRY_ISO[name];
   cell.innerHTML = '<span class="fi-cell">' + flagHtml(iso) + '<span>' + (name === 'GLOBAL' ? 'Global' : name) + '</span></span>';
 });
+
+/* ── Terminate inline confirm ───────────────────────────── */
+function showTerminateConfirm() {
+  document.getElementById('terminateBtn').style.display = 'none';
+  document.getElementById('terminateConfirm').style.display = '';
+}
+function hideTerminateConfirm() {
+  document.getElementById('terminateConfirm').style.display = 'none';
+  document.getElementById('terminateBtn').style.display = '';
+}
+
+/* ── Add Rule collapse ───────────────────────────────────── */
+function openAddRule() {
+  var w = document.getElementById('addRuleWrap');
+  document.getElementById('addRuleBtn').style.display = 'none';
+  w.style.display = '';
+  w.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function closeAddRule() {
+  document.getElementById('addRuleWrap').style.display = 'none';
+  document.getElementById('addRuleBtn').style.display = '';
+}
+
+/* ── Filter pills ────────────────────────────────────────── */
+(function() {
+  var types = [];
+  RULES.forEach(function(r) { if (types.indexOf(r.fee_type) === -1) types.push(r.fee_type); });
+  if (types.length < 2) return; // no point filtering if only 1 type
+
+  var container = document.getElementById('filterPills');
+  container.style.display = '';
+  var active = 'All';
+
+  function renderPills() {
+    container.innerHTML = '';
+    ['All'].concat(types).forEach(function(t) {
+      var btn = document.createElement('button');
+      btn.className = 'filter-btn' + (t === active ? ' active' : '');
+      btn.textContent = t;
+      btn.onclick = function() { active = t; renderPills(); filterRows(); };
+      container.appendChild(btn);
+    });
+  }
+
+  function filterRows() {
+    document.querySelectorAll('#rulesTable tbody tr').forEach(function(tr) {
+      tr.style.display = (active === 'All' || tr.dataset.feeType === active) ? '' : 'none';
+    });
+  }
+
+  renderPills();
+})();
 
 /* ── Agreement edit toggle ──────────────────────────────── */
 function toggleEdit() {
@@ -838,6 +1036,51 @@ function addEditTierRow() {
   var tr = document.createElement('tr');
   tr.innerHTML = tierRowHtml('', '', '');
   tbody.appendChild(tr);
+}
+
+/* ── Tier popover ────────────────────────────────────────── */
+function toggleTierPopover(el) {
+  var existing = document.querySelector('.tier-popover');
+  if (existing) {
+    var isSame = existing._trigger === el;
+    existing.remove();
+    if (isSame) return;
+  }
+
+  var tiers = JSON.parse(el.dataset.tiers);
+  var pop   = document.createElement('div');
+  pop.className  = 'tier-popover';
+  pop._trigger   = el;
+
+  var html = '<table><thead><tr>' +
+    '<th>Volume from</th><th>To</th><th>Rate</th>' +
+    '</tr></thead><tbody>';
+  tiers.forEach(function(t) {
+    var from = Number(t.volume_from).toLocaleString();
+    var to   = t.volume_to !== null ? Number(t.volume_to).toLocaleString() : '∞';
+    var rate = (t.pct_rate * 100).toFixed(2) + '%';
+    html += '<tr><td>' + from + '</td><td>' + to + '</td><td class="rate">' + rate + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  pop.innerHTML = html;
+  document.body.appendChild(pop);
+
+  // Position below the badge, aligned left edge
+  var rect = el.getBoundingClientRect();
+  var pw   = pop.offsetWidth;
+  var left = Math.min(rect.left, window.innerWidth - pw - 12);
+  pop.style.top  = (rect.bottom + 6) + 'px';
+  pop.style.left = left + 'px';
+
+  // Close on outside click
+  setTimeout(function() {
+    document.addEventListener('click', function handler(e) {
+      if (!pop.contains(e.target) && e.target !== el) {
+        pop.remove();
+        document.removeEventListener('click', handler);
+      }
+    });
+  }, 10);
 }
 
 /* ── Helpers ─────────────────────────────────────────────── */
