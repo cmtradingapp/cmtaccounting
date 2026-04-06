@@ -39,13 +39,18 @@ def backoffice():
     finally:
         conn.close()
 
+import sqlite3
+
+_FEES_DB = os.path.join(os.path.dirname(__file__), "fees.db")
+
 @contextmanager
-def backoffice_rw():
-    """Backoffice connection with commit/rollback for write operations."""
-    conn = _conn_backoffice()
+def fees_db():
+    """Local SQLite connection for PSP fee management. Isolated from all external DBs."""
+    conn = sqlite3.connect(_FEES_DB)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
-        cur = psycopg2.extras.RealDictCursor(conn)
-        yield cur
+        yield conn
         conn.commit()
     except Exception:
         conn.rollback()
