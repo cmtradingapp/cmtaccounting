@@ -2,17 +2,25 @@
 {% block title %} — {{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}{% endblock %}
 {% block content %}
 
-<div style="margin-bottom: var(--sp-2);">
-  <a class="btn" href="/fees" style="height:30px;font-size:12px;padding:0 10px;">← Fees</a>
+<!-- Nav breadcrumb -->
+<div style="margin-bottom:6px;">
+  <a href="/fees"
+     style="font-size:12px;color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:4px;transition:color .15s;"
+     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
+    ← Fees
+  </a>
 </div>
-<div style="margin-bottom: var(--sp-4);">
+
+<div class="page-header" style="margin-bottom:var(--sp-4);">
   <div class="page-title">{{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}</div>
 </div>
 
 <form class="fee-form" method="POST"
       action="{{ '/fees/' ~ agreement.id ~ '/edit' if agreement else '/fees/new' }}"
-      style="max-width: 760px;">
+      style="max-width:760px;">
 
+  <!-- Section: Identity -->
+  <div class="form-section-label">Identity</div>
   <div class="form-row">
     <label>PSP Name *
       <input type="text" name="psp_name" required autofocus
@@ -26,6 +34,8 @@
     </label>
   </div>
 
+  <!-- Section: Agreement -->
+  <div class="form-section-label" style="margin-top:20px;">Agreement</div>
   <div class="form-row">
     <label>Agreement Entity
       <select name="agreement_entity">
@@ -41,7 +51,6 @@
              placeholder="e.g. Absa 242586-USD-1046-11">
     </label>
   </div>
-
   <div class="form-row">
     <label>Agreement Date
       <input type="date" name="agreement_date"
@@ -53,19 +62,27 @@
     </label>
   </div>
 
-  <div class="form-row cols-1" style="margin-bottom: var(--sp-4);">
-    <label class="check-row" style="text-transform:none;letter-spacing:0;font-size:13px;font-weight:400;">
-      <input type="checkbox" name="auto_settlement"
-             {{ 'checked' if agreement and agreement.auto_settlement }}>
-      Enable Auto Settlement
-    </label>
+  <!-- Section: Settlement -->
+  <div class="form-section-label" style="margin-top:20px;">Settlement</div>
+  <div class="check-card">
+    <input type="checkbox" name="auto_settlement"
+           {{ 'checked' if agreement and agreement.auto_settlement }}>
+    Enable Auto Settlement
+    <span style="color:var(--muted);font-size:12px;margin-left:6px;">
+      — PSP sends funds automatically without manual trigger
+    </span>
   </div>
 
-  <div style="display:flex;gap:8px;padding-top:4px;border-top:1px solid var(--border);">
+  <!-- Action bar -->
+  <div style="display:flex;align-items:center;gap:8px;
+              padding-top:16px;margin-top:24px;border-top:1px solid var(--border);">
     <button type="submit" class="btn btn-primary">
       {{ 'Save Changes' if agreement else 'Create PSP' }}
     </button>
     <a class="btn" href="/fees">Cancel</a>
+    <span style="margin-left:auto;font-size:12px;color:var(--muted);">
+      All fields except PSP Name are optional
+    </span>
   </div>
 
 </form>
