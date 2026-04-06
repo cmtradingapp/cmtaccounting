@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import queries
+import ai_parse
 import openpyxl
 
 app = Flask(__name__)
@@ -159,8 +160,9 @@ CURRENCIES = [
 @require_auth
 def fees_list():
     agreements = queries.get_all_agreements()
+    terminated = queries.get_terminated_agreements()
     entities = queries.get_entities()
-    return render_template("fees.html", agreements=agreements, entities=entities)
+    return render_template("fees.html", agreements=agreements, terminated=terminated, entities=entities)
 
 
 @app.route("/fees/entities/add", methods=["POST"])
@@ -326,6 +328,115 @@ def fees_edit_rule(rule_id):
 def fees_delete_rule(rule_id):
     psp_id = request.form.get("psp_id", type=int)
     queries.delete_fee_rule(rule_id)
+    return redirect(url_for("fees_detail", psp_id=psp_id))
+
+
+# ---------------------------------------------------------------------------
+# AI Agreement Upload
+# ---------------------------------------------------------------------------
+
+ALLOWED_UPLOAD_EXTS = {"pdf", "docx", "doc"}
+
+
+@app.route("/fees/upload", methods=["GET", "POST"])
+@require_auth
+def fees_upload():
+    if request.method == "GET":
+        return render_template("fee_upload.html")
+
+    f = request.files.get("agreement_file")
+    if not f or not f.filename:
+        return render_template("fee_upload.html", error="No file selected.")
+
+    ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
+    if ext not in ALLOWED_UPLOAD_EXTS:
+        return render_template("fee_upload.html",
+                               error="Only PDF and DOCX files are supported.")
+
+    try:
+        file_bytes = f.read()
+        text = ai_parse.extract_text(file_bytes, f.filename)
+    except Exception as e:
+        return render_template("fee_upload.html",
+                               error=f"Could not read file: {e}")
+
+    if not text.strip():
+        return render_template("fee_upload.html",
+                               error="No text could be extracted from this file. "
+                                     "It may be a scanned image PDF — try a DOCX version instead.")
+
+    try:
+        result = ai_parse.analyze_agreement(text)
+    except Exception as e:
+        return render_template("fee_upload.html",
+                               error=f"AI analysis failed: {e}")
+
+    return render_template(
+        "fee_confirm.html",
+        agreement=result.get("agreement", {}),
+        fee_rules=result.get("fee_rules", []),
+        entities=queries.get_entities(),
+        fee_types=FEE_TYPES,
+        payment_methods=PAYMENT_METHODS,
+        currencies=CURRENCIES,
+        filename=f.filename,
+    )
+
+
+@app.route("/fees/upload/confirm", methods=["POST"])
+@require_auth
+def fees_upload_confirm():
+    data = {
+        "psp_name":         request.form["psp_name"].strip(),
+        "provider_name":    request.form.get("provider_name", "").strip() or None,
+        "agreement_entity": request.form.get("agreement_entity", "").strip() or None,
+        "agreement_date":   request.form.get("agreement_date") or None,
+        "addendum_date":    request.form.get("addendum_date") or None,
+        "auto_settlement":  request.form.get("auto_settlement") == "on",
+        "settlement_bank":  request.form.get("settlement_bank", "").strip() or None,
+    }
+    if not data["psp_name"]:
+        abort(400, "PSP name is required")
+
+    psp_id = queries.create_agreement(data)
+
+    rule_count = int(request.form.get("rule_count", 0))
+    for i in range(rule_count):
+        kind = request.form.get(f"fee_kind_{i}", "percentage")
+        rule = {
+            "payment_method": request.form.get(f"payment_method_{i}", "").strip() or None,
+            "fee_type":       request.form.get(f"fee_type_{i}", "Deposit"),
+            "country":        request.form.get(f"country_{i}", "GLOBAL").strip() or "GLOBAL",
+            "sub_provider":   request.form.get(f"sub_provider_{i}", "").strip() or None,
+            "fee_kind":       kind,
+            "pct_rate":       None,
+            "fixed_amount":   None,
+            "fixed_currency": None,
+            "description":    request.form.get(f"description_{i}", "").strip() or None,
+            "tiers":          [],
+        }
+        if kind in ("percentage", "fixed_plus_pct"):
+            raw = request.form.get(f"pct_rate_{i}", "")
+            if raw:
+                rule["pct_rate"] = float(raw) / 100.0
+        if kind in ("fixed", "fixed_plus_pct"):
+            raw = request.form.get(f"fixed_amount_{i}", "")
+            if raw:
+                rule["fixed_amount"] = float(raw)
+            rule["fixed_currency"] = request.form.get(f"fixed_currency_{i}", "USD")
+        if kind == "tiered":
+            froms = request.form.getlist(f"tier_from_{i}")
+            tos   = request.form.getlist(f"tier_to_{i}")
+            rates = request.form.getlist(f"tier_rate_{i}")
+            for f_v, t_v, r_v in zip(froms, tos, rates):
+                if r_v:
+                    rule["tiers"].append({
+                        "volume_from": float(f_v) if f_v else 0,
+                        "volume_to":   float(t_v) if t_v else None,
+                        "pct_rate":    float(r_v) / 100.0,
+                    })
+        queries.create_fee_rule(psp_id, rule)
+
     return redirect(url_for("fees_detail", psp_id=psp_id))
 
 

@@ -310,6 +310,19 @@ def get_all_agreements():
         return [dict(r) for r in rows]
 
 
+def get_terminated_agreements():
+    with fees_db() as conn:
+        rows = conn.execute("""
+            SELECT a.*, COUNT(r.id) AS rule_count
+            FROM psp_agreements a
+            LEFT JOIN psp_fee_rules r ON r.agreement_id = a.id
+            WHERE a.active = 0
+            GROUP BY a.id
+            ORDER BY a.updated_at DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_agreement(psp_id):
     with fees_db() as conn:
         row = conn.execute("SELECT * FROM psp_agreements WHERE id = ?", (psp_id,)).fetchone()

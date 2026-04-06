@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+{% block title %} — Confirm AI Extraction{% endblock %}
+
+{# ── Macro: renders one rule card with all fields ── #}
+{% macro render_rule_card(idx, rule, fee_types, payment_methods, currencies) %}
+<div class="rule-card" id="ruleCard{{ idx }}" data-idx="{{ idx }}">
+  <div class="rule-card-header">
+    <span class="rule-num">Rule {{ idx + 1 }}</span>
+    <button type="button" class="rule-remove" onclick="removeRule({{ idx }})" title="Remove rule">×</button>
+  </div>
+
+  <div class="form-row">
+    <label>Payment Method
+      <select name="payment_method_{{ idx }}">
+        <option value="">— Any —</option>
+        {% for m in payment_methods %}
+        <option value="{{ m }}" {{ 'selected' if rule.get('payment_method') == m }}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Fee Type *
+      <select name="fee_type_{{ idx }}" required>
+        {% for t in fee_types %}
+        <option value="{{ t }}" {{ 'selected' if rule.get('fee_type') == t }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <div class="form-row">
+    <label>Country
+      <input type="text" name="country_{{ idx }}"
+             value="{{ rule.get('country','GLOBAL') or 'GLOBAL' }}"
+             placeholder="e.g. Ghana or GLOBAL">
+    </label>
+    <label>Sub-Provider
+      <input type="text" name="sub_provider_{{ idx }}"
+             value="{{ rule.get('sub_provider','') or '' }}"
+             placeholder="e.g. MTN, Airtel">
+    </label>
+  </div>
+
+  <div class="form-section-divider" style="margin-top:16px;padding-top:14px;">Fee Structure</div>
+  <div class="form-row" style="margin-bottom:var(--sp-2);">
+    <label>Structure *
+      <select name="fee_kind_{{ idx }}" onchange="toggleConfirmFeeFields({{ idx }}, this.value)" required>
+        {% for k, label in [('percentage','Percentage'),('fixed','Fixed Amount'),
+                            ('fixed_plus_pct','Fixed + Percentage'),('tiered','Volume Tiered')] %}
+        <option value="{{ k }}" {{ 'selected' if rule.get('fee_kind') == k }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div></div>
+  </div>
+
+  <div id="cpct_{{ idx }}" class="fee-fields" {{ 'style="display:none;"' if rule.get('fee_kind') not in (none,'','percentage','fixed_plus_pct') }}>
+    <div class="form-row">
+      <label>Rate (%)
+        <input type="number" name="pct_rate_{{ idx }}" step="0.001" min="0" max="100"
+               placeholder="e.g. 3.5"
+               value="{{ '%.4g'|format((rule.get('pct_rate') or 0) * 100) if rule.get('pct_rate') else '' }}">
+      </label>
+      <div></div>
+    </div>
+  </div>
+
+  <div id="cfix_{{ idx }}" class="fee-fields" {{ '' if rule.get('fee_kind') in ('fixed','fixed_plus_pct') else 'style="display:none;"' }}>
+    <div class="form-row">
+      <label>Amount
+        <input type="number" name="fixed_amount_{{ idx }}" step="0.01" min="0"
+               placeholder="e.g. 100"
+               value="{{ rule.get('fixed_amount','') or '' }}">
+      </label>
+      <label>Currency
+        <select name="fixed_currency_{{ idx }}">
+          {% for c in currencies %}
+          <option value="{{ c }}" {{ 'selected' if rule.get('fixed_currency') == c }}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div id="ctier_{{ idx }}" class="fee-fields" {{ '' if rule.get('fee_kind') == 'tiered' else 'style="display:none;"' }}>
+    <table class="tier-table" id="ctierTable_{{ idx }}">
+      <thead><tr><th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th style="width:36px;"></th></tr></thead>
+      <tbody>
+        {% for tier in rule.get('tiers', []) %}
+        <tr>
+          <td><input type="number" name="tier_from_{{ idx }}" step="0.01" min="0" value="{{ tier.volume_from }}"></td>
+          <td><input type="number" name="tier_to_{{ idx }}"   step="0.01" min="0" placeholder="unlimited" value="{{ tier.volume_to if tier.volume_to is not none else '' }}"></td>
+          <td><input type="number" name="tier_rate_{{ idx }}"  step="0.001" min="0" max="100" required value="{{ '%.4g'|format(tier.pct_rate * 100) }}"></td>
+          <td><button type="button" class="tier-remove" onclick="this.closest('tr').remove()">✕</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="button" class="btn"
+            onclick="addConfirmTierRow({{ idx }})"
+            style="margin-top:8px;height:28px;font-size:12px;padding:0 10px;">+ Add Tier</button>
+  </div>
+
+  <div class="form-section-divider" style="margin-top:16px;padding-top:14px;">Notes</div>
+  <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">
+    Description
+    <textarea name="description_{{ idx }}"
+              style="margin-top:6px;height:auto;min-height:52px;padding:8px 12px;resize:vertical;
+                     width:100%;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.07);
+                     color:var(--text);border-radius:var(--radius-sm);font-size:13px;"
+              placeholder="Optional notes">{{ rule.get('description','') or '' }}</textarea>
+  </label>
+</div>
+{% endmacro %}
+
+{% block content %}
+<style>
+  .ai-banner {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px; margin-bottom: var(--sp-4);
+    background: rgba(79,142,247,.07); border: 1px solid rgba(79,142,247,.2);
+    border-radius: var(--radius-sm); font-size: 13px; color: var(--text-2);
+  }
+  .ai-banner .ai-icon { font-size: 20px; flex-shrink: 0; }
+  .ai-banner strong { color: var(--text); }
+  .rule-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 20px 24px; margin-bottom: 14px;
+    position: relative; animation: formEnter .15s ease-out both;
+  }
+  .rule-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .rule-num {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted);
+  }
+  .rule-remove {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 4px;
+    transition: color .15s, background .15s;
+  }
+  .rule-remove:hover { color: var(--red); background: rgba(239,68,68,.08); }
+  .add-rule-btn {
+    width: 100%; height: 42px; margin-top: 6px;
+    border: 1px dashed rgba(79,142,247,.3); background: transparent;
+    color: var(--accent); font-size: 13px; font-weight: 600;
+    border-radius: var(--radius-md); cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .add-rule-btn:hover { background: rgba(79,142,247,.06); border-color: rgba(79,142,247,.5); }
+</style>
+
+<div style="max-width:860px;margin:0 auto;">
+
+  <div style="margin-bottom:20px;">
+    <a href="/fees/upload" class="back-link">← Upload another</a>
+    <div class="page-title" style="margin-top:6px;">Review AI Extraction</div>
+  </div>
+
+  <div class="ai-banner">
+    <span class="ai-icon">🤖</span>
+    <div>
+      <strong>AI extracted the following from <em>{{ filename }}</em></strong><br>
+      Review carefully — edit any fields before saving. Nothing is committed until you click Save.
+    </div>
+  </div>
+
+  <form method="POST" action="/fees/upload/confirm" id="confirmForm">
+    <input type="hidden" name="rule_count" id="ruleCount" value="{{ fee_rules|length }}">
+
+    <!-- ── Agreement details ────────────────────────────────── -->
+    <div class="section-title">Agreement Details</div>
+    <div class="fee-form" style="margin-bottom:var(--sp-4);">
+
+      <div class="form-section-label">Identity</div>
+      <div class="form-row">
+        <label><span>PSP Name <span style="color:var(--red);">*</span></span>
+          <input type="text" name="psp_name" required
+                 value="{{ agreement.get('psp_name','') }}"
+                 oninput="this.value=this.value.toUpperCase()"
+                 placeholder="e.g. NUVEI">
+        </label>
+        <label>Provider Company Name
+          <input type="text" name="provider_name"
+                 value="{{ agreement.get('provider_name','') or '' }}"
+                 oninput="this.value=this.value.toUpperCase()"
+                 placeholder="e.g. NUVEI LIMITED">
+        </label>
+      </div>
+
+      <div class="form-section-divider">Agreement</div>
+      <div class="form-row">
+        <label>Agreement Entity
+          <select name="agreement_entity">
+            <option value="">— None —</option>
+            {% for e in entities %}
+            <option value="{{ e }}"
+              {{ 'selected' if agreement.get('agreement_entity','') == e }}>{{ e }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Settlement Bank
+          <input type="text" name="settlement_bank"
+                 value="{{ agreement.get('settlement_bank','') or '' }}"
+                 placeholder="e.g. Absa 242586-USD-1046-11">
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Agreement Date
+          <input type="date" name="agreement_date"
+                 value="{{ agreement.get('agreement_date','') or '' }}">
+        </label>
+        <label>Addendum Date
+          <input type="date" name="addendum_date"
+                 value="{{ agreement.get('addendum_date','') or '' }}">
+        </label>
+      </div>
+
+      <div class="form-section-divider">Settlement</div>
+      <label class="check-card" for="auto_settlement">
+        <input type="checkbox" id="auto_settlement" name="auto_settlement"
+               {{ 'checked' if agreement.get('auto_settlement') }}>
+        <div>
+          <div class="check-card-label">Enable Auto Settlement</div>
+          <div class="check-card-hint">PSP sends funds automatically without manual trigger</div>
+        </div>
+      </label>
+
+    </div>
+
+    <!-- ── Fee Rules ────────────────────────────────────────── -->
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+      <span>Fee Rules</span>
+      <span style="font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">
+        {{ fee_rules|length }} extracted
+      </span>
+    </div>
+
+    <div id="ruleCards">
+      {% for rule in fee_rules %}
+      {{ render_rule_card(loop.index0, rule, fee_types, payment_methods, currencies) }}
+      {% endfor %}
+    </div>
+
+    <button type="button" class="add-rule-btn" onclick="addBlankRule()">+ Add Rule</button>
+
+    <!-- ── Actions ─────────────────────────────────────────── -->
+    <div class="form-footer" style="margin-top:var(--sp-4);">
+      <div class="form-footer-actions">
+        <button type="submit" class="btn btn-primary" style="height:42px;padding:0 28px;font-size:14px;">
+          Save PSP &amp; Fee Rules
+        </button>
+        <a href="/fees" class="btn btn-cancel" style="height:42px;padding:0 20px;">Discard</a>
+      </div>
+      <span class="form-hint">All fee rules shown above will be created. You can edit them after saving.</span>
+    </div>
+
+  </form>
+</div>
+
+<script>
+var ruleCount  = {{ fee_rules|length }};
+var feeTypes   = {{ fee_types | tojson }};
+var pmethods   = {{ payment_methods | tojson }};
+var currencies = {{ currencies | tojson }};
+
+function getRuleCount() { return parseInt(document.getElementById('ruleCount').value); }
+function setRuleCount(n) { document.getElementById('ruleCount').value = n; }
+
+/* Remove a rule card — hide and mark disabled so it won't submit */
+function removeRule(idx) {
+  var card = document.getElementById('ruleCard' + idx);
+  if (!card) return;
+  card.style.animation = 'none';
+  card.style.opacity = '0';
+  card.style.transform = 'translateY(-4px)';
+  card.style.transition = 'opacity .15s, transform .15s';
+  setTimeout(function() {
+    card.remove();
+    rebuildRuleNumbers();
+  }, 150);
+}
+
+function rebuildRuleNumbers() {
+  var cards = document.querySelectorAll('#ruleCards .rule-card');
+  setRuleCount(cards.length);
+  cards.forEach(function(card, i) {
+    card.querySelector('.rule-num').textContent = 'Rule ' + (i + 1);
+  });
+}
+
+/* Toggle fee structure fields */
+function toggleConfirmFeeFields(idx, kind) {
+  var show = { pct: ['percentage','fixed_plus_pct'], fix: ['fixed','fixed_plus_pct'], tier: ['tiered'] };
+  document.getElementById('cpct_' + idx).style.display  = show.pct.includes(kind)  ? '' : 'none';
+  document.getElementById('cfix_' + idx).style.display  = show.fix.includes(kind)  ? '' : 'none';
+  document.getElementById('ctier_' + idx).style.display = show.tier.includes(kind) ? '' : 'none';
+  if (kind === 'tiered' && !document.querySelector('#ctierTable_' + idx + ' tbody tr')) {
+    addConfirmTierRow(idx);
+  }
+}
+
+function addConfirmTierRow(idx) {
+  var tbody = document.querySelector('#ctierTable_' + idx + ' tbody');
+  var tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input type="number" name="tier_from_' + idx + '" step="0.01" min="0" value="0"></td>' +
+    '<td><input type="number" name="tier_to_'   + idx + '" step="0.01" min="0" placeholder="unlimited"></td>' +
+    '<td><input type="number" name="tier_rate_' + idx + '" step="0.001" min="0" max="100" required placeholder="e.g. 3.5"></td>' +
+    '<td><button type="button" class="tier-remove" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+  tbody.appendChild(tr);
+}
+
+/* Add a blank rule card */
+function addBlankRule() {
+  var idx = Date.now(); // unique idx so names don't collide
+  var container = document.getElementById('ruleCards');
+
+  var html = '<div class="rule-card" id="ruleCard' + idx + '" data-idx="' + idx + '">' +
+    '<div class="rule-card-header">' +
+      '<span class="rule-num">Rule ' + (container.children.length + 1) + '</span>' +
+      '<button type="button" class="rule-remove" onclick="removeRule(' + idx + ')" title="Remove">×</button>' +
+    '</div>' +
+    '<div class="form-row">' +
+      '<label>Payment Method<select name="payment_method_' + idx + '"><option value="">— Any —</option>' +
+        pmethods.map(function(m){ return '<option value="'+m+'">'+m+'</option>'; }).join('') +
+      '</select></label>' +
+      '<label>Fee Type *<select name="fee_type_' + idx + '" required>' +
+        feeTypes.map(function(t){ return '<option value="'+t+'">'+t+'</option>'; }).join('') +
+      '</select></label>' +
+    '</div>' +
+    '<div class="form-row">' +
+      '<label>Country<input type="text" name="country_' + idx + '" value="GLOBAL" placeholder="e.g. Ghana or GLOBAL"></label>' +
+      '<label>Sub-Provider<input type="text" name="sub_provider_' + idx + '" placeholder="e.g. MTN, Airtel"></label>' +
+    '</div>' +
+    '<div class="form-section-divider" style="margin-top:16px;padding-top:14px;">Fee Structure</div>' +
+    '<div class="form-row" style="margin-bottom:8px;">' +
+      '<label>Structure *<select name="fee_kind_' + idx + '" onchange="toggleConfirmFeeFields(' + idx + ', this.value)" required>' +
+        '<option value="percentage">Percentage</option>' +
+        '<option value="fixed">Fixed Amount</option>' +
+        '<option value="fixed_plus_pct">Fixed + Percentage</option>' +
+        '<option value="tiered">Volume Tiered</option>' +
+      '</select></label><div></div>' +
+    '</div>' +
+    '<div id="cpct_' + idx + '" class="fee-fields"><div class="form-row">' +
+      '<label>Rate (%)<input type="number" name="pct_rate_' + idx + '" step="0.001" min="0" max="100" placeholder="e.g. 3.5"></label>' +
+      '<div></div></div></div>' +
+    '<div id="cfix_' + idx + '" class="fee-fields" style="display:none;"><div class="form-row">' +
+      '<label>Amount<input type="number" name="fixed_amount_' + idx + '" step="0.01" min="0" placeholder="e.g. 100"></label>' +
+      '<label>Currency<select name="fixed_currency_' + idx + '">' +
+        currencies.map(function(c){ return '<option value="'+c+'"'+(c==='USD'?' selected':'')+'>'+c+'</option>'; }).join('') +
+      '</select></label></div></div>' +
+    '<div id="ctier_' + idx + '" class="fee-fields" style="display:none;">' +
+      '<table class="tier-table" id="ctierTable_' + idx + '"><thead><tr>' +
+        '<th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th style="width:36px;"></th>' +
+      '</tr></thead><tbody></tbody></table>' +
+      '<button type="button" class="btn" onclick="addConfirmTierRow(' + idx + ')" style="margin-top:8px;height:28px;font-size:12px;padding:0 10px;">+ Add Tier</button>' +
+    '</div>' +
+    '<div class="form-section-divider" style="margin-top:16px;padding-top:14px;">Notes</div>' +
+    '<label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">Description' +
+      '<textarea name="description_' + idx + '" style="margin-top:6px;height:auto;min-height:52px;padding:8px 12px;resize:vertical;width:100%;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.07);color:var(--text);border-radius:var(--radius-sm);font-size:13px;" placeholder="Optional notes"></textarea>' +
+    '</label>' +
+  '</div>';
+
+  container.insertAdjacentHTML('beforeend', html);
+  setRuleCount(container.children.length);
+}
+</script>
+
+{% endblock %}

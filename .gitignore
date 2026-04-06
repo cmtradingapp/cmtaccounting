@@ -17,6 +17,9 @@ htmlcov/
 # Flask uploads & runtime state
 web-gui/uploads/
 
+# Analysis script output
+scripts/output/
+
 # Source data — too large for git; keep locally only
 relevant-data/
 

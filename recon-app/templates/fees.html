@@ -1,70 +1,152 @@
 {% extends "base.html" %}
 {% block title %} — PSP Fee Agreements{% endblock %}
 {% block content %}
+<style>
+  .tab-bar {
+    display: flex; gap: 2px; margin-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+  .tab-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 36px; padding: 0 14px;
+    background: transparent; border: none;
+    font-size: 13px; font-weight: 500; color: var(--muted);
+    cursor: pointer; position: relative;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color .15s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 18px; padding: 0 6px;
+    background: rgba(255,255,255,.07); border-radius: 999px;
+    font-size: 11px; font-weight: 700; color: var(--text-2);
+  }
+  .tab-btn.active .tab-count { background: rgba(79,142,247,.15); color: var(--accent); }
+  .terminated-row td { opacity: .55; }
+  .terminated-row:hover td { opacity: .75; }
+</style>
 
 <div class="page-header">
   <div style="display:flex;align-items:center;gap:14px;">
     <div class="page-title">PSP Fee Agreements</div>
+    <a class="btn btn-ghost" href="/fees/upload" style="border:1px solid rgba(79,142,247,.3);">⬆ Upload Agreement</a>
     <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
   </div>
 </div>
 
-{% if agreements %}
-<div class="table-meta">{{ agreements|length }} agreement{{ 's' if agreements|length != 1 }}</div>
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr>
-        <th>PSP Name</th>
-        <th>Provider</th>
-        <th>Entity</th>
-        <th>Agreement Date</th>
-        <th>Addendum</th>
-        <th>Auto Settle</th>
-        <th>Settlement Bank</th>
-        <th class="num">Rules</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for a in agreements %}
-      <tr class="clickable" onclick="window.location='/fees/{{ a.id }}'">
-        <td style="font-weight:600;color:var(--accent);">{{ a.psp_name }}</td>
-        <td style="color:var(--text-2);">{{ a.provider_name or '—' }}</td>
-        <td style="color:var(--text-2);">{{ a.agreement_entity or '—' }}</td>
-        <td>{{ a.agreement_date or '—' }}</td>
-        <td style="color:var(--text-2);">{{ a.addendum_date or '—' }}</td>
-        <td>
-          {% if a.auto_settlement %}
-            <span class="badge matched">Yes</span>
-          {% else %}
-            <span style="color:var(--muted);">—</span>
-          {% endif %}
-        </td>
-        <td style="color:var(--text-2);max-width:180px;overflow:hidden;text-overflow:ellipsis;"
-            title="{{ a.settlement_bank or '' }}">{{ a.settlement_bank or '—' }}</td>
-        <td class="num" style="font-weight:600;">{{ a.rule_count }}</td>
-        <td>
-          <form method="POST" action="/fees/{{ a.id }}/delete"
-                onclick="event.stopPropagation()"
-                onsubmit="return confirm('Terminate {{ a.psp_name }}?')">
-            <button type="submit" class="btn btn-danger-sm"
-                    style="height:28px;padding:0 10px;font-size:12px;">Terminate</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<!-- Tab bar -->
+<div class="tab-bar">
+  <button class="tab-btn active" id="tab-active-btn" onclick="switchTab('active')">
+    Active <span class="tab-count">{{ agreements|length }}</span>
+  </button>
+  <button class="tab-btn" id="tab-historical-btn" onclick="switchTab('historical')">
+    Historical <span class="tab-count">{{ terminated|length }}</span>
+  </button>
 </div>
-{% else %}
-<div class="table-wrap empty" style="padding:64px;">
-  <div style="font-size:32px;margin-bottom:14px;opacity:.4;">📋</div>
-  <div style="font-size:15px;font-weight:600;margin-bottom:6px;">No PSP agreements yet</div>
-  <div style="color:var(--muted);margin-bottom:20px;font-size:13px;">Add your first PSP to start tracking fee agreements.</div>
-  <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
+
+<!-- Active tab -->
+<div id="tab-active">
+  {% if agreements %}
+  <div class="table-meta">{{ agreements|length }} active agreement{{ 's' if agreements|length != 1 }}</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>PSP Name</th>
+          <th>Provider</th>
+          <th>Entity</th>
+          <th>Agreement Date</th>
+          <th>Addendum</th>
+          <th>Auto Settle</th>
+          <th>Settlement Bank</th>
+          <th class="num">Rules</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in agreements %}
+        <tr class="clickable" onclick="window.location='/fees/{{ a.id }}'">
+          <td style="font-weight:600;color:var(--accent);">{{ a.psp_name }}</td>
+          <td style="color:var(--text-2);">{{ a.provider_name or '—' }}</td>
+          <td style="color:var(--text-2);">{{ a.agreement_entity or '—' }}</td>
+          <td>{{ a.agreement_date or '—' }}</td>
+          <td style="color:var(--text-2);">{{ a.addendum_date or '—' }}</td>
+          <td>
+            {% if a.auto_settlement %}
+              <span class="badge matched">Yes</span>
+            {% else %}
+              <span style="color:var(--muted);">—</span>
+            {% endif %}
+          </td>
+          <td style="color:var(--text-2);max-width:180px;overflow:hidden;text-overflow:ellipsis;"
+              title="{{ a.settlement_bank or '' }}">{{ a.settlement_bank or '—' }}</td>
+          <td class="num" style="font-weight:600;">{{ a.rule_count }}</td>
+          <td>
+            <form method="POST" action="/fees/{{ a.id }}/delete"
+                  onclick="event.stopPropagation()"
+                  onsubmit="return confirm('Terminate {{ a.psp_name }}?')">
+              <button type="submit" class="btn btn-danger-sm"
+                      style="height:28px;padding:0 10px;font-size:12px;">Terminate</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="table-wrap empty" style="padding:64px;">
+    <div style="font-size:32px;margin-bottom:14px;opacity:.4;">📋</div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:6px;">No PSP agreements yet</div>
+    <div style="color:var(--muted);margin-bottom:20px;font-size:13px;">Add your first PSP to start tracking fee agreements.</div>
+    <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
+
+<!-- Historical tab -->
+<div id="tab-historical" style="display:none;">
+  {% if terminated %}
+  <div class="table-meta">{{ terminated|length }} terminated agreement{{ 's' if terminated|length != 1 }}</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>PSP Name</th>
+          <th>Provider</th>
+          <th>Entity</th>
+          <th>Agreement Date</th>
+          <th>Terminated</th>
+          <th>Settlement Bank</th>
+          <th class="num">Rules</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in terminated %}
+        <tr class="terminated-row clickable" onclick="window.location='/fees/{{ a.id }}'">
+          <td style="font-weight:600;">{{ a.psp_name }}</td>
+          <td style="color:var(--text-2);">{{ a.provider_name or '—' }}</td>
+          <td style="color:var(--text-2);">{{ a.agreement_entity or '—' }}</td>
+          <td>{{ a.agreement_date or '—' }}</td>
+          <td style="color:var(--muted);">{{ a.updated_at[:10] if a.updated_at else '—' }}</td>
+          <td style="color:var(--text-2);">{{ a.settlement_bank or '—' }}</td>
+          <td class="num">{{ a.rule_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:48px 32px;color:var(--muted);
+              background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);">
+    <div style="font-size:13px;">No terminated agreements.</div>
+  </div>
+  {% endif %}
+</div>
 
 <!-- Agreement Entities -->
 <div class="section-title">Agreement Entities</div>
@@ -85,5 +167,19 @@
             style="height:30px;padding:0 12px;font-size:12px;flex-shrink:0;">Add</button>
   </form>
 </div>
+
+<script>
+function switchTab(name) {
+  document.getElementById('tab-active').style.display     = name === 'active'     ? '' : 'none';
+  document.getElementById('tab-historical').style.display = name === 'historical' ? '' : 'none';
+  document.getElementById('tab-active-btn').classList.toggle('active',     name === 'active');
+  document.getElementById('tab-historical-btn').classList.toggle('active', name === 'historical');
+}
+
+// If redirected back after terminating, switch to historical tab
+{% if terminated|length > 0 and agreements|length == 0 %}
+switchTab('historical');
+{% endif %}
+</script>
 
 {% endblock %}
