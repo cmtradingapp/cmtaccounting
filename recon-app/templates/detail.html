@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %} — {{ login }} · {{ month }}{% endblock %}
+{% block content %}
+
+<div class="month-bar">
+  <a class="btn" href="/recon/{{ month }}">← Back to {{ month }}</a>
+  <span style="font-size:18px;font-weight:700;margin-left:8px;">Login {{ login }}</span>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+
+  <!-- CRM transactions -->
+  <div>
+    <h3 style="margin-bottom:12px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
+      CRM Transactions (backoffice)
+    </h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Payment Method</th>
+            <th>Approval</th>
+            <th class="num">Count</th>
+            <th class="num">USD Total</th>
+            <th>Kind</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if crm_rows %}
+            {% for r in crm_rows %}
+            <tr>
+              <td>{{ r.transactiontype or '—' }}</td>
+              <td>{{ r.payment_method or '—' }}</td>
+              <td>
+                <span class="badge {% if r.transactionapproval == 'Approved' %}matched{% elif r.transactionapproval == 'Failure' %}discrepancy{% else %}mt4_only{% endif %}">
+                  {{ r.transactionapproval }}
+                </span>
+              </td>
+              <td class="num">{{ r.tx_count }}</td>
+              <td class="num {% if r.transactiontype in ('Deposit','TransferIn','Credit in') %}pos{% else %}neg{% endif %}">
+                {{ "{:+,.2f}".format(r.total_usd if r.transactiontype in ('Deposit','TransferIn','Credit in') else -r.total_usd) }}
+              </td>
+              <td>
+                {% if r.is_cash %}
+                  <span class="legend-item cash" style="font-size:11px;">cash</span>
+                {% else %}
+                  <span class="legend-item noncash" style="font-size:11px;">non-cash</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="6" class="empty">No CRM records this month.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- MT4 daily profits -->
+  <div>
+    <h3 style="margin-bottom:12px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
+      MT4 Daily Net Deposits (dealio)
+    </h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th class="num">Net Deposit</th>
+            <th class="num">Net (USD)</th>
+            <th class="num">Balance</th>
+            <th class="num">Equity</th>
+            <th>Ccy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if mt4_rows %}
+            {% set total_net = namespace(v=0) %}
+            {% for r in mt4_rows %}
+            {% set _ = total_net.__setattr__('v', total_net.v + (r.convertednetdeposit or 0)) %}
+            <tr>
+              <td>{{ r.date }}</td>
+              <td class="num {% if r.netdeposit > 0 %}pos{% else %}neg{% endif %}">
+                {{ "{:+,.2f}".format(r.netdeposit) }}
+              </td>
+              <td class="num {% if r.convertednetdeposit > 0 %}pos{% else %}neg{% endif %}">
+                {{ "{:+,.2f}".format(r.convertednetdeposit) }}
+              </td>
+              <td class="num">{{ "{:,.2f}".format(r.balance) }}</td>
+              <td class="num">{{ "{:,.2f}".format(r.equity) }}</td>
+              <td>{{ r.groupcurrency }}</td>
+            </tr>
+            {% endfor %}
+            <tr style="border-top:2px solid var(--border);font-weight:700;">
+              <td>Total</td>
+              <td></td>
+              <td class="num {% if total_net.v > 0 %}pos{% else %}neg{% endif %}">
+                {{ "{:+,.2f}".format(total_net.v) }}
+              </td>
+              <td colspan="3"></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6" class="empty">No MT4 activity this month.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

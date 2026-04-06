@@ -150,6 +150,25 @@
     .neg { color: var(--red);   }
 
     .empty { text-align: center; padding: 60px; color: var(--muted); }
+
+    .login-link { color: var(--accent); text-decoration: none; font-family: monospace; }
+    .login-link:hover { text-decoration: underline; }
+
+    .th-cash    { border-top: 2px solid rgba(34,197,94,.35); }
+    .th-noncash { border-top: 2px solid rgba(245,158,11,.25); }
+    .cash-col   { background: rgba(34,197,94,.03); }
+    .noncash-col{ background: rgba(245,158,11,.03); color: var(--muted); }
+    .fw         { font-weight: 600; }
+
+    .methods { color: var(--muted); max-width: 180px; overflow: hidden;
+               text-overflow: ellipsis; font-size: 12px; }
+
+    .legend { font-size: 12px; color: var(--muted); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .legend-item { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .legend-item.cash    { background: rgba(34,197,94,.15);  color: var(--green); }
+    .legend-item.noncash { background: rgba(245,158,11,.15); color: var(--yellow); }
+
+    h3 { font-size: 15px; font-weight: 600; }
   </style>
 </head>
 <body>
