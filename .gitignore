@@ -40,3 +40,5 @@ desktop.ini
 # Excel temp files
 ~$*.xlsx
 ~$*.xls
+db-creds.txt
+putty-creds.txt
