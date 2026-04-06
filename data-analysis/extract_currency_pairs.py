@@ -7,7 +7,7 @@ import os
 import pandas as pd
 from collections import Counter
 
-MRS_ROOT = r"C:\Projects\MethodosReconciliationSystem\Data\Reconciliation-Relevant\MRS"
+MRS_ROOT = r"C:\Projects\cmtaccounting\relevant-data\MRS"
 
 pairs = Counter()
 files_scanned = 0

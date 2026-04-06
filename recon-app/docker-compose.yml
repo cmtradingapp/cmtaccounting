@@ -1,0 +1,30 @@
+services:
+  recon:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      - DEALIO_HOST=cmtrading-replicadb.dealio.ai
+      - DEALIO_PORT=5106
+      - DEALIO_DB=dealio
+      - DEALIO_USER=dealio_rep
+      - DEALIO_PASS=;tnACp*BSIXZ2%mOHTfP
+      - BACKOFFICE_HOST=client-call-manager_postgres_1
+      - BACKOFFICE_PORT=5432
+      - BACKOFFICE_DB=backoffice
+      - BACKOFFICE_USER=backoffice
+      - BACKOFFICE_PASS=Hdtkfvi12345
+      - FLASK_SECRET=cmt-recon-2026
+      - AUTH_USER=cmt
+      - AUTH_PASS=Rec0n@CMT2026!
+    networks:
+      - recon_net
+      - backoffice_net
+
+networks:
+  recon_net:
+    driver: bridge
+  backoffice_net:
+    external: true
+    name: client-call-manager_default

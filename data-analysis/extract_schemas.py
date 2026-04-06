@@ -7,7 +7,8 @@ from collections import defaultdict
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-ROOT_DIR = r"c:\Projects\MethodosReconciliationSystem\Data\Reconciliation-Relevant"
+ROOT_DIR = r"c:\Projects\cmtaccounting\relevant-data"
+OUTPUT_DIR = r"c:\Projects\cmtaccounting\data-analysis"
 TARGET_DIRS = ["MRS", "Life cycle report"]
 
 def extract_csv_columns(filepath):
@@ -126,7 +127,7 @@ def main():
                     logging.info(f"Scanned {total_files} files so far...")
 
     # Output to JSON
-    output_json = os.path.join(ROOT_DIR, "schemas_summary.json")
+    output_json = os.path.join(OUTPUT_DIR, "schemas_summary.json")
     json_data = {}
     for i, (schema_sig, paths) in enumerate(schema_map.items()):
         schema_name = f"Schema_{i + 1}"
@@ -141,7 +142,7 @@ def main():
         json.dump(json_data, f, indent=4)
         
     # Output to Markdown
-    output_md = os.path.join(ROOT_DIR, "schemas_summary.md")
+    output_md = os.path.join(OUTPUT_DIR, "schemas_summary.md")
     with open(output_md, 'w', encoding='utf-8') as f:
         f.write("# Unique Data Schemas Found\n\n")
         f.write(f"**Total Files Scanned:** {total_files}\n")

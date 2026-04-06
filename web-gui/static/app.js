@@ -1,11 +1,39 @@
+function updateBankFileList() {
+    const input = document.getElementById('bankFile');
+    const list  = document.getElementById('bankFileList');
+    const label = input.previousElementSibling;
+    const files = Array.from(input.files || []);
+    if (files.length === 0) {
+        list.classList.add('hidden');
+        if (label) label.style.color = '';
+        return;
+    }
+    if (label) label.style.color = '#34d399';
+    list.classList.remove('hidden');
+    const header = `<div class="file-list-header">
+        <span class="file-list-header-count">${files.length} file${files.length !== 1 ? 's' : ''}</span>
+    </div>`;
+    list.innerHTML = header + files.map((f, i) => {
+        const ext = f.name.split('.').pop().toLowerCase();
+        const extClass = ['csv','xlsx','xls'].includes(ext) ? ext : 'other';
+        const stem = f.name.slice(0, f.name.lastIndexOf('.')) || f.name;
+        return `<div class="file-list-item">
+            <span class="file-list-idx">${String(i + 1).padStart(2, '0')}</span>
+            <span class="file-list-ext ${extClass}">${ext}</span>
+            <span class="file-list-name" title="${f.name}">${stem}</span>
+        </div>`;
+    }).join('');
+}
+
+document.getElementById('bankFile').addEventListener('change', updateBankFileList);
+
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    
+
     const singleFiles = ['platformFile', 'equityFile', 'transactionsFile'];
     const formData = new FormData();
     const uploadSpinner = document.getElementById('uploadSpinner');
-    
-    // Bank/PSP supports multiple files
+
     const bankFiles = document.getElementById('bankFile').files;
     if (bankFiles.length === 0) {
         return alert('Please select at least one Bank/PSP statement.');
@@ -13,8 +41,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     for (let i = 0; i < bankFiles.length; i++) {
         formData.append('bankFile', bankFiles[i]);
     }
-    
-    // Single files
+
     for (const id of singleFiles) {
         const file = document.getElementById(id).files[0];
         if (!file) {
@@ -22,49 +49,127 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         }
         formData.append(id, file);
     }
-    
+
+    // Optional opening balance file
+    const obFile = document.getElementById('openingBalanceFile')?.files[0];
+    if (obFile) formData.append('openingBalanceFile', obFile);
+
     uploadSpinner.classList.remove('hidden');
     const submitBtn = document.querySelector('#uploadForm button');
     submitBtn.style.opacity = "0.7";
-    
+
     try {
-        const res = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData
-        });
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await res.json();
-        
+
         if (data.status === 'success') {
             document.getElementById('uploadZone').classList.add('hidden');
-            
+
             const mappingZone = document.getElementById('mappingZone');
             const mappingCards = document.getElementById('mappingCards');
-            
-            // Update subtitle with parse summary
+
             mappingZone.querySelector('.subtitle').innerText = data.message;
-            
-            mappingCards.innerHTML = '';
             mappingCards.style.gridTemplateColumns = '1fr';
-            
+            mappingCards.innerHTML = `
+                <div class="schema-progress-wrap">
+                    <div class="schema-steps">
+                        <div class="schema-step done"  id="spStep1">
+                            <span class="schema-step-dot"></span>
+                            <span class="schema-step-label">Files uploaded &amp; saved</span>
+                            <span class="schema-step-icon">✓</span>
+                        </div>
+                        <div class="schema-step done"  id="spStep2">
+                            <span class="schema-step-dot"></span>
+                            <span class="schema-step-label">Column headers parsed</span>
+                            <span class="schema-step-icon">✓</span>
+                        </div>
+                        <div class="schema-step active" id="spStep3">
+                            <span class="schema-step-dot"></span>
+                            <span class="schema-step-label">AI column analysis</span>
+                            <span class="schema-step-icon">···</span>
+                        </div>
+                    </div>
+                    <div class="schema-progress-track">
+                        <div class="schema-progress-fill" id="schemaFill"></div>
+                    </div>
+                </div>`;
+            mappingZone.classList.remove('hidden');
+
+            // Animate bar: steps 1+2 done (66%) → hold while AI runs
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    document.getElementById('schemaFill').style.width = '66%';
+                }, 40);
+            });
+
+            // Optional: LLM enhancement via OpenRouter (highlights join key + amount cols)
+            let aiMapping = null;
+            try {
+                const mapRes = await fetch('/api/map-columns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sources: data.sources })
+                });
+                const mapData = await mapRes.json();
+                if (mapData.status === 'success') aiMapping = mapData.mapping;
+            } catch (_) {
+                // LLM unavailable — showing raw detected columns
+            }
+
+            // Step 3 complete → 100%, brief pause, then render cards
+            const fillEl = document.getElementById('schemaFill');
+            const step3  = document.getElementById('spStep3');
+            if (fillEl) fillEl.style.width = '100%';
+            if (step3) {
+                step3.classList.replace('active', 'done');
+                step3.querySelector('.schema-step-icon').textContent = '✓';
+            }
+            await new Promise(r => setTimeout(r, 380));
+            mappingCards.innerHTML = '';
+
             for (const [source, info] of Object.entries(data.sources)) {
-                const colTags = info.columns.map(c => 
-                    `<span style="background: rgba(59,130,246,0.15); color: #93c5fd; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">${c}</span>`
-                ).join(' ');
-                
+                const aiSource = aiMapping?.sources?.[source];
+                const refCol = aiSource?.ref_col;
+                const amtCol = aiSource?.amount_col;
+
+                const colTags = info.columns.map(c => {
+                    let style = 'background: rgba(59,130,246,0.15); color: #93c5fd;';
+                    let badge = '';
+                    if (refCol && c === refCol) {
+                        style = 'background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.4);';
+                        badge = ' <span style="font-size:10px;opacity:0.7;">🔑 join key</span>';
+                    } else if (amtCol && c === amtCol) {
+                        style = 'background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3);';
+                        badge = ' <span style="font-size:10px;opacity:0.7;">💰 amount</span>';
+                    }
+                    return `<span style="${style} padding: 3px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">${c}${badge}</span>`;
+                }).join(' ');
+
+                const mappingRows = aiSource?.mappings
+                    ? Object.entries(aiSource.mappings).slice(0, 6).map(([src, out]) =>
+                        `<div style="font-size:11px; color:#64748b; font-family:monospace;">${src} → <span style="color:#a78bfa;">${out}</span></div>`
+                      ).join('')
+                    : '';
+
                 mappingCards.innerHTML += `
                     <div class="mapping-card" style="flex-direction: column; align-items: flex-start; gap: 10px; border-left-color: #10b981;">
                         <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                             <span class="m-value" style="font-size: 15px;">${source}</span>
                             <span style="color: #64748b; font-size: 12px;">${info.filename}</span>
                         </div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                            ${colTags}
-                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">${colTags}</div>
+                        ${mappingRows ? `<div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%;">${mappingRows}</div>` : ''}
                     </div>
                 `;
             }
-            
-            mappingZone.classList.remove('hidden');
+
+            if (aiMapping?.join_explanation) {
+                mappingCards.innerHTML += `
+                    <div style="background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #a78bfa;">
+                        <strong style="color:#c4b5fd;">LLM suggestion:</strong> ${aiMapping.join_explanation}
+                    </div>
+                `;
+            }
         } else {
             alert(data.error);
         }
@@ -79,34 +184,488 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 document.getElementById('runReconBtn').addEventListener('click', async () => {
     const btn = document.getElementById('runReconBtn');
     btn.innerHTML = `<span class="spinner"></span> Joining Datasets...`;
-    
+
     try {
         const res = await fetch('/api/reconcile', { method: 'POST' });
         const data = await res.json();
-        
+
         if (data.status === 'success') {
             document.getElementById('mappingZone').classList.add('hidden');
-            
+
             const s = data.summary;
-            document.getElementById('joinKeyInfo').innerText = `Join: ${s.join_keys_used} | Deal No col: ${s.deal_no_column}`;
-            document.getElementById('statMatched').innerText = s.total_matched.toLocaleString();
-            document.getElementById('statCrmOnly').innerText = s.crm_unmatched.toLocaleString();
-            document.getElementById('statBankOnly').innerText = s.bank_unmatched.toLocaleString();
-            document.getElementById('statCrmTotal').innerText = s.total_crm_rows.toLocaleString();
-            document.getElementById('statBankTotal').innerText = s.total_bank_rows.toLocaleString();
-            document.getElementById('statFees').innerText = `$${s.unrecon_fees.toLocaleString()}`;
-            
+            // Use PSP-only denominator for match rate (excludes internal entries)
+            const pspTotal = s.crm_psp_total ?? s.total_crm_rows;
+            const rate     = pspTotal > 0 ? (s.total_matched / pspTotal * 100) : 0;
+            const rateStr  = rate.toFixed(1) + '%';
+
+            // Match rate hero
+            const rateEl = document.getElementById('statMatchRate');
+            const barFill = document.getElementById('reconBarFill');
+            rateEl.textContent = rateStr;
+            rateEl.style.color = rate >= 95 ? 'var(--success)' : rate >= 80 ? 'var(--warning)' : 'var(--danger)';
+            setTimeout(() => { barFill.style.width = rate + '%'; }, 50);
+            barFill.style.background = rate >= 95 ? 'var(--success)' : rate >= 80 ? 'var(--warning)' : 'var(--danger)';
+            document.getElementById('reconBarMatchedLabel').textContent =
+                `${s.total_matched.toLocaleString()} matched`;
+            document.getElementById('reconBarUnmatchedLabel').textContent =
+                `${((s.crm_psp_unmatched ?? s.crm_unmatched) + s.bank_unmatched).toLocaleString()} unmatched`;
+
+            // Badge
+            const badge = document.getElementById('resultsBadge');
+            badge.textContent = rate >= 95 ? 'Clean' : rate >= 80 ? 'Review needed' : 'Issues found';
+            badge.style.background = rate >= 95 ? 'rgba(16,185,129,0.2)' : rate >= 80 ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)';
+            badge.style.color = rate >= 95 ? '#34d399' : rate >= 80 ? '#fbbf24' : '#f87171';
+
+            // CRM side — PSP-reconcilable rows only; show internal count as subtitle
+            const internalCount = s.total_crm_rows - pspTotal;
+            if (internalCount > 0) {
+                document.getElementById('statCrmInternalNote').textContent =
+                    `· ${internalCount.toLocaleString()} internal excluded`;
+            }
+            document.getElementById('statCrmTotal').textContent = pspTotal.toLocaleString();
+            document.getElementById('statMatched').textContent  = s.total_matched.toLocaleString();
+            document.getElementById('statCrmOnly').textContent  = (s.crm_psp_unmatched ?? s.crm_unmatched).toLocaleString();
+
+            // Bank side
+            document.getElementById('statBankTotal').textContent   = s.total_bank_rows.toLocaleString();
+            document.getElementById('statBankMatched').textContent = s.total_matched.toLocaleString();
+            document.getElementById('statBankOnly').textContent    = s.bank_unmatched.toLocaleString();
+
+            // Unreconciled amount
+            const amtBar = document.getElementById('reconAmountBar');
+            const amtVal = document.getElementById('statFees');
+            const fees = s.unrecon_fees;
+            amtVal.textContent = '$' + Math.abs(fees).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            if (fees === 0) amtBar.classList.add('clean');
+            const ccyNote = document.getElementById('statFeesCcyNote');
+            if (s.currency_mismatch_pairs > 0) {
+                ccyNote.textContent = `· ${s.currency_mismatch_pairs.toLocaleString()} cross-currency pairs excluded`;
+            } else {
+                ccyNote.textContent = '';
+            }
+
+            // Build a table with a totals footer row for selected amount columns only
+            function buildTableHtml(cols, rows) {
+                const totalableHeaders = new Set(['crmamount', 'bankamount', 'diff', 'difference']);
+                const norm = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                const toNumber = (v) => {
+                    if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+                    const s = String(v ?? '').replace(/,/g, '').trim();
+                    const n = parseFloat(s);
+                    return Number.isFinite(n) ? n : NaN;
+                };
+
+                const totals = cols.map((col, ci) => {
+                    if (!totalableHeaders.has(norm(col))) return null;
+                    const vals = rows.map(r => toNumber(r[ci])).filter(v => !isNaN(v));
+                    return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
+                });
+                const hasAnyTotal = totals.some(t => t !== null);
+
+                const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+                const tbody = `<tbody>${rows.map(r =>
+                    `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
+                ).join('')}</tbody>`;
+
+                let tfoot = '';
+                if (hasAnyTotal) {
+                    const cells = totals.map((t, ci) => {
+                        if (ci === 0) return `<td class="recon-total-label">TOTAL</td>`;
+                        if (t === null) return `<td></td>`;
+                        const fmt = Number.isInteger(t) ? t.toLocaleString()
+                            : t.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                        return `<td class="recon-total-val">${fmt}</td>`;
+                    }).join('');
+                    tfoot = `<tfoot><tr>${cells}</tr></tfoot>`;
+                }
+                return thead + tbody + tfoot;
+            }
+
+            // Cross-currency pairs inspector (the excluded note is the trigger)
+            let crossCcyLoaded = false;
+            const crossCcyDetail = document.getElementById('crossCcyDetail');
+            const crossCcyTitle  = document.getElementById('crossCcyDetailTitle');
+            const crossCcyTable  = document.getElementById('crossCcyDetailTable');
+
+            ccyNote.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const isOpen = !crossCcyDetail.classList.contains('hidden');
+                if (isOpen) {
+                    crossCcyDetail.classList.add('hidden');
+                    ccyNote.style.opacity = '0.55';
+                    return;
+                }
+                crossCcyDetail.classList.remove('hidden');
+                ccyNote.style.opacity = '1';
+                if (crossCcyLoaded) return;
+                crossCcyTitle.textContent = 'Loading…';
+                try {
+                    const res  = await fetch('/api/cross-currency-pairs');
+                    const data = await res.json();
+                    if (data.error) throw new Error(data.error);
+                    crossCcyTitle.textContent =
+                        `${data.count.toLocaleString()} cross-currency pairs (CRM in USD, bank in local currency)` +
+                        (data.count >= 500 ? ' · showing first 500' : '');
+                    crossCcyTable.innerHTML = buildTableHtml(data.columns, data.rows);
+                    crossCcyLoaded = true;
+                } catch (err) {
+                    crossCcyTitle.textContent = `Error: ${err.message}`;
+                }
+            });
+
+            document.getElementById('crossCcyDetailClose').addEventListener('click', () => {
+                crossCcyDetail.classList.add('hidden');
+                ccyNote.style.opacity = '0.55';
+            });
+
+            // Unreconciled pairs — click amount bar to expand/collapse
+            let unreconLoaded = false;
+            const unreconDetail  = document.getElementById('unreconDetail');
+            const unreconCaret   = document.getElementById('unreconCaret');
+            const unreconTitle   = document.getElementById('unreconDetailTitle');
+            const unreconTable   = document.getElementById('unreconDetailTable');
+            const unreconClose   = document.getElementById('unreconDetailClose');
+
+            async function loadUnreconPairs() {
+                if (unreconLoaded) return;
+                unreconTitle.textContent = 'Loading…';
+                try {
+                    const res  = await fetch('/api/unreconciled-pairs');
+                    const data = await res.json();
+                    if (data.error) throw new Error(data.error);
+                    unreconTitle.textContent =
+                        `${data.count.toLocaleString()} pairs with amount discrepancy` +
+                        (data.count >= 500 ? ' (showing first 500)' : '');
+                    unreconTable.innerHTML = buildTableHtml(data.columns, data.rows);
+                    unreconLoaded = true;
+                } catch (err) {
+                    unreconTitle.textContent = `Error: ${err.message}`;
+                }
+            }
+
+            document.getElementById('reconAmountBar').addEventListener('click', async () => {
+                const isOpen = !unreconDetail.classList.contains('hidden');
+                if (isOpen) {
+                    unreconDetail.classList.add('hidden');
+                    unreconCaret.style.transform = '';
+                } else {
+                    unreconDetail.classList.remove('hidden');
+                    unreconCaret.style.transform = 'rotate(90deg)';
+                    unreconCaret.style.opacity = '0.8';
+                    await loadUnreconPairs();
+                }
+            });
+
+            unreconClose.addEventListener('click', (e) => {
+                e.stopPropagation();
+                unreconDetail.classList.add('hidden');
+                unreconCaret.style.transform = '';
+                unreconCaret.style.opacity = '0.4';
+            });
+
+            // Human-readable labels for TRX type codes (shared by both sections)
+            const TRX_LABELS = {
+                '2. DP': 'Deposit', '2. WD': 'Withdrawal',
+                '4. Transfer': 'Transfer', '5. Bonuses': 'Bonus',
+                '5. Fees/Charges': 'Fee/Charge', '5. Fee Compensation': 'Fee Comp.',
+                '5. Realised Commissions': 'Commission', '5. IB Payment': 'IB Payment',
+                '5. Platform Balances': 'Platform Bal.', '5. Realised Profits': 'Realised P&L',
+                '5. Unrealised Profits': 'Unrealised P&L', '5. Realized Storage': 'Storage',
+            };
+
+            // Helper: build chips into a container and wire up the row inspector
+            function wireChips(chipsContainer, detailEl, titleEl, closeBtn, entries, chipClass) {
+                chipsContainer.innerHTML = entries.map(([type, count]) => {
+                    const label = TRX_LABELS[type] || type;
+                    return `<div class="recon-breakdown-chip ${chipClass}" ` +
+                        `data-trx="${encodeURIComponent(type)}" title="Click to inspect rows" style="cursor:pointer;">` +
+                        `<span class="recon-breakdown-chip-label">${label}</span>` +
+                        `<span class="recon-breakdown-chip-count">${count.toLocaleString()}</span>` +
+                        `<span class="recon-breakdown-chip-caret">›</span>` +
+                        `</div>`;
+                }).join('');
+
+                let activeType = null;
+                chipsContainer.addEventListener('click', async (e) => {
+                    const chip = e.target.closest('[data-trx]');
+                    if (!chip) return;
+                    const trxType = decodeURIComponent(chip.dataset.trx);
+                    if (activeType === trxType) {
+                        detailEl.classList.add('hidden');
+                        chip.classList.remove('active');
+                        activeType = null;
+                        return;
+                    }
+                    chipsContainer.querySelectorAll('.recon-breakdown-chip.active')
+                        .forEach(c => c.classList.remove('active'));
+                    chip.classList.add('active');
+                    activeType = trxType;
+                    titleEl.textContent = 'Loading…';
+                    detailEl.classList.remove('hidden');
+
+                    try {
+                        const res  = await fetch(`/api/unmatched-crm?trx_type=${encodeURIComponent(trxType)}`);
+                        const resp = await res.json();
+                        if (resp.error) throw new Error(resp.error);
+                        const label = TRX_LABELS[trxType] || trxType;
+                        titleEl.textContent =
+                            `${label} (${trxType}) — ${resp.count.toLocaleString()} unmatched CRM rows` +
+                            (resp.count >= 500 ? ' (showing first 500)' : '');
+                        const cols = resp.columns;
+                        const rows = resp.rows;
+                        const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+                        const tbody = `<tbody>${rows.map(r =>
+                            `<tr>${r.map(v => `<td title="${v ?? ''}">${v ?? '—'}</td>`).join('')}</tr>`
+                        ).join('')}</tbody>`;
+                        detailEl.querySelector('table').innerHTML = thead + tbody;
+                    } catch (err) {
+                        titleEl.textContent = `Error: ${err.message}`;
+                    }
+                });
+
+                closeBtn.addEventListener('click', () => {
+                    detailEl.classList.add('hidden');
+                    chipsContainer.querySelectorAll('.recon-breakdown-chip.active')
+                        .forEach(c => c.classList.remove('active'));
+                    activeType = null;
+                });
+            }
+
+            // PSP unmatched breakdown (Deposit / Withdrawal chips)
+            const breakdownWrap = document.getElementById('unmatchedBreakdown');
+            const pspEntries = Object.entries(s.unmatched_trx_breakdown || {});
+            if (pspEntries.length > 0) {
+                document.getElementById('unmatchedBreakdownNote').textContent = '';
+                wireChips(
+                    document.getElementById('unmatchedBreakdownRows'),
+                    document.getElementById('unmatchedDetail'),
+                    document.getElementById('unmatchedDetailTitle'),
+                    document.getElementById('unmatchedDetailClose'),
+                    pspEntries, 'psp'
+                );
+                breakdownWrap.classList.remove('hidden');
+            } else {
+                breakdownWrap.classList.add('hidden');
+            }
+
+            // Miscellaneous internal breakdown (collapsed section)
+            const miscEntries = Object.entries(s.internal_trx_breakdown || {});
+            const miscSection = document.getElementById('miscSection');
+            if (miscEntries.length > 0) {
+                const miscTotal = miscEntries.reduce((a, [, v]) => a + v, 0);
+                document.getElementById('miscToggleLabel').textContent =
+                    `Miscellaneous — ${miscTotal.toLocaleString()} internal entries`;
+
+                wireChips(
+                    document.getElementById('miscBreakdownRows'),
+                    document.getElementById('miscDetail'),
+                    document.getElementById('miscDetailTitle'),
+                    document.getElementById('miscDetailClose'),
+                    miscEntries, ''
+                );
+
+                // Toggle expand/collapse
+                document.getElementById('miscToggle').addEventListener('click', () => {
+                    const toggle = document.getElementById('miscToggle');
+                    const content = document.getElementById('miscContent');
+                    const isOpen = toggle.classList.contains('open');
+                    toggle.classList.toggle('open', !isOpen);
+                    content.classList.toggle('hidden', isOpen);
+                });
+
+                miscSection.classList.remove('hidden');
+            } else {
+                miscSection.classList.add('hidden');
+            }
+
+            // Technical details (small, at the bottom)
+            document.getElementById('joinKeyInfo').textContent =
+                `Join key: ${s.join_keys_used}  ·  Deal No column: ${s.deal_no_column}`;
+
             document.getElementById('resultsZone').classList.remove('hidden');
+        } else {
+            alert("Reconciliation error: " + (data.summary?.error || "Unknown error"));
         }
     } catch (err) {
         alert("Mathematical Reconciliation failed.");
     } finally {
-        btn.innerHTML = `Execute Mathematical Match <span class="arrow">→</span>`;
+        btn.innerHTML = `Run Reconciliation <span class="arrow">→</span>`;
     }
 });
 
-// Live FX Rates - fetches via our Flask proxy (real pairs from historical data)
-(async function loadFxRates() {
+// Download buttons — fetch from backend and trigger browser save
+document.querySelectorAll('.btn.download').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const isLifecycle = btn.querySelector('strong')?.textContent.includes('Lifecycle')
+            || btn.textContent.includes('Lifecycle');
+        const url = isLifecycle ? '/api/download/lifecycle' : '/api/download/balances';
+        const originalHTML = btn.innerHTML;
+
+        btn.style.opacity = "0.6";
+        btn.textContent = '⏳ Generating...';
+
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                const d = await res.json();
+                throw new Error(d.error || 'Download failed');
+            }
+            const blob = await res.blob();
+            const objUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = objUrl;
+            a.download = isLifecycle
+                ? `Lifecycle List ${new Date().toISOString().slice(0, 10)}.xlsx`
+                : `Balances ${new Date().toISOString().slice(0, 10)}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(objUrl);
+        } catch (err) {
+            alert('Download error: ' + err.message);
+        } finally {
+            btn.style.opacity = "1";
+            btn.innerHTML = originalHTML;
+        }
+    });
+});
+
+// Issues Report download button
+document.getElementById('issuesDownloadBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('issuesDownloadBtn');
+    const originalHTML = btn.innerHTML;
+    btn.style.opacity = '0.6';
+    btn.textContent = '⏳ Generating…';
+    try {
+        const res = await fetch('/api/download/issues');
+        if (!res.ok) {
+            const d = await res.json();
+            throw new Error(d.error || 'Download failed');
+        }
+        const blob   = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objUrl;
+        a.download = `Issues ${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objUrl);
+    } catch (err) {
+        alert('Download error: ' + err.message);
+    } finally {
+        btn.style.opacity = '1';
+        btn.innerHTML = originalHTML;
+    }
+});
+
+// Start Over button — reset to Stage 1
+document.getElementById('startOverBtn').addEventListener('click', () => {
+    document.getElementById('resultsZone').classList.add('hidden');
+    document.getElementById('mappingZone').classList.add('hidden');
+    document.getElementById('uploadForm').reset();
+    document.getElementById('bankFileList').classList.add('hidden');
+    document.getElementById('uploadZone').classList.remove('hidden');
+});
+
+// TEST button — show dataset picker, prefill uploads, then flow through Stage 2 normally
+(async () => {
+    const btn = document.getElementById('testBtn');
+    const picker = document.getElementById('testDatasetPicker');
+
+    // Load available datasets from server
+    try {
+        const res = await fetch('/api/test-datasets');
+        const data = await res.json();
+        if (data.status === 'success' && data.datasets.length > 0) {
+            picker.innerHTML = '';
+            for (const ds of data.datasets) {
+                const opt = document.createElement('option');
+                opt.value = ds.id;
+                opt.textContent = `${ds.label}  (${ds.psp_count} PSPs)`;
+                picker.appendChild(opt);
+            }
+        }
+    } catch (_) {
+        // leave default option
+    }
+
+    btn.addEventListener('click', async () => {
+        const datasetId = picker.value;
+        if (!datasetId) return alert('Please select a test dataset.');
+
+        btn.textContent = '⏳ Loading test data...';
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/test-prefill', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataset_id: datasetId })
+            });
+            const data = await res.json();
+
+            if (data.status !== 'success') {
+                alert('Test load failed: ' + (data.error || JSON.stringify(data)));
+                return;
+            }
+
+            // --- Populate file inputs from the manifest ---
+            btn.textContent = '⏳ Fetching files...';
+            const manifest = data.file_manifest || {};
+
+            // Helper: fetch a file from uploads and return a File object
+            async function fetchUploadedFile(saved, original) {
+                const r = await fetch(`/api/uploads/${encodeURIComponent(saved)}`);
+                const blob = await r.blob();
+                return new File([blob], original, { type: blob.type });
+            }
+
+            // Single-file inputs
+            for (const [inputId, key] of [
+                ['platformFile',      'platformFile'],
+                ['equityFile',        'equityFile'],
+                ['transactionsFile',  'transactionsFile'],
+                ['openingBalanceFile','openingBalanceFile'],
+            ]) {
+                const entry = manifest[key];
+                const el = document.getElementById(inputId);
+                if (!el || !entry) continue;
+                const file = await fetchUploadedFile(entry.saved, entry.original);
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                el.files = dt.files;
+                // Update the visible label if it exists
+                const label = el.previousElementSibling;
+                if (label && label.tagName === 'LABEL') {
+                    label.style.color = '#34d399';
+                }
+            }
+
+            // Bank files (multiple)
+            const bankEntries = manifest.bankFiles || [];
+            if (bankEntries.length > 0) {
+                const bankEl = document.getElementById('bankFile');
+                const dt = new DataTransfer();
+                for (const entry of bankEntries) {
+                    const file = await fetchUploadedFile(entry.saved, entry.original);
+                    dt.items.add(file);
+                }
+                bankEl.files = dt.files;
+                updateBankFileList();
+            }
+
+        } catch (err) {
+            alert('Test load error: ' + err.message);
+        } finally {
+            btn.textContent = '⚡ Load Test Data';
+            btn.disabled = false;
+        }
+    });
+})();
+
+// Live FX Rates
+(async () => {
     const row = document.getElementById('fxRatesRow');
     try {
         const res = await fetch('/api/rates');
@@ -129,7 +688,6 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                 `;
             }
 
-            // Now fetch crypto rates
             try {
                 const cryptoRes = await fetch('/api/rates/crypto');
                 const cryptoData = await cryptoRes.json();
@@ -141,7 +699,7 @@ document.getElementById('runReconBtn').addEventListener('click', async () => {
                     `;
                     const cryptoSorted = Object.entries(cryptoData.rates).sort((a, b) => a[0].localeCompare(b[0]));
                     for (const [coin, price] of cryptoSorted) {
-                        const fmt = price >= 100 ? price.toLocaleString('en-US', {maximumFractionDigits: 0}) : price.toFixed(2);
+                        const fmt = price >= 100 ? price.toLocaleString('en-US', { maximumFractionDigits: 0 }) : price.toFixed(2);
                         row.innerHTML += `
                             <div style="text-align: center; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); padding: 6px 4px; border-radius: 6px;">
                                 <div style="color: #fbbf24; font-weight: 700; font-size: 13px;">$${fmt}</div>

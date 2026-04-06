@@ -1,1 +1,45 @@
-relevant-data/*
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Flask uploads & runtime state
+web-gui/uploads/
+
+# Source data — too large for git; keep locally only
+relevant-data/
+
+# Secrets & keys
+openrouter-key.txt
+*secret*
+*credentials*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code memory
+.claude/
+
+# Excel temp files
+~$*.xlsx
+~$*.xls
+db-creds.txt
+putty-creds.txt
+recon-app/.env

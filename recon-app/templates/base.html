@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CMT Reconciliation{% block title %}{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --border:   #2a2d3a;
+      --accent:   #4f8ef7;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --yellow:   #f59e0b;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    header .logo { font-weight: 700; font-size: 16px; color: var(--accent); }
+    header .logo span { color: var(--text); }
+
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      transition: color .15s;
+    }
+    nav a:hover { color: var(--text); }
+
+    main { max-width: 1400px; margin: 0 auto; padding: 32px 24px; }
+
+    .month-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    select, button, .btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: border-color .15s;
+    }
+    select:hover, button:hover, .btn:hover { border-color: var(--accent); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .btn-primary:hover { opacity: .9; border-color: var(--accent); }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .stat-card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+    .stat-card .value { font-size: 26px; font-weight: 700; }
+    .stat-card.green .value { color: var(--green); }
+    .stat-card.red   .value { color: var(--red);   }
+    .stat-card.yellow .value { color: var(--yellow); }
+
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 13px;
+    }
+    .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); }
+
+    .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      background: var(--surface);
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid var(--border); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,.02); }
+    td { padding: 9px 14px; white-space: nowrap; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge.matched    { background: rgba(34,197,94,.15);  color: var(--green);  }
+    .badge.discrepancy{ background: rgba(239,68,68,.15);  color: var(--red);    }
+    .badge.mt4_only   { background: rgba(245,158,11,.15); color: var(--yellow); }
+    .badge.crm_only   { background: rgba(79,142,247,.15); color: var(--accent); }
+
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: var(--green); }
+    .neg { color: var(--red);   }
+
+    .empty { text-align: center; padding: 60px; color: var(--muted); }
+
+    .login-link { color: var(--accent); text-decoration: none; font-family: monospace; }
+    .login-link:hover { text-decoration: underline; }
+
+    .th-cash    { border-top: 2px solid rgba(34,197,94,.35); }
+    .th-noncash { border-top: 2px solid rgba(245,158,11,.25); }
+    .cash-col   { background: rgba(34,197,94,.03); }
+    .noncash-col{ background: rgba(245,158,11,.03); color: var(--muted); }
+    .fw         { font-weight: 600; }
+
+    .methods { color: var(--muted); max-width: 180px; overflow: hidden;
+               text-overflow: ellipsis; font-size: 12px; }
+
+    .legend { font-size: 12px; color: var(--muted); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .legend-item { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .legend-item.cash    { background: rgba(34,197,94,.15);  color: var(--green); }
+    .legend-item.noncash { background: rgba(245,158,11,.15); color: var(--yellow); }
+
+    h3 { font-size: 15px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">CMT <span>Reconciliation</span></div>
+    <nav>
+      <a href="/">Dashboard</a>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

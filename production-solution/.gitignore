@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+*.db
+_reference/
+db-creds.txt
+putty-creds.txt

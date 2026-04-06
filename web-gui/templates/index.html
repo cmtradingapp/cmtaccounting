@@ -29,6 +29,7 @@
                         <div class="file-drop-area" style="margin-bottom:0;">
                             <label for="bankFile">Statements from Banks and PSPs (select all)</label>
                             <input type="file" id="bankFile" accept=".csv,.xlsx,.xls" required multiple>
+                            <div id="bankFileList" class="file-list hidden"></div>
                         </div>
                         <div class="file-drop-area" style="margin-bottom:0;">
                             <label for="platformFile">Platforms (CRM/MT4)</label>
@@ -42,6 +43,10 @@
                             <label for="transactionsFile">Transactions (Tableau)</label>
                             <input type="file" id="transactionsFile" accept=".csv,.xlsx,.xls" required>
                         </div>
+                        <div class="file-drop-area" style="margin-bottom:0; grid-column: span 2;">
+                            <label for="openingBalanceFile" style="color: #94a3b8;">Opening Balances — previous month equity report <span style="font-size:11px; opacity:0.6;">(optional — enables 1. Opening Balance in lifecycle tabs)</span></label>
+                            <input type="file" id="openingBalanceFile" accept=".xlsx,.xls">
+                        </div>
                         <div id="fxRatesWidget" style="grid-column: span 2; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 12px 20px; border-radius: 8px;">
                             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
                                 <span style="display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 6px #10b981;"></span>
@@ -54,64 +59,185 @@
                     </div>
                     <button type="submit" class="btn btn-primary">
                         <span class="spinner hidden" id="uploadSpinner"></span>
-                        Run AI Column Mapping
+                        Detect &amp; Review Column Schema
                     </button>
+                    <div style="display: flex; gap: 10px; margin-top: 10px; align-items: stretch;">
+                        <select id="testDatasetPicker" style="flex: 1; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24; border-radius: 6px; padding: 0 14px; font-size: 13px; font-family: inherit; cursor: pointer;">
+                            <option value="">Loading datasets...</option>
+                        </select>
+                        <button type="button" id="testBtn" class="btn btn-outline" style="border-color: #f59e0b; color: #f59e0b; white-space: nowrap;">
+                            ⚡ Load Test Data
+                        </button>
+                    </div>
                 </form>
             </section>
 
-            <!-- STAGE 2: AI MAPPING APPROVAL -->
+            <!-- STAGE 2: COLUMN SCHEMA REVIEW -->
             <section class="stage-card hidden" id="mappingZone">
                 <div class="stage-header">
-                    <h2>2. AI Mapping Approval</h2>
-                    <span class="badge ai">AI Powered</span>
+                    <h2>2. Column Schema Review</h2>
+                    <span class="badge">Schema Detection</span>
                 </div>
-                <p class="subtitle">The engine detected unstructured output. Please verify the automated mapping.</p>
+                <p class="subtitle">Columns auto-detected from file headers. Verify join keys before reconciling.</p>
                 <div class="mapping-grid" id="mappingCards">
                     <!-- Populated via Javascript -->
                 </div>
                 <button id="runReconBtn" class="btn btn-action">
-                    Execute Mathematical Match <span class="arrow">→</span>
+                    Run Reconciliation <span class="arrow">→</span>
                 </button>
             </section>
 
-            <!-- STAGE 3: OUTPUT LIST & BALANCES -->
+            <!-- STAGE 3: RECONCILIATION RESULTS -->
             <section class="stage-card hidden" id="resultsZone">
                 <div class="stage-header">
-                    <h2>3. Lifecycle Ledger Complete</h2>
-                    <span class="badge success">Output generated</span>
-                </div>
-                <div id="joinKeyInfo" style="margin-bottom: 15px; padding: 10px 15px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); border-radius: 8px; font-size: 13px; color: #93c5fd; font-family: monospace;"></div>
-                <div class="stats-board" style="grid-template-columns: repeat(3, 1fr);">
-                    <div class="stat-item">
-                        <p class="stat-label">Matched</p>
-                        <h3 id="statMatched" class="stat-num success">0</h3>
-                    </div>
-                    <div class="stat-item">
-                        <p class="stat-label">CRM Unmatched</p>
-                        <h3 id="statCrmOnly" class="stat-num warning">0</h3>
-                    </div>
-                    <div class="stat-item">
-                        <p class="stat-label">Bank Unmatched</p>
-                        <h3 id="statBankOnly" class="stat-num warning">0</h3>
-                    </div>
-                    <div class="stat-item">
-                        <p class="stat-label">CRM Total Rows</p>
-                        <h3 id="statCrmTotal" class="stat-num" style="color: #94a3b8;">0</h3>
-                    </div>
-                    <div class="stat-item">
-                        <p class="stat-label">Bank Total Rows</p>
-                        <h3 id="statBankTotal" class="stat-num" style="color: #94a3b8;">0</h3>
-                    </div>
-                    <div class="stat-item">
-                        <p class="stat-label">Amount Discrepancy</p>
-                        <h3 id="statFees" class="stat-num danger">$0.00</h3>
+                    <h2>3. Reconciliation Complete</h2>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span class="badge success" id="resultsBadge">Ready</span>
+                        <button id="startOverBtn" type="button" class="btn btn-outline" style="padding: 4px 14px; font-size: 13px;">← Start Over</button>
                     </div>
                 </div>
-                
-                <div class="action-footer">
-                    <button class="btn btn-primary download">📥 Download Lifecycle List.xlsx</button>
-                    <button class="btn btn-outline download">📊 Download Balances.xlsx</button>
+
+                <!-- Match rate hero -->
+                <div class="recon-hero">
+                    <div class="recon-rate-wrap">
+                        <span class="recon-rate-num" id="statMatchRate">—</span>
+                        <span class="recon-rate-label">match rate</span>
+                    </div>
+                    <div class="recon-bar-wrap">
+                        <div class="recon-bar-track">
+                            <div class="recon-bar-fill" id="reconBarFill"></div>
+                        </div>
+                        <div class="recon-bar-legend">
+                            <span id="reconBarMatchedLabel"></span>
+                            <span id="reconBarUnmatchedLabel"></span>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- CRM vs Bank side-by-side -->
+                <div class="recon-sides">
+                    <div class="recon-side">
+                        <p class="recon-side-title">CRM Transactions <span id="statCrmInternalNote" style="font-weight:400; text-transform:none; letter-spacing:0; opacity:0.55; font-size:10px;"></span></p>
+                        <div class="recon-side-row">
+                            <span>Reconcilable</span><strong id="statCrmTotal">—</strong>
+                        </div>
+                        <div class="recon-side-row">
+                            <span>Matched</span><strong id="statMatched" class="val-success">—</strong>
+                        </div>
+                        <div class="recon-side-row">
+                            <span>Unmatched</span><strong id="statCrmOnly" class="val-warning">—</strong>
+                        </div>
+                    </div>
+                    <div class="recon-side-divider"></div>
+                    <div class="recon-side">
+                        <p class="recon-side-title">Bank / PSP Statements</p>
+                        <div class="recon-side-row">
+                            <span>Total</span><strong id="statBankTotal">—</strong>
+                        </div>
+                        <div class="recon-side-row">
+                            <span>Matched</span><strong id="statBankMatched" class="val-success">—</strong>
+                        </div>
+                        <div class="recon-side-row">
+                            <span>Unmatched</span><strong id="statBankOnly" class="val-warning">—</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Unreconciled amount -->
+                <div class="recon-amount-bar" id="reconAmountBar" style="cursor:pointer;" title="Click to inspect pairs">
+                    <span class="recon-amount-label">
+                        Unreconciled amount
+                        <button id="statFeesCcyNote" style="font-size:11px; font-weight:400; opacity:0.55; margin-left:6px; background:none; border:none; color:inherit; cursor:pointer; padding:0; text-decoration:underline dotted; text-underline-offset:2px;"></button>
+                    </span>
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <span class="recon-amount-val" id="statFees">$0.00</span>
+                        <span id="unreconCaret" style="font-size:16px; opacity:0.4; transition:transform 0.2s;">›</span>
+                    </div>
+                </div>
+                <div id="crossCcyDetail" class="hidden">
+                    <div class="recon-detail-header">
+                        <span id="crossCcyDetailTitle" class="recon-detail-title recon-detail-title-cross"></span>
+                        <button id="crossCcyDetailClose" class="recon-detail-close">✕</button>
+                    </div>
+                    <div class="recon-detail-table-wrap">
+                        <table id="crossCcyDetailTable" class="recon-detail-table"></table>
+                    </div>
+                </div>
+                <div id="unreconDetail" class="hidden">
+                    <div class="recon-detail-header">
+                        <span id="unreconDetailTitle" class="recon-detail-title recon-detail-title-discrepancy"></span>
+                        <button id="unreconDetailClose" class="recon-detail-close">✕</button>
+                    </div>
+                    <div class="recon-detail-table-wrap">
+                        <table id="unreconDetailTable" class="recon-detail-table"></table>
+                    </div>
+                </div>
+
+                <!-- Unmatched CRM breakdown -->
+                <div id="unmatchedBreakdown" class="hidden">
+                    <div class="recon-breakdown-header">
+                        <span>Unmatched CRM — by transaction type</span>
+                        <span id="unmatchedBreakdownNote" class="recon-breakdown-note"></span>
+                    </div>
+                    <div id="unmatchedBreakdownRows" class="recon-breakdown-rows"></div>
+                    <div id="unmatchedDetail" class="hidden">
+                        <div class="recon-detail-header">
+                            <span id="unmatchedDetailTitle"></span>
+                            <button id="unmatchedDetailClose" class="recon-detail-close">✕</button>
+                        </div>
+                        <div id="unmatchedDetailTableWrap" class="recon-detail-table-wrap">
+                            <table id="unmatchedDetailTable" class="recon-detail-table"></table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Miscellaneous internal entries (collapsed by default) -->
+                <div id="miscSection" class="hidden">
+                    <div class="misc-toggle-bar" id="miscToggle">
+                        <span id="miscToggleLabel">Miscellaneous</span>
+                        <span class="misc-toggle-caret">›</span>
+                    </div>
+                    <div id="miscContent" class="hidden">
+                        <div id="miscBreakdownRows" class="recon-breakdown-rows" style="margin-top:10px;"></div>
+                        <div id="miscDetail" class="hidden">
+                            <div class="recon-detail-header">
+                                <span id="miscDetailTitle"></span>
+                                <button id="miscDetailClose" class="recon-detail-close">✕</button>
+                            </div>
+                            <div class="recon-detail-table-wrap">
+                                <table id="miscDetailTable" class="recon-detail-table"></table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Technical details -->
+                <div id="joinKeyInfo" class="recon-details"></div>
+
+                <!-- Downloads -->
+                <div class="recon-downloads">
+                    <button class="btn btn-primary download recon-dl-btn">
+                        <span class="recon-dl-icon">↓</span>
+                        <span>
+                            <strong>Lifecycle Report</strong>
+                            <small>Full transaction list with TRX types, PM codes &amp; lifecycle tabs</small>
+                        </span>
+                    </button>
+                    <button class="btn btn-outline download recon-dl-btn">
+                        <span class="recon-dl-icon">↓</span>
+                        <span>
+                            <strong>Balances</strong>
+                            <small>Currency equity summary with EUR &amp; USD totals</small>
+                        </span>
+                    </button>
+                </div>
+                <button id="issuesDownloadBtn" class="btn btn-outline recon-dl-btn" style="width:100%; margin-top:10px; border-color:rgba(239,68,68,0.35); color:#f87171;">
+                    <span class="recon-dl-icon">↓</span>
+                    <span>
+                        <strong>Issues Report</strong>
+                        <small>Unmatched D/W · Amount discrepancies · Cross-currency pairs</small>
+                    </span>
+                </button>
             </section>
         </main>
     </div>

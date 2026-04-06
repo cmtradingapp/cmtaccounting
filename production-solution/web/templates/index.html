@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRS Production — Reconciliation Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: #f5f5f5; color: #333; padding: 20px; }
+        h1 { margin-bottom: 20px; color: #1a1a2e; }
+        h2 { margin: 20px 0 10px; color: #16213e; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                      gap: 12px; margin-bottom: 20px; }
+        .stat-box { background: white; border-radius: 8px; padding: 16px; text-align: center;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .stat-box .value { font-size: 28px; font-weight: bold; color: #1a1a2e; }
+        .stat-box .label { font-size: 13px; color: #666; margin-top: 4px; }
+        .match-rate { font-size: 48px; font-weight: bold; }
+        .match-rate.green { color: #2ecc71; }
+        .match-rate.orange { color: #f39c12; }
+        .match-rate.red { color: #e74c3c; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .psp-bar { display: inline-block; height: 18px; background: #3498db; border-radius: 3px;
+                   margin-right: 8px; vertical-align: middle; }
+        #loading { text-align: center; padding: 40px; color: #999; }
+        .section { margin-bottom: 30px; }
+    </style>
+</head>
+<body>
+    <h1>MRS Production — Reconciliation Dashboard</h1>
+
+    <div id="loading">Loading data...</div>
+    <div id="content" style="display:none;">
+
+        <!-- DB Stats -->
+        <div class="section">
+            <h2>Database State</h2>
+            <div class="stats-grid" id="db-stats"></div>
+        </div>
+
+        <!-- Latest Run -->
+        <div class="section">
+            <h2>Latest Reconciliation Run</h2>
+            <div id="latest-run"></div>
+        </div>
+
+        <!-- PSP Breakdown -->
+        <div class="section">
+            <h2>PSP Match Breakdown</h2>
+            <div class="card" id="psp-breakdown"></div>
+        </div>
+
+        <!-- Unmatched -->
+        <div class="section">
+            <h2>Unmatched CRM Rows (Top 50)</h2>
+            <div class="card" id="unmatched-table"></div>
+        </div>
+    </div>
+
+    <script>
+    async function load() {
+        try {
+            const [dbRes, runsRes] = await Promise.all([
+                fetch('/api/db-stats'),
+                fetch('/api/runs'),
+            ]);
+            const db = await dbRes.json();
+            const runs = await runsRes.json();
+
+            // DB Stats
+            document.getElementById('db-stats').innerHTML = `
+                <div class="stat-box"><div class="value">${db.crm_rows.toLocaleString()}</div><div class="label">CRM Rows</div></div>
+                <div class="stat-box"><div class="value">${db.psp_rows.toLocaleString()}</div><div class="label">PSP Rows</div></div>
+                <div class="stat-box"><div class="value">${db.bank_rows.toLocaleString()}</div><div class="label">Bank Rows</div></div>
+                <div class="stat-box"><div class="value">${Object.keys(db.psp_breakdown).length}</div><div class="label">PSP Sources</div></div>
+            `;
+
+            if (runs.length === 0) {
+                document.getElementById('latest-run').innerHTML = '<div class="card">No reconciliation runs yet.</div>';
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+                return;
+            }
+
+            const latest = runs[0];
+            const rateClass = latest.match_rate >= 95 ? 'green' : latest.match_rate >= 80 ? 'orange' : 'red';
+
+            document.getElementById('latest-run').innerHTML = `
+                <div class="card">
+                    <div style="text-align:center;margin-bottom:16px;">
+                        <div class="match-rate ${rateClass}">${latest.match_rate}%</div>
+                        <div style="color:#666;">Match Rate</div>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-box"><div class="value">${latest.matched}</div><div class="label">Matched</div></div>
+                        <div class="stat-box"><div class="value">${latest.unmatched_crm}</div><div class="label">Unmatched CRM</div></div>
+                        <div class="stat-box"><div class="value">${latest.unmatched_psp}</div><div class="label">Unmatched PSP</div></div>
+                        <div class="stat-box"><div class="value">$${(latest.unrecon_amount||0).toLocaleString()}</div><div class="label">Unrecon Amount</div></div>
+                    </div>
+                    <div style="color:#999;font-size:12px;text-align:right;">
+                        Run #${latest.id} — ${latest.report_month} — ${new Date(latest.run_at).toLocaleString()}
+                    </div>
+                </div>
+            `;
+
+            // PSP breakdown
+            const summRes = await fetch(`/api/runs/${latest.id}/summary`);
+            const summ = await summRes.json();
+            const pspEntries = Object.entries(summ.psp_breakdown || {}).sort((a,b) => b[1].matched - a[1].matched);
+            const maxPsp = pspEntries.length ? Math.max(...pspEntries.map(e => e[1].matched)) : 1;
+
+            if (pspEntries.length) {
+                document.getElementById('psp-breakdown').innerHTML = '<table><tr><th>PSP</th><th>Matched</th><th></th></tr>' +
+                    pspEntries.map(([name, data]) =>
+                        `<tr><td><strong>${name}</strong></td><td>${data.matched}</td>
+                         <td><span class="psp-bar" style="width:${(data.matched/maxPsp)*200}px"></span></td></tr>`
+                    ).join('') + '</table>';
+            } else {
+                document.getElementById('psp-breakdown').innerHTML = 'No PSP matches recorded.';
+            }
+
+            // Unmatched
+            const unmRes = await fetch(`/api/runs/${latest.id}/unmatched`);
+            const unmatched = await unmRes.json();
+
+            if (unmatched.length) {
+                document.getElementById('unmatched-table').innerHTML = `
+                    <table>
+                        <tr><th>Login</th><th>PSP ID</th><th>TXN ID</th><th>Amount</th><th>CCY</th><th>Method</th><th>Processor</th><th>Type</th></tr>
+                        ${unmatched.slice(0, 50).map(r => `
+                            <tr>
+                                <td>${r.login||'-'}</td>
+                                <td style="font-size:11px;">${r.psp_transaction_id||'-'}</td>
+                                <td>${r.transactionid||'-'}</td>
+                                <td>${r.amount ? Number(r.amount).toLocaleString() : '-'}</td>
+                                <td>${r.currency||'-'}</td>
+                                <td>${r.payment_method||'-'}</td>
+                                <td>${r.payment_processor||'-'}</td>
+                                <td>${r.transaction_type||'-'}</td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                    ${unmatched.length > 50 ? `<div style="color:#999;margin-top:8px;">Showing 50 of ${unmatched.length}</div>` : ''}
+                `;
+            } else {
+                document.getElementById('unmatched-table').innerHTML = 'No unmatched CRM rows.';
+            }
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+        } catch(e) {
+            document.getElementById('loading').innerHTML = `Error loading data: ${e.message}`;
+        }
+    }
+    load();
+    </script>
+</body>
+</html>

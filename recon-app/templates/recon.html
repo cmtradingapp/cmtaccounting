@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %} — {{ month }}{% endblock %}
+{% block content %}
+
+<div class="month-bar">
+  <select onchange="window.location.href = '/recon/' + this.value + '?status={{ status_filter }}'">
+    {% for m in months %}
+    <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
+    {% endfor %}
+  </select>
+  <a class="btn btn-primary" href="/recon/{{ month }}/export">↓ Export Excel</a>
+  <span style="color:var(--muted);margin-left:auto;font-size:13px;">
+    MT4 netdeposit vs CRM <em>cash</em> transactions &nbsp;·&nbsp; {{ stats.total }} clients
+  </span>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card green">
+    <div class="label">Matched</div>
+    <div class="value">{{ stats.matched }}</div>
+  </div>
+  <div class="stat-card red">
+    <div class="label">Discrepancy</div>
+    <div class="value">{{ stats.discrepancy }}</div>
+  </div>
+  <div class="stat-card yellow">
+    <div class="label">MT4 Only</div>
+    <div class="value">{{ stats.mt4_only }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">CRM Only</div>
+    <div class="value">{{ stats.crm_only }}</div>
+  </div>
+  <div class="stat-card {% if stats.total_diff < -1 %}red{% elif stats.total_diff > 1 %}yellow{% else %}green{% endif %}">
+    <div class="label">Net Discrepancy (USD)</div>
+    <div class="value">${{ "{:,.0f}".format(stats.total_diff) }}</div>
+  </div>
+  <div class="stat-card green">
+    <div class="label">Match Rate</div>
+    <div class="value">{{ stats.match_rate }}%</div>
+  </div>
+</div>
+
+<div class="legend">
+  <span class="legend-item cash">Cash</span> Wire, External/Praxis, CreditCard, Electronic, Crypto
+  &nbsp;·&nbsp;
+  <span class="legend-item noncash">Non-cash</span> Bonus, Commission, Transfer, Credit, Fee — visible but excluded from match
+</div>
+
+<div class="filter-bar">
+  {% for f, label in [('all','All'), ('matched','Matched'), ('discrepancy','Discrepancy'), ('mt4_only','MT4 Only'), ('crm_only','CRM Only')] %}
+  <a class="filter-btn {% if status_filter == f %}active{% endif %}"
+     href="/recon/{{ month }}?status={{ f }}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Login</th>
+        <th class="num">MT4 Net</th>
+        <th class="num th-cash">Cash Dep.</th>
+        <th class="num th-cash">Cash With.</th>
+        <th class="num th-cash">Cash Net</th>
+        <th class="num th-noncash">Non-Cash In</th>
+        <th class="num th-noncash">Non-Cash Out</th>
+        <th class="num">Difference</th>
+        <th>Status</th>
+        <th>Methods</th>
+        <th class="num">Txns</th>
+        <th>Ccy</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if rows %}
+        {% for r in rows %}
+        <tr>
+          <td>
+            <a class="login-link" href="/recon/{{ month }}/{{ r.login }}">{{ r.login }}</a>
+          </td>
+          <td class="num">{{ "{:,.2f}".format(r.mt4_net) }}</td>
+          <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_dep) }}</td>
+          <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_with) }}</td>
+          <td class="num cash-col fw">{{ "{:,.2f}".format(r.crm_cash_net) }}</td>
+          <td class="num noncash-col">
+            {% if r.crm_noncash_in %}{{ "{:,.2f}".format(r.crm_noncash_in) }}{% else %}—{% endif %}
+          </td>
+          <td class="num noncash-col">
+            {% if r.crm_noncash_out %}{{ "{:,.2f}".format(r.crm_noncash_out) }}{% else %}—{% endif %}
+          </td>
+          <td class="num {% if r.difference > 1 %}pos{% elif r.difference < -1 %}neg{% endif %}">
+            {% if r.abs_diff >= 0.01 %}{{ "{:+,.2f}".format(r.difference) }}{% else %}—{% endif %}
+          </td>
+          <td><span class="badge {{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
+          <td class="methods" title="{{ r.payment_methods }}">{{ r.payment_methods or '—' }}</td>
+          <td class="num">{{ r.tx_count or '—' }}</td>
+          <td>{{ r.currency }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="12" class="empty">No results for this filter.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

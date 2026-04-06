@@ -1,6 +1,6 @@
 import pandas as pd
 
-path = r"C:\Projects\MethodosReconciliationSystem\Data\Reconciliation-Relevant\Life cycle report\2023\1. January\List.xlsx"
+path = r"C:\Projects\cmtaccounting\relevant-data\Life cycle report\2023\1. January\List.xlsx"
 df = pd.read_excel(path)
 
 total = len(df)

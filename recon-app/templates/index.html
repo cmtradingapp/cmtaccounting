@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %} — Net Deposit Reconciliation{% endblock %}
+{% block content %}
+
+<div class="month-bar">
+  <form method="get" action="/recon/{{ months[0] if months else '' }}" id="month-form">
+    <select name="_month" onchange="
+      var m = this.value;
+      window.location.href = '/recon/' + m;
+    ">
+      <option value="">Select a month…</option>
+      {% for m in months %}
+      <option value="{{ m }}">{{ m }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if error %}
+<div style="color:var(--red);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);padding:14px 18px;border-radius:8px;margin-bottom:20px;">
+  DB error: {{ error }}
+</div>
+{% endif %}
+
+<div class="empty">
+  <div style="font-size:48px;margin-bottom:16px;">📊</div>
+  <div style="font-size:18px;font-weight:600;margin-bottom:8px;">Select a month to run reconciliation</div>
+  <div style="color:var(--muted);">Compares MT4 net deposits (dealio) against CRM approved transactions (backoffice)</div>
+</div>
+
+{% endblock %}

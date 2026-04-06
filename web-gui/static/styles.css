@@ -141,9 +141,541 @@ header p { color: var(--text-secondary); margin: 8px 0 0 0; font-size: 16px;}
 .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
 .btn-outline:hover { background: rgba(59, 130, 246, 0.1); }
 
+/* ── Stage 3: Reconciliation results ──────────────────────────────────── */
+.recon-hero {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    padding: 22px 24px;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
+.recon-rate-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 110px;
+}
+.recon-rate-num {
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.recon-rate-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+.recon-bar-wrap { flex: 1; }
+.recon-bar-track {
+    height: 8px;
+    background: rgba(255,255,255,0.07);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+.recon-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.8s cubic-bezier(0.16,1,0.3,1);
+    width: 0%;
+}
+.recon-bar-legend {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.recon-sides {
+    display: flex;
+    gap: 0;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+.recon-side {
+    flex: 1;
+    padding: 18px 22px;
+}
+.recon-side-divider {
+    width: 1px;
+    background: var(--glass-border);
+    margin: 14px 0;
+}
+.recon-side-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-secondary);
+    margin: 0 0 14px 0;
+}
+.recon-side-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+.recon-side-row:last-child { border-bottom: none; }
+.recon-side-row strong { font-size: 16px; color: var(--text-primary); }
+.val-success { color: var(--success) !important; }
+.val-warning { color: var(--warning) !important; }
+
+.recon-amount-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 22px;
+    border-radius: 10px;
+    border: 1px solid rgba(239,68,68,0.2);
+    background: rgba(239,68,68,0.05);
+    margin-bottom: 16px;
+    transition: border-radius 0.15s;
+}
+.recon-amount-bar.clean {
+    border-color: rgba(16,185,129,0.25);
+    background: rgba(16,185,129,0.05);
+}
+.recon-amount-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.recon-amount-val {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--danger);
+}
+.recon-amount-bar.clean .recon-amount-val { color: var(--success); }
+
+/* Unmatched CRM breakdown */
+.recon-breakdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+.recon-breakdown-note {
+    font-size: 11px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--success);
+    opacity: 0.8;
+}
+.recon-breakdown-rows {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+.recon-breakdown-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    border: 1px solid rgba(255,255,255,0.07);
+    background: rgba(0,0,0,0.2);
+}
+.recon-breakdown-chip.psp {
+    border-color: rgba(245,158,11,0.3);
+    background: rgba(245,158,11,0.06);
+}
+.recon-breakdown-chip-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.recon-breakdown-chip.psp .recon-breakdown-chip-label { color: #fbbf24; }
+.recon-breakdown-chip-count {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+.recon-breakdown-chip-caret {
+    font-size: 14px;
+    opacity: 0.4;
+    transition: transform 0.2s, opacity 0.2s;
+    margin-left: 2px;
+}
+.recon-breakdown-chip.active .recon-breakdown-chip-caret {
+    transform: rotate(90deg);
+    opacity: 0.9;
+}
+.recon-breakdown-chip:hover { opacity: 0.85; }
+.recon-breakdown-chip.active {
+    border-color: rgba(148,163,184,0.35);
+    background: rgba(255,255,255,0.06);
+}
+.recon-breakdown-chip.psp.active { border-color: rgba(245,158,11,0.55); }
+
+/* Unmatched CRM detail table */
+.recon-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.recon-detail-title {
+    font-size: 12px;
+    font-weight: 600;
+}
+.recon-detail-title-cross {
+    color: #93c5fd;
+}
+.recon-detail-title-discrepancy {
+    color: #fca5a5;
+}
+#unmatchedDetailTitle {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+.recon-detail-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+}
+.recon-detail-close:hover { background: rgba(255,255,255,0.07); color: var(--text-primary); }
+.recon-detail-table-wrap {
+    overflow-x: auto;
+    max-height: 320px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.recon-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.recon-detail-table th {
+    position: sticky;
+    top: 0;
+    background: rgba(15,23,42,0.95);
+    backdrop-filter: blur(4px);
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #475569;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    white-space: nowrap;
+}
+.recon-detail-table td {
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.recon-detail-table td:first-child { color: var(--text-primary); font-weight: 500; }
+.recon-detail-table tr:hover td { background: rgba(255,255,255,0.025); }
+.recon-detail-table tfoot tr td {
+    border-top: 1px solid rgba(245,158,11,0.45);
+    border-bottom: none;
+    background: rgba(245,158,11,0.09);
+}
+.recon-detail-table tfoot tr:hover td {
+    background: rgba(245,158,11,0.09);
+}
+.recon-detail-table .recon-total-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #fbbf24;
+}
+.recon-detail-table .recon-total-val {
+    font-weight: 700;
+    color: #fde68a;
+    font-variant-numeric: tabular-nums;
+}
+
+#unreconDetail {
+    margin-top: 0;
+    border: 1px solid rgba(239,68,68,0.15);
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.2);
+    margin-bottom: 16px;
+}
+#crossCcyDetail {
+    margin-top: 0;
+    border: 1px solid rgba(148,163,184,0.2);
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.2);
+    margin-bottom: 16px;
+}
+#unmatchedDetail {
+    margin-top: 10px;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.2);
+}
+
+/* Miscellaneous internal section */
+.misc-toggle-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.12);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    color: #475569;
+    margin-top: 6px;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+}
+.misc-toggle-bar:hover {
+    background: rgba(255,255,255,0.03);
+    border-color: rgba(255,255,255,0.1);
+    color: var(--text-secondary);
+}
+.misc-toggle-caret {
+    font-size: 14px;
+    opacity: 0.35;
+    transition: transform 0.2s, opacity 0.2s;
+}
+.misc-toggle-bar.open .misc-toggle-caret {
+    transform: rotate(90deg);
+    opacity: 0.6;
+}
+#miscContent {
+    padding: 2px 2px 6px;
+}
+#miscDetail {
+    margin-top: 10px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.15);
+}
+
+.recon-details {
+    font-size: 11px;
+    font-family: monospace;
+    color: #334155;
+    margin-bottom: 20px;
+    padding: 0 4px;
+}
+
+.recon-downloads {
+    display: flex;
+    gap: 14px;
+    margin-top: 4px;
+}
+.recon-dl-btn {
+    flex: 1;
+    gap: 14px;
+    justify-content: flex-start !important;
+    padding: 16px 20px;
+    text-align: left;
+}
+.recon-dl-btn span:last-child {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.recon-dl-btn strong { font-size: 14px; }
+.recon-dl-btn small { font-size: 11px; opacity: 0.65; font-weight: 400; }
+.recon-dl-icon {
+    font-size: 20px;
+    font-weight: 300;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+/* Bank / PSP file list */
+.file-list {
+    position: relative;
+    margin-top: 8px;
+    max-height: 140px;
+    overflow-y: auto;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.18);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.file-list::-webkit-scrollbar { width: 4px; }
+.file-list::-webkit-scrollbar-track { background: transparent; }
+.file-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+.file-list::after {
+    content: '';
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    display: block;
+    background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.45));
+    pointer-events: none;
+}
+
+.file-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    position: sticky;
+    top: 0;
+    background: rgba(15,23,42,0.9);
+    backdrop-filter: blur(4px);
+    z-index: 1;
+}
+.file-list-header-count {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #475569;
+}
+
+.file-list-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.15s;
+}
+.file-list-item:last-child { border-bottom: none; }
+.file-list-item:hover { background: rgba(255,255,255,0.04); }
+.file-list-item:hover .file-list-name { color: #cbd5e1; }
+
+.file-list-idx {
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: #334155;
+    min-width: 18px;
+    text-align: right;
+    flex-shrink: 0;
+}
+.file-list-ext {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 2px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+.file-list-ext.csv  { background: rgba(16,185,129,0.15);  color: #34d399; }
+.file-list-ext.xlsx { background: rgba(59,130,246,0.15);  color: #60a5fa; }
+.file-list-ext.xls  { background: rgba(99,102,241,0.15);  color: #a5b4fc; }
+.file-list-ext.other{ background: rgba(100,116,139,0.15); color: #94a3b8; }
+
+.file-list-name {
+    font-size: 12px;
+    color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Outfit', sans-serif;
+}
+
 /* Animation */
 .spinner {
     height: 18px; width: 18px; border: 3px solid rgba(255,255,255,0.3);
     border-top-color: #fff; border-radius: 50%; animation: spin 1s infinite linear;
+    display: inline-block; vertical-align: middle; flex-shrink: 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Schema detection progress */
+.schema-progress-wrap {
+    padding: 28px 32px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.schema-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.schema-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #475569;
+    transition: color 0.3s;
+}
+.schema-step.done  { color: var(--text-secondary); }
+.schema-step.active { color: var(--text-primary); }
+.schema-step-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    flex-shrink: 0;
+    transition: background 0.3s, box-shadow 0.3s;
+}
+.schema-step.done  .schema-step-dot { background: var(--success); }
+.schema-step.active .schema-step-dot {
+    background: #60a5fa;
+    box-shadow: 0 0 6px rgba(96,165,250,0.6);
+    animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 4px rgba(96,165,250,0.5); }
+    50%       { box-shadow: 0 0 10px rgba(96,165,250,0.9); }
+}
+.schema-step-label { flex: 1; }
+.schema-step-icon {
+    font-size: 11px;
+    font-weight: 600;
+    width: 42px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.schema-step.done  .schema-step-icon { color: var(--success); }
+.schema-step.active .schema-step-icon { color: #60a5fa; }
+.schema-progress-track {
+    height: 5px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.schema-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #10b981, #60a5fa);
+    transition: width 0.5s cubic-bezier(0.16,1,0.3,1);
+    width: 0%;
+}
