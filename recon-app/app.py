@@ -150,14 +150,29 @@ CURRENCIES = [
     "RWF", "XOF", "XAF", "AED", "BRL", "CLP", "COP", "MXN", "PEN",
 ]
 
-ENTITIES = ["CMT PROCESSING LTD", "GCMT GROUP LTD"]
-
-
 @app.route("/fees")
 @require_auth
 def fees_list():
     agreements = queries.get_all_agreements()
-    return render_template("fees.html", agreements=agreements)
+    entities = queries.get_entities()
+    return render_template("fees.html", agreements=agreements, entities=entities)
+
+
+@app.route("/fees/entities/add", methods=["POST"])
+@require_auth
+def fees_entity_add():
+    name = request.form.get("name", "").strip().upper()
+    if name:
+        queries.add_entity(name)
+    return redirect(url_for("fees_list"))
+
+
+@app.route("/fees/entities/delete", methods=["POST"])
+@require_auth
+def fees_entity_delete():
+    name = request.form.get("name", "")
+    queries.delete_entity(name)
+    return redirect(url_for("fees_list"))
 
 
 @app.route("/fees/new", methods=["GET", "POST"])
@@ -177,7 +192,7 @@ def fees_new():
             abort(400, "PSP name is required")
         psp_id = queries.create_agreement(data)
         return redirect(url_for("fees_detail", psp_id=psp_id))
-    return render_template("fee_form.html", agreement=None, entities=ENTITIES)
+    return render_template("fee_form.html", agreement=None, entities=queries.get_entities())
 
 
 @app.route("/fees/<int:psp_id>")
@@ -189,7 +204,7 @@ def fees_detail(psp_id):
     rules = queries.get_fee_rules(psp_id)
     return render_template("fee_detail.html", agreement=agreement, rules=rules,
                            fee_types=FEE_TYPES, payment_methods=PAYMENT_METHODS,
-                           currencies=CURRENCIES, entities=ENTITIES)
+                           currencies=CURRENCIES, entities=queries.get_entities())
 
 
 @app.route("/fees/<int:psp_id>/edit", methods=["POST"])
