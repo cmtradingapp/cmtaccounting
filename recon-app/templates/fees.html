@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %} — PSP Fee Agreements{% endblock %}
+{% block content %}
+
+<div class="month-bar">
+  <span style="font-size:18px;font-weight:700;">PSP Fee Agreements</span>
+  <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
+  <span style="color:var(--muted);margin-left:auto;font-size:13px;">
+    {{ agreements|length }} active agreement{{ 's' if agreements|length != 1 }}
+  </span>
+</div>
+
+{% if agreements %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>PSP Name</th>
+        <th>Provider</th>
+        <th>Entity</th>
+        <th>Agreement Date</th>
+        <th>Addendum</th>
+        <th>Auto Settle</th>
+        <th>Settlement Bank</th>
+        <th class="num">Rules</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in agreements %}
+      <tr>
+        <td>
+          <a class="login-link" href="/fees/{{ a.id }}" style="font-family:inherit;font-weight:600;">{{ a.psp_name }}</a>
+        </td>
+        <td style="color:var(--muted);">{{ a.provider_name or '—' }}</td>
+        <td>{{ a.agreement_entity or '—' }}</td>
+        <td>{{ a.agreement_date or '—' }}</td>
+        <td>{{ a.addendum_date or '—' }}</td>
+        <td>
+          {% if a.auto_settlement %}
+            <span class="badge matched">yes</span>
+          {% else %}
+            <span style="color:var(--muted);">no</span>
+          {% endif %}
+        </td>
+        <td style="color:var(--muted);font-size:12px;">{{ a.settlement_bank or '—' }}</td>
+        <td class="num">{{ a.rule_count }}</td>
+        <td><a class="btn" href="/fees/{{ a.id }}" style="padding:4px 10px;font-size:12px;">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">
+  <div style="font-size:48px;margin-bottom:16px;">📋</div>
+  <div style="font-size:18px;font-weight:600;margin-bottom:8px;">No PSP agreements yet</div>
+  <div style="color:var(--muted);">Click "Add PSP" to create the first one.</div>
+</div>
+{% endif %}
+
+{% endblock %}
