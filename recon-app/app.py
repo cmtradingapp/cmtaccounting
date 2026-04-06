@@ -12,6 +12,10 @@ import openpyxl
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "dev")
 
+@app.context_processor
+def inject_request():
+    return {"request": request}
+
 try:
     queries.ensure_fee_tables()
 except Exception as e:

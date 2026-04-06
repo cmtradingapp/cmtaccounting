@@ -44,10 +44,12 @@
     nav { display: flex; gap: 4px; margin-left: 8px; }
     nav a {
       color: var(--muted); text-decoration: none;
-      padding: 5px 10px; border-radius: var(--radius-sm);
-      font-size: 13px; font-weight: 500; transition: color .15s, background .15s;
+      padding: 5px 11px; border-radius: var(--radius-sm);
+      font-size: 13px; font-weight: 500;
+      transition: color .15s, background .15s;
     }
-    nav a:hover { color: var(--text); background: rgba(255,255,255,.04); }
+    nav a:hover { color: var(--text); background: rgba(255,255,255,.05); }
+    nav a.active { color: var(--text); background: rgba(255,255,255,.07); }
 
     /* ── Layout ──────────────────────────────────────────────── */
     main { max-width: 1100px; margin: 0 auto; padding: var(--sp-5) var(--sp-4); }
@@ -77,8 +79,10 @@
     .btn-primary {
       background: var(--accent); border-color: var(--accent);
       color: #fff; font-weight: 600;
+      transition: background .15s, border-color .15s, transform .1s;
     }
-    .btn-primary:hover { background: #3d7de8; border-color: #3d7de8; }
+    .btn-primary:hover { background: #3d7de8; border-color: #3d7de8; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
     .btn-danger {
       background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.2); color: var(--red);
     }
@@ -293,8 +297,8 @@
   <header>
     <div class="logo">CMT <span>Reconciliation</span></div>
     <nav>
-      <a href="/">Dashboard</a>
-      <a href="/fees">Fees</a>
+      <a href="/" class="{{ 'active' if request.path == '/' or request.path.startswith('/recon') }}">Dashboard</a>
+      <a href="/fees" class="{{ 'active' if request.path.startswith('/fees') }}">Fees</a>
     </nav>
   </header>
   <main>
