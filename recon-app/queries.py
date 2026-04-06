@@ -231,6 +231,88 @@ def login_mt4_detail(year: int, month: int, login: int):
 # ---------------------------------------------------------------------------
 
 def ensure_fee_tables():
+    _ensure_fee_tables_core()
+    _ensure_prompt_tables()
+
+
+def _ensure_prompt_tables():
+    """Create and seed the prompt_templates table."""
+    import ai_parse
+    with fees_db() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS prompt_templates (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL,
+                system_prompt TEXT NOT NULL,
+                is_default  INTEGER DEFAULT 0,
+                created_at  TEXT DEFAULT (datetime('now')),
+                updated_at  TEXT DEFAULT (datetime('now'))
+            );
+        """)
+        existing = conn.execute("SELECT COUNT(*) FROM prompt_templates").fetchone()[0]
+        if existing == 0:
+            conn.execute(
+                "INSERT INTO prompt_templates (name, system_prompt, is_default) VALUES (?, ?, 1)",
+                ("Default — Standard Fee Agreement Parser", ai_parse.SYSTEM_PROMPT),
+            )
+
+
+# --- Prompt templates ---
+
+def get_prompt_templates():
+    with fees_db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, is_default, created_at, updated_at "
+            "FROM prompt_templates ORDER BY is_default DESC, name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_prompt_template(template_id: int):
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM prompt_templates WHERE id = ?", (template_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_default_prompt_template():
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM prompt_templates WHERE is_default = 1 ORDER BY id LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def create_prompt_template(name: str, system_prompt: str) -> int:
+    with fees_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO prompt_templates (name, system_prompt) VALUES (?, ?)",
+            (name, system_prompt),
+        )
+        return cur.lastrowid
+
+
+def update_prompt_template(template_id: int, name: str, system_prompt: str):
+    with fees_db() as conn:
+        conn.execute(
+            "UPDATE prompt_templates SET name=?, system_prompt=?, updated_at=datetime('now') WHERE id=?",
+            (name, system_prompt, template_id),
+        )
+
+
+def set_default_prompt_template(template_id: int):
+    with fees_db() as conn:
+        conn.execute("UPDATE prompt_templates SET is_default = 0")
+        conn.execute("UPDATE prompt_templates SET is_default = 1 WHERE id = ?", (template_id,))
+
+
+def delete_prompt_template(template_id: int):
+    with fees_db() as conn:
+        conn.execute("DELETE FROM prompt_templates WHERE id = ?", (template_id,))
+
+
+def _ensure_fee_tables_core():
     """Create fee tables in local SQLite if they don't exist."""
     with fees_db() as conn:
         conn.executescript("""

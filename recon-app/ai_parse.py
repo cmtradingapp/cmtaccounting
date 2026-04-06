@@ -447,7 +447,7 @@ def _normalise_rule(rule: dict) -> dict:
 
 # ── Main API call ──────────────────────────────────────────────────────────
 
-def analyze_agreement(text: str) -> dict:
+def analyze_agreement(text: str, system_prompt: str = None) -> dict:
     """
     Send extracted agreement text to OpenRouter and return a normalised dict:
       { "agreement": {...}, "fee_rules": [...] }
@@ -460,6 +460,7 @@ def analyze_agreement(text: str) -> dict:
             "Add it to recon-app/.env: OPENROUTER_API_KEY=sk-or-..."
         )
 
+    active_prompt = system_prompt or SYSTEM_PROMPT
     trimmed = _smart_truncate(text)
 
     user_msg = (
@@ -488,7 +489,7 @@ def analyze_agreement(text: str) -> dict:
         json={
             "model":   OPENROUTER_MODEL,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": active_prompt},
                 {"role": "user",   "content": user_msg},
             ],
             "response_format": _response_format(),

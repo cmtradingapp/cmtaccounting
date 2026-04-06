@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %} — {{ 'Edit Prompt Template' if template else 'New Prompt Template' }}{% endblock %}
+{% block content %}
+<style>
+  .prompt-editor {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12.5px; line-height: 1.6;
+    min-height: 520px; resize: vertical;
+    tab-size: 2;
+    white-space: pre;
+    overflow: auto;
+  }
+  .prompt-meta {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface-alt); border-top: 1px solid var(--border);
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    font-size: 11px; color: var(--muted);
+  }
+  .char-count { font-family: monospace; color: var(--text-2); }
+</style>
+
+<div class="form-wrapper">
+  <div style="margin-bottom:16px;">
+    <a href="/fees/prompts" class="back-link">← Prompt Templates</a>
+    <div class="page-title" style="margin-top:6px;">
+      {{ 'Edit: ' + template.name if template else 'New Prompt Template' }}
+    </div>
+  </div>
+
+  {% if error %}
+  <div style="padding:12px 16px;margin-bottom:16px;
+              background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);
+              border-radius:var(--radius-sm);color:var(--red);font-size:13px;">
+    {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="POST" id="promptForm">
+
+    <div class="fee-form">
+      <div class="form-section-label">Template Identity</div>
+      <div class="form-row">
+        <label>Template Name *
+          <input type="text" name="name" required autofocus
+                 value="{{ template.name if template else '' }}"
+                 placeholder="e.g. Standard Fee Agreement Parser">
+        </label>
+        <label class="check-card" for="set_default" style="align-self:flex-end;">
+          <input type="checkbox" id="set_default" name="set_default"
+                 {{ 'checked' if template and template.is_default }}>
+          <div>
+            <div class="check-card-label">Set as Default</div>
+            <div class="check-card-hint">Pre-selected on the upload page</div>
+          </div>
+        </label>
+      </div>
+
+      <div class="form-section-divider">System Prompt</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+        This text is sent to the AI as its <code style="background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px;">system</code>
+        instruction before processing any document.
+        The document text is appended separately in the user message.
+      </div>
+
+      <div style="border:1px solid rgba(255,255,255,.07);border-radius:var(--radius-sm);overflow:hidden;">
+        <textarea name="system_prompt" class="prompt-editor"
+                  id="promptText"
+                  style="width:100%;padding:16px;background:rgba(0,0,0,.3);
+                         border:none;color:var(--text);border-radius:0;outline:none;"
+                  oninput="updateCount()"
+                  spellcheck="false"
+                  required>{{ template.system_prompt if template else (prefill_prompt or '') }}</textarea>
+        <div class="prompt-meta">
+          <span class="char-count" id="charCount">0</span> characters
+          <span style="margin-left:auto;">
+            Tip: <kbd style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);
+                            border-radius:3px;padding:1px 5px;font-size:10px;">Tab</kbd>
+            inserts spaces &nbsp;·&nbsp;
+            <kbd style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);
+                       border-radius:3px;padding:1px 5px;font-size:10px;">Ctrl+Enter</kbd>
+            saves
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-footer">
+      <div class="form-footer-actions">
+        <button type="submit" class="btn btn-primary">
+          {{ 'Save Changes' if template else 'Create Template' }}
+        </button>
+        <a href="/fees/prompts" class="btn btn-cancel">Cancel</a>
+      </div>
+    </div>
+
+  </form>
+</div>
+
+<script>
+function updateCount() {
+  document.getElementById('charCount').textContent =
+    document.getElementById('promptText').value.length.toLocaleString();
+}
+updateCount();
+
+// Tab key inserts two spaces instead of moving focus
+document.getElementById('promptText').addEventListener('keydown', function(e) {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    var start = this.selectionStart, end = this.selectionEnd;
+    this.value = this.value.slice(0, start) + '  ' + this.value.slice(end);
+    this.selectionStart = this.selectionEnd = start + 2;
+    updateCount();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('promptForm').submit();
+  }
+});
+</script>
+
+{% endblock %}

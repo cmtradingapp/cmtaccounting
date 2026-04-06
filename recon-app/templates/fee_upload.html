@@ -76,6 +76,30 @@
   <div class="upload-error">{{ error }}</div>
   {% endif %}
 
+  <!-- Template selector -->
+  {% if templates %}
+  <div style="margin-bottom:18px;">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.07em;color:var(--muted);display:block;margin-bottom:6px;">
+      AI Prompt Template
+    </label>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <select name="prompt_template_id" form="uploadForm"
+              style="flex:1;height:38px;border-radius:var(--radius-sm);">
+        {% for t in templates %}
+        <option value="{{ t.id }}"
+          {{ 'selected' if default_tpl and t.id == default_tpl.id }}>
+          {{ t.name }}{% if t.is_default %} (default){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <a href="/fees/prompts" class="btn btn-ghost"
+         style="height:38px;padding:0 12px;white-space:nowrap;border:1px solid rgba(255,255,255,.1);"
+         title="Manage prompt templates">✎ Manage</a>
+    </div>
+  </div>
+  {% endif %}
+
   <form method="POST" action="/fees/upload" enctype="multipart/form-data" id="uploadForm">
     <div class="drop-zone" id="dropZone">
       <input type="file" name="agreement_file" id="fileInput" accept=".pdf,.docx,.doc">

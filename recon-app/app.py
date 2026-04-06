@@ -344,31 +344,43 @@ def fees_upload():
     if request.method == "GET":
         return render_template("fee_upload.html")
 
+    templates = queries.get_prompt_templates()
+    default_tpl = next((t for t in templates if t["is_default"]), templates[0] if templates else None)
+
+    if request.method == "GET":
+        return render_template("fee_upload.html", templates=templates, default_tpl=default_tpl)
+
     f = request.files.get("agreement_file")
     if not f or not f.filename:
-        return render_template("fee_upload.html", error="No file selected.")
+        return render_template("fee_upload.html", templates=templates, default_tpl=default_tpl,
+                               error="No file selected.")
 
     ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
     if ext not in ALLOWED_UPLOAD_EXTS:
-        return render_template("fee_upload.html",
+        return render_template("fee_upload.html", templates=templates, default_tpl=default_tpl,
                                error="Only PDF and DOCX files are supported.")
+
+    # Resolve selected prompt template
+    tpl_id = request.form.get("prompt_template_id", type=int)
+    tpl = queries.get_prompt_template(tpl_id) if tpl_id else default_tpl
+    system_prompt = tpl["system_prompt"] if tpl else None
 
     try:
         file_bytes = f.read()
         text = ai_parse.extract_text(file_bytes, f.filename)
     except Exception as e:
-        return render_template("fee_upload.html",
+        return render_template("fee_upload.html", templates=templates, default_tpl=default_tpl,
                                error=f"Could not read file: {e}")
 
     if not text.strip():
-        return render_template("fee_upload.html",
+        return render_template("fee_upload.html", templates=templates, default_tpl=default_tpl,
                                error="No text could be extracted from this file. "
                                      "It may be a scanned image PDF — try a DOCX version instead.")
 
     try:
-        result = ai_parse.analyze_agreement(text)
+        result = ai_parse.analyze_agreement(text, system_prompt=system_prompt)
     except Exception as e:
-        return render_template("fee_upload.html",
+        return render_template("fee_upload.html", templates=templates, default_tpl=default_tpl,
                                error=f"AI analysis failed: {e}")
 
     return render_template(
@@ -438,6 +450,69 @@ def fees_upload_confirm():
         queries.create_fee_rule(psp_id, rule)
 
     return redirect(url_for("fees_detail", psp_id=psp_id))
+
+
+# ---------------------------------------------------------------------------
+# Prompt Template Management
+# ---------------------------------------------------------------------------
+
+@app.route("/fees/prompts")
+@require_auth
+def prompt_list():
+    templates = queries.get_prompt_templates()
+    return render_template("prompt_list.html", templates=templates)
+
+
+@app.route("/fees/prompts/new", methods=["GET", "POST"])
+@require_auth
+def prompt_new():
+    if request.method == "POST":
+        name   = request.form.get("name", "").strip()
+        prompt = request.form.get("system_prompt", "").strip()
+        if not name or not prompt:
+            return render_template("prompt_form.html", template=None,
+                                   error="Name and prompt text are required.")
+        tpl_id = queries.create_prompt_template(name, prompt)
+        if request.form.get("set_default"):
+            queries.set_default_prompt_template(tpl_id)
+        return redirect(url_for("prompt_list"))
+    # Pre-fill new form with the built-in default as a starting point
+    import ai_parse as _ai
+    return render_template("prompt_form.html", template=None,
+                           prefill_prompt=_ai.SYSTEM_PROMPT)
+
+
+@app.route("/fees/prompts/<int:tpl_id>/edit", methods=["GET", "POST"])
+@require_auth
+def prompt_edit(tpl_id):
+    tpl = queries.get_prompt_template(tpl_id)
+    if not tpl:
+        abort(404)
+    if request.method == "POST":
+        name   = request.form.get("name", "").strip()
+        prompt = request.form.get("system_prompt", "").strip()
+        if not name or not prompt:
+            return render_template("prompt_form.html", template=tpl,
+                                   error="Name and prompt text are required.")
+        queries.update_prompt_template(tpl_id, name, prompt)
+        if request.form.get("set_default"):
+            queries.set_default_prompt_template(tpl_id)
+        return redirect(url_for("prompt_list"))
+    return render_template("prompt_form.html", template=tpl)
+
+
+@app.route("/fees/prompts/<int:tpl_id>/set-default", methods=["POST"])
+@require_auth
+def prompt_set_default(tpl_id):
+    queries.set_default_prompt_template(tpl_id)
+    return redirect(url_for("prompt_list"))
+
+
+@app.route("/fees/prompts/<int:tpl_id>/delete", methods=["POST"])
+@require_auth
+def prompt_delete(tpl_id):
+    queries.delete_prompt_template(tpl_id)
+    return redirect(url_for("prompt_list"))
 
 
 if __name__ == "__main__":

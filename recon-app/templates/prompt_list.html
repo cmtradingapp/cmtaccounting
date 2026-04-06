@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %} — AI Prompt Templates{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div style="display:flex;align-items:center;gap:14px;">
+    <div>
+      <a href="/fees" class="back-link">← Fees</a>
+      <div class="page-title" style="margin-top:4px;">AI Prompt Templates</div>
+    </div>
+  </div>
+  <a class="btn btn-primary" href="/fees/prompts/new">+ New Template</a>
+</div>
+
+<div style="font-size:13px;color:var(--muted);margin-bottom:var(--sp-4);">
+  Templates control what instructions the AI receives when parsing a PSP agreement.
+  The <span class="badge matched" style="height:18px;font-size:10px;">Default</span>
+  template is pre-selected on the upload page.
+</div>
+
+{% if templates %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Status</th>
+        <th>Last updated</th>
+        <th style="width:40px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in templates %}
+      <tr class="clickable" onclick="window.location='/fees/prompts/{{ t.id }}/edit'">
+        <td style="font-weight:600;color:var(--accent);">{{ t.name }}</td>
+        <td>
+          {% if t.is_default %}
+            <span class="badge matched">Default</span>
+          {% else %}
+            <span style="color:var(--muted);font-size:12px;">—</span>
+          {% endif %}
+        </td>
+        <td style="color:var(--text-2);font-size:12px;">{{ (t.updated_at or t.created_at or '')[:16] }}</td>
+        <td style="text-align:right;" onclick="event.stopPropagation()">
+          <div style="display:flex;gap:4px;justify-content:flex-end;">
+            {% if not t.is_default %}
+            <form method="POST" action="/fees/prompts/{{ t.id }}/set-default">
+              <button type="submit" class="btn" style="height:26px;font-size:11px;padding:0 10px;"
+                      title="Set as default">Set default</button>
+            </form>
+            <form method="POST" action="/fees/prompts/{{ t.id }}/delete"
+                  onsubmit="return confirm('Delete template \'{{ t.name }}\'?')">
+              <button type="submit" class="btn btn-danger-sm" style="height:26px;font-size:11px;padding:0 8px;"
+                      title="Delete">✕</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="table-wrap empty" style="padding:48px;">
+  No prompt templates yet.
+</div>
+{% endif %}
+
+{% endblock %}
