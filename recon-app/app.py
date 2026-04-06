@@ -1,7 +1,7 @@
 import io
 import os
 import functools
-from flask import Flask, render_template, request, jsonify, send_file, abort, Response
+from flask import Flask, render_template, request, jsonify, send_file, abort, Response, redirect, url_for
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,6 +11,11 @@ import openpyxl
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "dev")
+
+try:
+    queries.ensure_fee_tables()
+except Exception as e:
+    print(f"WARNING: Could not create fee tables: {e}")
 
 _AUTH_USER = os.environ.get("AUTH_USER", "")
 _AUTH_PASS = os.environ.get("AUTH_PASS", "")
@@ -124,6 +129,142 @@ def login_detail(month, login):
     months    = queries.available_months()
     return render_template("detail.html", month=month, login=login,
                            crm_rows=crm_rows, mt4_rows=mt4_rows, months=months)
+
+
+# ---------------------------------------------------------------------------
+# PSP Fee Management
+# ---------------------------------------------------------------------------
+
+FEE_TYPES = [
+    "Deposit", "Withdrawal", "Settlement", "Chargeback", "Refund",
+    "Rolling Reserve", "Holdback", "Setup", "Registration", "Minimum Monthly",
+]
+
+PAYMENT_METHODS = [
+    "Credit Cards", "Bank Wire", "Mobile Money", "Electronic Payment",
+    "Crypto", "MOMO", "E-Wallet",
+]
+
+CURRENCIES = [
+    "USD", "EUR", "GBP", "ZAR", "NGN", "KES", "GHS", "UGX", "TZS",
+    "RWF", "XOF", "XAF", "AED", "BRL", "CLP", "COP", "MXN", "PEN",
+]
+
+ENTITIES = ["CMT PROCESSING LTD", "GCMT GROUP LTD"]
+
+
+@app.route("/fees")
+@require_auth
+def fees_list():
+    agreements = queries.get_all_agreements()
+    return render_template("fees.html", agreements=agreements)
+
+
+@app.route("/fees/new", methods=["GET", "POST"])
+@require_auth
+def fees_new():
+    if request.method == "POST":
+        data = {
+            "psp_name":         request.form["psp_name"].strip(),
+            "provider_name":    request.form.get("provider_name", "").strip() or None,
+            "agreement_entity": request.form.get("agreement_entity", "").strip() or None,
+            "agreement_date":   request.form.get("agreement_date") or None,
+            "addendum_date":    request.form.get("addendum_date") or None,
+            "auto_settlement":  request.form.get("auto_settlement") == "on",
+            "settlement_bank":  request.form.get("settlement_bank", "").strip() or None,
+        }
+        if not data["psp_name"]:
+            abort(400, "PSP name is required")
+        psp_id = queries.create_agreement(data)
+        return redirect(url_for("fees_detail", psp_id=psp_id))
+    return render_template("fee_form.html", agreement=None, entities=ENTITIES)
+
+
+@app.route("/fees/<int:psp_id>")
+@require_auth
+def fees_detail(psp_id):
+    agreement = queries.get_agreement(psp_id)
+    if not agreement:
+        abort(404)
+    rules = queries.get_fee_rules(psp_id)
+    return render_template("fee_detail.html", agreement=agreement, rules=rules,
+                           fee_types=FEE_TYPES, payment_methods=PAYMENT_METHODS,
+                           currencies=CURRENCIES, entities=ENTITIES)
+
+
+@app.route("/fees/<int:psp_id>/edit", methods=["POST"])
+@require_auth
+def fees_edit(psp_id):
+    data = {
+        "psp_name":         request.form["psp_name"].strip(),
+        "provider_name":    request.form.get("provider_name", "").strip() or None,
+        "agreement_entity": request.form.get("agreement_entity", "").strip() or None,
+        "agreement_date":   request.form.get("agreement_date") or None,
+        "addendum_date":    request.form.get("addendum_date") or None,
+        "auto_settlement":  request.form.get("auto_settlement") == "on",
+        "settlement_bank":  request.form.get("settlement_bank", "").strip() or None,
+    }
+    queries.update_agreement(psp_id, data)
+    return redirect(url_for("fees_detail", psp_id=psp_id))
+
+
+@app.route("/fees/<int:psp_id>/delete", methods=["POST"])
+@require_auth
+def fees_delete(psp_id):
+    queries.delete_agreement(psp_id)
+    return redirect(url_for("fees_list"))
+
+
+@app.route("/fees/<int:psp_id>/rules/add", methods=["POST"])
+@require_auth
+def fees_add_rule(psp_id):
+    kind = request.form["fee_kind"]
+    data = {
+        "payment_method": request.form.get("payment_method", "").strip() or None,
+        "fee_type":       request.form["fee_type"],
+        "country":        request.form.get("country", "GLOBAL").strip() or "GLOBAL",
+        "sub_provider":   request.form.get("sub_provider", "").strip() or None,
+        "fee_kind":       kind,
+        "pct_rate":       None,
+        "fixed_amount":   None,
+        "fixed_currency": None,
+        "description":    request.form.get("description", "").strip() or None,
+        "tiers":          [],
+    }
+
+    if kind in ("percentage", "fixed_plus_pct"):
+        raw = request.form.get("pct_rate", "")
+        if raw:
+            data["pct_rate"] = float(raw) / 100.0
+
+    if kind in ("fixed", "fixed_plus_pct"):
+        raw = request.form.get("fixed_amount", "")
+        if raw:
+            data["fixed_amount"] = float(raw)
+        data["fixed_currency"] = request.form.get("fixed_currency", "USD")
+
+    if kind == "tiered":
+        froms = request.form.getlist("tier_from")
+        tos   = request.form.getlist("tier_to")
+        rates = request.form.getlist("tier_rate")
+        for f, t, r in zip(froms, tos, rates):
+            if r:
+                data["tiers"].append({
+                    "volume_from": float(f) if f else 0,
+                    "volume_to":   float(t) if t else None,
+                    "pct_rate":    float(r) / 100.0,
+                })
+
+    queries.create_fee_rule(psp_id, data)
+    return redirect(url_for("fees_detail", psp_id=psp_id))
+
+
+@app.route("/fees/rules/<int:rule_id>/delete", methods=["POST"])
+@require_auth
+def fees_delete_rule(rule_id):
+    psp_id = request.form.get("psp_id", type=int)
+    queries.delete_fee_rule(rule_id)
+    return redirect(url_for("fees_detail", psp_id=psp_id))
 
 
 if __name__ == "__main__":
