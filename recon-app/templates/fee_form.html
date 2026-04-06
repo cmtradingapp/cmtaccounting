@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %} — {{ 'Edit' if agreement else 'New PSP' }} Agreement{% endblock %}
+{% block title %} — {{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}{% endblock %}
 {% block content %}
 
-<div class="month-bar">
-  <a class="btn" href="/fees">← Back to Fees</a>
-  <span style="font-size:18px;font-weight:700;margin-left:8px;">
-    {{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}
-  </span>
+<div style="margin-bottom: var(--sp-2);">
+  <a class="btn" href="/fees" style="height:30px;font-size:12px;padding:0 10px;">← Fees</a>
+</div>
+<div style="margin-bottom: var(--sp-4);">
+  <div class="page-title">{{ 'Edit Agreement' if agreement else 'New PSP Agreement' }}</div>
 </div>
 
 <form class="fee-form" method="POST"
       action="{{ '/fees/' ~ agreement.id ~ '/edit' if agreement else '/fees/new' }}"
-      style="max-width:740px;">
+      style="max-width: 760px;">
 
   <div class="form-row">
     <label>PSP Name *
@@ -53,13 +53,15 @@
     </label>
   </div>
 
-  <label class="check-row">
-    <input type="checkbox" name="auto_settlement"
-           {{ 'checked' if agreement and agreement.auto_settlement }}>
-    Auto Settlement
-  </label>
+  <div class="form-row cols-1" style="margin-bottom: var(--sp-4);">
+    <label class="check-row" style="text-transform:none;letter-spacing:0;font-size:13px;font-weight:400;">
+      <input type="checkbox" name="auto_settlement"
+             {{ 'checked' if agreement and agreement.auto_settlement }}>
+      Enable Auto Settlement
+    </label>
+  </div>
 
-  <div class="actions" style="margin-top:24px;">
+  <div style="display:flex;gap:8px;padding-top:4px;border-top:1px solid var(--border);">
     <button type="submit" class="btn btn-primary">
       {{ 'Save Changes' if agreement else 'Create PSP' }}
     </button>

@@ -2,51 +2,68 @@
 {% block title %} — {{ agreement.psp_name }}{% endblock %}
 {% block content %}
 
-
-<div class="month-bar">
-  <a class="btn" href="/fees">← Back to Fees</a>
-  <span style="font-size:18px;font-weight:700;margin-left:8px;">{{ agreement.psp_name }}</span>
-  <span style="color:var(--muted);font-size:13px;margin-left:8px;">{{ agreement.provider_name or '' }}</span>
+<!-- Back -->
+<div style="margin-bottom:var(--sp-2);">
+  <a class="btn" href="/fees" style="height:30px;font-size:12px;padding:0 10px;">← Fees</a>
 </div>
 
-<!-- Agreement metadata -->
-<div class="stats-grid" style="grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));">
+<!-- Title -->
+<div style="margin-bottom:var(--sp-4);">
+  <div class="page-title">{{ agreement.psp_name }}</div>
+  {% if agreement.provider_name %}
+  <div class="page-sub">{{ agreement.provider_name }}</div>
+  {% endif %}
+</div>
+
+<!-- Summary cards -->
+<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:var(--sp-3);">
   <div class="stat-card">
     <div class="label">Entity</div>
-    <div style="font-size:14px;">{{ agreement.agreement_entity or '—' }}</div>
+    <div style="font-size:13px;font-weight:500;margin-top:4px;">{{ agreement.agreement_entity or '—' }}</div>
   </div>
   <div class="stat-card">
     <div class="label">Agreement Date</div>
-    <div style="font-size:14px;">{{ agreement.agreement_date or '—' }}</div>
+    <div style="font-size:13px;font-weight:500;margin-top:4px;">{{ agreement.agreement_date or '—' }}</div>
   </div>
   <div class="stat-card">
     <div class="label">Addendum</div>
-    <div style="font-size:14px;">{{ agreement.addendum_date or '—' }}</div>
+    <div style="font-size:13px;font-weight:500;margin-top:4px;">{{ agreement.addendum_date or '—' }}</div>
   </div>
   <div class="stat-card">
     <div class="label">Auto Settlement</div>
-    <div style="font-size:14px;">{{ 'Yes' if agreement.auto_settlement else 'No' }}</div>
+    <div style="margin-top:6px;">
+      {% if agreement.auto_settlement %}
+        <span class="badge matched">Yes</span>
+      {% else %}
+        <span style="color:var(--muted);font-size:13px;">No</span>
+      {% endif %}
+    </div>
   </div>
   <div class="stat-card">
     <div class="label">Settlement Bank</div>
-    <div style="font-size:12px;">{{ agreement.settlement_bank or '—' }}</div>
+    <div style="font-size:12px;color:var(--text-2);margin-top:4px;">{{ agreement.settlement_bank or '—' }}</div>
   </div>
   <div class="stat-card">
     <div class="label">Fee Rules</div>
-    <div class="value" style="font-size:22px;">{{ rules|length }}</div>
+    <div class="value">{{ rules|length }}</div>
   </div>
 </div>
 
-<div style="display:flex;gap:8px;margin-bottom:24px;">
-  <button class="btn" onclick="document.getElementById('editForm').style.display = document.getElementById('editForm').style.display === 'none' ? '' : 'none'">Edit Agreement</button>
-  <form method="POST" action="/fees/{{ agreement.id }}/delete" style="display:inline;"
-        onsubmit="return confirm('Deactivate this PSP agreement?')">
+<!-- Actions -->
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:var(--sp-5);
+            padding-top:var(--sp-2);border-top:1px solid var(--border);">
+  <button class="btn" onclick="
+    var f=document.getElementById('editForm');
+    f.style.display = f.style.display==='none'?'':'none';
+  ">Edit Agreement</button>
+  <form method="POST" action="/fees/{{ agreement.id }}/delete"
+        onsubmit="return confirm('Deactivate {{ agreement.psp_name }}?')">
     <button type="submit" class="btn btn-danger">Deactivate</button>
   </form>
 </div>
 
-<!-- Inline edit form (hidden by default) -->
-<div id="editForm" style="display:none;">
+<!-- Inline edit form -->
+<div id="editForm" style="display:none;margin-bottom:var(--sp-5);">
   <form class="fee-form" method="POST" action="/fees/{{ agreement.id }}/edit">
     <div class="form-row">
       <label>PSP Name *<input type="text" name="psp_name" required value="{{ agreement.psp_name }}"></label>
@@ -55,7 +72,7 @@
     <div class="form-row">
       <label>Entity
         <select name="agreement_entity">
-          <option value="">—</option>
+          <option value="">— None —</option>
           {% for e in entities %}<option value="{{ e }}" {{ 'selected' if agreement.agreement_entity == e }}>{{ e }}</option>{% endfor %}
         </select>
       </label>
@@ -65,10 +82,12 @@
       <label>Agreement Date<input type="date" name="agreement_date" value="{{ agreement.agreement_date or '' }}"></label>
       <label>Addendum Date<input type="date" name="addendum_date" value="{{ agreement.addendum_date or '' }}"></label>
     </div>
-    <label class="check-row">
-      <input type="checkbox" name="auto_settlement" {{ 'checked' if agreement.auto_settlement }}> Auto Settlement
-    </label>
-    <div class="actions">
+    <div class="form-row cols-1" style="margin-bottom:var(--sp-3);">
+      <label class="check-row" style="text-transform:none;letter-spacing:0;font-size:13px;font-weight:400;">
+        <input type="checkbox" name="auto_settlement" {{ 'checked' if agreement.auto_settlement }}> Enable Auto Settlement
+      </label>
+    </div>
+    <div class="actions" style="padding-top:var(--sp-2);border-top:1px solid var(--border);">
       <button type="submit" class="btn btn-primary">Save</button>
       <button type="button" class="btn" onclick="document.getElementById('editForm').style.display='none'">Cancel</button>
     </div>
@@ -83,23 +102,27 @@
   <table>
     <thead>
       <tr>
-        <th>Method</th>
+        <th>Payment Method</th>
         <th>Type</th>
         <th>Country</th>
         <th>Sub-Provider</th>
-        <th>Fee</th>
+        <th class="num">Fee</th>
         <th>Description</th>
-        <th></th>
+        <th style="width:40px;"></th>
       </tr>
     </thead>
     <tbody>
       {% for r in rules %}
       <tr>
         <td>{{ r.payment_method or '—' }}</td>
-        <td><span class="badge {% if r.fee_type == 'Deposit' %}matched{% elif r.fee_type == 'Withdrawal' %}discrepancy{% else %}mt4_only{% endif %}">{{ r.fee_type }}</span></td>
-        <td>{{ r.country or 'GLOBAL' }}</td>
-        <td style="color:var(--muted);">{{ r.sub_provider or '—' }}</td>
-        <td class="rule-value">
+        <td>
+          <span class="badge {% if r.fee_type == 'Deposit' %}matched{% elif r.fee_type == 'Withdrawal' %}discrepancy{% else %}mt4_only{% endif %}">
+            {{ r.fee_type }}
+          </span>
+        </td>
+        <td>{{ r.country or 'Global' }}</td>
+        <td style="color:var(--text-2);">{{ r.sub_provider or '—' }}</td>
+        <td class="num rule-value">
           {% if r.fee_kind == 'percentage' %}
             {{ "%.2f"|format((r.pct_rate or 0) * 100) }}%
           {% elif r.fee_kind == 'fixed' %}
@@ -107,27 +130,29 @@
           {% elif r.fee_kind == 'fixed_plus_pct' %}
             {{ "%.2f"|format(r.fixed_amount or 0) }} {{ r.fixed_currency or '' }} + {{ "%.2f"|format((r.pct_rate or 0) * 100) }}%
           {% elif r.fee_kind == 'tiered' %}
-            <span class="badge mt4_only" style="cursor:pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? '' : 'none'">
+            <span class="badge crm_only" style="cursor:pointer;"
+                  onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='none'?'':'none'">
               Tiered ({{ r.tiers|length }})
             </span>
-            <div style="display:none;margin-top:6px;font-size:12px;">
+            <div style="display:none;margin-top:8px;text-align:left;">
               {% for t in r.tiers %}
-              <div style="color:var(--muted);">
-                {{ "{:,.0f}".format(t.volume_from) }}{% if t.volume_to %} – {{ "{:,.0f}".format(t.volume_to) }}{% else %}+{% endif %}:
-                <span style="color:var(--text);font-weight:600;">{{ "%.2f"|format(t.pct_rate * 100) }}%</span>
+              <div style="color:var(--muted);font-size:12px;font-family:monospace;padding:2px 0;">
+                {{ "{:,.0f}".format(t.volume_from) }}{% if t.volume_to %} – {{ "{:,.0f}".format(t.volume_to) }}{% else %}+{% endif %}
+                <span style="color:var(--text);font-weight:600;margin-left:8px;">{{ "%.2f"|format(t.pct_rate * 100) }}%</span>
               </div>
               {% endfor %}
             </div>
           {% endif %}
         </td>
-        <td style="color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;font-size:12px;" title="{{ r.description or '' }}">
+        <td style="color:var(--text-2);max-width:220px;overflow:hidden;
+                   text-overflow:ellipsis;font-size:12px;" title="{{ r.description or '' }}">
           {{ r.description or '—' }}
         </td>
         <td>
-          <form method="POST" action="/fees/rules/{{ r.id }}/delete" style="display:inline;"
+          <form method="POST" action="/fees/rules/{{ r.id }}/delete"
                 onsubmit="return confirm('Delete this fee rule?')">
             <input type="hidden" name="psp_id" value="{{ agreement.id }}">
-            <button type="submit" class="tier-remove" title="Delete">✕</button>
+            <button type="submit" class="tier-remove" title="Delete rule">✕</button>
           </form>
         </td>
       </tr>
@@ -136,16 +161,21 @@
   </table>
 </div>
 {% else %}
-<div style="color:var(--muted);padding:20px;text-align:center;">No fee rules yet.</div>
+<div style="color:var(--muted);text-align:center;padding:32px;
+            background:var(--surface);border:1px solid var(--border);
+            border-radius:var(--radius-md);">
+  No fee rules yet. Use the form below to add the first one.
+</div>
 {% endif %}
 
-<!-- Add Rule Form -->
+<!-- Add Fee Rule -->
 <div class="section-title">Add Fee Rule</div>
 <form class="fee-form" method="POST" action="/fees/{{ agreement.id }}/rules/add">
+
   <div class="form-row">
     <label>Payment Method
       <select name="payment_method">
-        <option value="">—</option>
+        <option value="">— Any —</option>
         {% for m in payment_methods %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
       </select>
     </label>
@@ -158,16 +188,17 @@
 
   <div class="form-row">
     <label>Country
-      <input type="text" name="country" value="GLOBAL" placeholder="GLOBAL">
+      <input type="text" name="country" value="GLOBAL">
     </label>
-    <label>Sub-Provider <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:11px;">(e.g. MTN, Airtel — leave blank if applies to all)</span>
-      <input type="text" name="sub_provider" placeholder="Optional">
+    <label>Sub-Provider
+      <input type="text" name="sub_provider" placeholder="Optional — e.g. MTN, Airtel">
     </label>
   </div>
 
-  <div class="form-row cols-1" style="margin-bottom:4px;">
+  <div class="form-row cols-1" style="margin-bottom:var(--sp-2);">
     <label>Fee Structure *
-      <select name="fee_kind" id="feeKind" onchange="toggleFeeFields()" required>
+      <select name="fee_kind" id="feeKind" onchange="toggleFeeFields()" required
+              style="max-width:320px;">
         <option value="percentage">Percentage</option>
         <option value="fixed">Fixed Amount</option>
         <option value="fixed_plus_pct">Fixed + Percentage</option>
@@ -176,6 +207,7 @@
     </label>
   </div>
 
+  <!-- Percentage -->
   <div id="pctFields" class="fee-fields">
     <div class="form-row">
       <label>Rate (%)
@@ -185,6 +217,7 @@
     </div>
   </div>
 
+  <!-- Fixed -->
   <div id="fixedFields" class="fee-fields" style="display:none;">
     <div class="form-row">
       <label>Amount
@@ -198,21 +231,25 @@
     </div>
   </div>
 
+  <!-- Tiered -->
   <div id="tieredFields" class="fee-fields" style="display:none;">
     <table class="tier-table" id="tierTable">
-      <thead><tr><th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th></th></tr></thead>
+      <thead>
+        <tr><th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th style="width:40px;"></th></tr>
+      </thead>
       <tbody></tbody>
     </table>
-    <button type="button" class="btn" onclick="addTierRow()" style="margin-top:8px;font-size:12px;">+ Add Tier</button>
+    <button type="button" class="btn" onclick="addTierRow()"
+            style="margin-top:10px;height:30px;font-size:12px;padding:0 12px;">+ Add Tier</button>
   </div>
 
-  <div class="form-row cols-1" style="margin-top:4px;">
-    <label>Description / Notes
-      <textarea name="description" placeholder="Optional notes about this fee rule"></textarea>
+  <div class="form-row cols-1" style="margin-top:var(--sp-2);">
+    <label>Notes
+      <textarea name="description" placeholder="Optional — any relevant notes about this fee rule"></textarea>
     </label>
   </div>
 
-  <div class="actions">
+  <div class="actions" style="padding-top:var(--sp-2);border-top:1px solid var(--border);">
     <button type="submit" class="btn btn-primary">Add Rule</button>
   </div>
 </form>
@@ -220,22 +257,15 @@
 <script>
 function toggleFeeFields() {
   var kind = document.getElementById('feeKind').value;
-  document.getElementById('pctFields').style.display = 'none';
-  document.getElementById('fixedFields').style.display = 'none';
-  document.getElementById('tieredFields').style.display = 'none';
-
-  if (kind === 'percentage') {
-    document.getElementById('pctFields').style.display = '';
-  } else if (kind === 'fixed') {
-    document.getElementById('fixedFields').style.display = '';
-  } else if (kind === 'fixed_plus_pct') {
-    document.getElementById('pctFields').style.display = '';
-    document.getElementById('fixedFields').style.display = '';
-  } else if (kind === 'tiered') {
+  ['pctFields','fixedFields','tieredFields'].forEach(function(id){
+    document.getElementById(id).style.display = 'none';
+  });
+  if (kind === 'percentage')    { document.getElementById('pctFields').style.display = ''; }
+  if (kind === 'fixed')         { document.getElementById('fixedFields').style.display = ''; }
+  if (kind === 'fixed_plus_pct'){ document.getElementById('pctFields').style.display = ''; document.getElementById('fixedFields').style.display = ''; }
+  if (kind === 'tiered') {
     document.getElementById('tieredFields').style.display = '';
-    if (document.querySelectorAll('#tierTable tbody tr').length === 0) {
-      addTierRow();
-    }
+    if (!document.querySelector('#tierTable tbody tr')) addTierRow();
   }
 }
 
@@ -243,8 +273,8 @@ function addTierRow() {
   var tbody = document.querySelector('#tierTable tbody');
   var tr = document.createElement('tr');
   tr.innerHTML =
-    '<td><input type="number" name="tier_from" step="0.01" min="0" value="0" placeholder="0"></td>' +
-    '<td><input type="number" name="tier_to" step="0.01" min="0" placeholder="unlimited"></td>' +
+    '<td><input type="number" name="tier_from" step="0.01" min="0" value="0"></td>' +
+    '<td><input type="number" name="tier_to"   step="0.01" min="0" placeholder="unlimited"></td>' +
     '<td><input type="number" name="tier_rate" step="0.001" min="0" max="100" required placeholder="e.g. 3.5"></td>' +
     '<td><button type="button" class="tier-remove" onclick="this.closest(\'tr\').remove()">✕</button></td>';
   tbody.appendChild(tr);

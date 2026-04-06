@@ -2,12 +2,9 @@
 {% block title %} — PSP Fee Agreements{% endblock %}
 {% block content %}
 
-<div class="month-bar">
-  <span style="font-size:18px;font-weight:700;">PSP Fee Agreements</span>
+<div class="page-header">
+  <div class="page-title" style="flex:1;">PSP Fee Agreements</div>
   <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
-  <span style="color:var(--muted);margin-left:auto;font-size:13px;">
-    {{ agreements|length }} active agreement{{ 's' if agreements|length != 1 }}
-  </span>
 </div>
 
 {% if agreements %}
@@ -29,31 +26,43 @@
     <tbody>
       {% for a in agreements %}
       <tr>
-        <td><a class="login-link" href="/fees/{{ a.id }}" style="font-family:inherit;font-weight:600;">{{ a.psp_name }}</a></td>
-        <td style="color:var(--muted);">{{ a.provider_name or '—' }}</td>
-        <td>{{ a.agreement_entity or '—' }}</td>
+        <td style="font-weight:600;">
+          <a class="login-link" href="/fees/{{ a.id }}" style="font-family:inherit;">{{ a.psp_name }}</a>
+        </td>
+        <td style="color:var(--text-2);">{{ a.provider_name or '—' }}</td>
+        <td style="color:var(--text-2);">{{ a.agreement_entity or '—' }}</td>
         <td>{{ a.agreement_date or '—' }}</td>
-        <td>{{ a.addendum_date or '—' }}</td>
+        <td style="color:var(--text-2);">{{ a.addendum_date or '—' }}</td>
         <td>
           {% if a.auto_settlement %}
-            <span class="badge matched">yes</span>
+            <span class="badge matched">Yes</span>
           {% else %}
-            <span style="color:var(--muted);">no</span>
+            <span style="color:var(--muted);">—</span>
           {% endif %}
         </td>
-        <td style="color:var(--muted);font-size:12px;">{{ a.settlement_bank or '—' }}</td>
-        <td class="num">{{ a.rule_count }}</td>
-        <td><a class="btn" href="/fees/{{ a.id }}" style="padding:4px 10px;font-size:12px;">View</a></td>
+        <td style="color:var(--text-2);max-width:200px;overflow:hidden;text-overflow:ellipsis;"
+            title="{{ a.settlement_bank or '' }}">{{ a.settlement_bank or '—' }}</td>
+        <td class="num" style="font-weight:600;">{{ a.rule_count }}</td>
+        <td>
+          <a class="btn" href="/fees/{{ a.id }}"
+             style="height:28px;padding:0 10px;font-size:12px;color:var(--accent);border-color:transparent;">
+            View →
+          </a>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+<div style="color:var(--muted);font-size:12px;margin-top:8px;text-align:right;">
+  {{ agreements|length }} agreement{{ 's' if agreements|length != 1 }}
+</div>
 {% else %}
-<div class="empty">
-  <div style="font-size:48px;margin-bottom:16px;">📋</div>
-  <div style="font-size:18px;font-weight:600;margin-bottom:8px;">No PSP agreements yet</div>
-  <div style="color:var(--muted);">Click "+ Add PSP" to create the first one.</div>
+<div class="card empty" style="padding:64px;">
+  <div style="font-size:36px;margin-bottom:16px;opacity:.5;">📋</div>
+  <div style="font-size:16px;font-weight:600;margin-bottom:6px;">No PSP agreements yet</div>
+  <div style="color:var(--muted);margin-bottom:20px;">Add your first PSP to start tracking fee agreements.</div>
+  <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
 </div>
 {% endif %}
 
@@ -70,16 +79,16 @@
     </form>
   </span>
   {% endfor %}
-
   <form method="POST" action="/fees/entities/add"
-        style="display:flex;align-items:center;gap:6px;margin-left:4px;">
-    <input type="text" name="name" required placeholder="New entity name…"
-           style="background:var(--surface);border:1px solid var(--border);color:var(--text);
-                  padding:5px 12px;border-radius:20px;font-size:13px;width:200px;outline:none;
-                  transition:border-color .15s;"
+        style="display:flex;align-items:center;gap:6px;">
+    <input type="text" name="name" required placeholder="Add entity name…"
+           style="height:36px;background:var(--surface);border:1px solid var(--border);
+                  color:var(--text);padding:0 14px;border-radius:999px;font-size:13px;
+                  width:220px;outline:none;transition:border-color .15s;"
            onfocus="this.style.borderColor='var(--accent)'"
            onblur="this.style.borderColor='var(--border)'">
-    <button type="submit" class="btn btn-primary" style="padding:5px 14px;border-radius:20px;font-size:13px;">Add</button>
+    <button type="submit" class="btn btn-primary"
+            style="border-radius:999px;height:36px;padding:0 16px;">Add</button>
   </form>
 </div>
 
