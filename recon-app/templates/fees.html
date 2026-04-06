@@ -43,11 +43,18 @@
         <td style="color:var(--text-2);max-width:200px;overflow:hidden;text-overflow:ellipsis;"
             title="{{ a.settlement_bank or '' }}">{{ a.settlement_bank or '—' }}</td>
         <td class="num" style="font-weight:600;">{{ a.rule_count }}</td>
-        <td>
+        <td style="display:flex;gap:6px;align-items:center;">
           <a class="btn" href="/fees/{{ a.id }}"
              style="height:28px;padding:0 10px;font-size:12px;color:var(--accent);border-color:transparent;">
             View →
           </a>
+          <form method="POST" action="/fees/{{ a.id }}/delete"
+                onsubmit="return confirm('Deactivate {{ a.psp_name }}?')">
+            <button type="submit" class="btn btn-danger"
+                    style="height:28px;padding:0 10px;font-size:12px;">
+              Terminate
+            </button>
+          </form>
         </td>
       </tr>
       {% endfor %}
