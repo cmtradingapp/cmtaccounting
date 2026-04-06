@@ -38,3 +38,17 @@ def backoffice():
         yield psycopg2.extras.RealDictCursor(conn)
     finally:
         conn.close()
+
+@contextmanager
+def backoffice_rw():
+    """Backoffice connection with commit/rollback for write operations."""
+    conn = _conn_backoffice()
+    try:
+        cur = psycopg2.extras.RealDictCursor(conn)
+        yield cur
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

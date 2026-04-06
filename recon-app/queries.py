@@ -1,6 +1,6 @@
 """All reconciliation SQL lives here."""
 
-from db import dealio, backoffice
+from db import dealio, backoffice, backoffice_rw
 
 # Payment methods that represent real cash movements
 CASH_METHODS = {
@@ -224,3 +224,157 @@ def login_mt4_detail(year: int, month: int, login: int):
             ORDER BY date
         """, (login, year, month))
         return [dict(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# PSP Fee Management
+# ---------------------------------------------------------------------------
+
+def ensure_fee_tables():
+    """Create fee tables if they don't exist. Safe to call on every startup."""
+    with backoffice_rw() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS psp_agreements (
+                id SERIAL PRIMARY KEY,
+                psp_name VARCHAR(100) NOT NULL,
+                provider_name VARCHAR(200),
+                agreement_entity VARCHAR(200),
+                agreement_date DATE,
+                addendum_date DATE,
+                auto_settlement BOOLEAN DEFAULT FALSE,
+                settlement_bank VARCHAR(200),
+                active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS psp_fee_rules (
+                id SERIAL PRIMARY KEY,
+                agreement_id INTEGER NOT NULL REFERENCES psp_agreements(id) ON DELETE CASCADE,
+                payment_method VARCHAR(100),
+                fee_type VARCHAR(50) NOT NULL,
+                country VARCHAR(100) DEFAULT 'GLOBAL',
+                sub_provider VARCHAR(100),
+                fee_kind VARCHAR(20) NOT NULL
+                    CHECK (fee_kind IN ('percentage','fixed','fixed_plus_pct','tiered')),
+                pct_rate DECIMAL(10,6),
+                fixed_amount DECIMAL(14,2),
+                fixed_currency VARCHAR(10),
+                description TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS psp_fee_tiers (
+                id SERIAL PRIMARY KEY,
+                fee_rule_id INTEGER NOT NULL REFERENCES psp_fee_rules(id) ON DELETE CASCADE,
+                volume_from DECIMAL(14,2) NOT NULL DEFAULT 0,
+                volume_to DECIMAL(14,2),
+                pct_rate DECIMAL(10,6) NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_fee_rules_agreement ON psp_fee_rules(agreement_id);
+            CREATE INDEX IF NOT EXISTS idx_fee_tiers_rule ON psp_fee_tiers(fee_rule_id);
+        """)
+
+
+# --- Agreements ---
+
+def get_all_agreements():
+    with backoffice() as cur:
+        cur.execute("""
+            SELECT a.*, COUNT(r.id) AS rule_count
+            FROM psp_agreements a
+            LEFT JOIN psp_fee_rules r ON r.agreement_id = a.id
+            WHERE a.active = TRUE
+            GROUP BY a.id
+            ORDER BY a.psp_name
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_agreement(psp_id):
+    with backoffice() as cur:
+        cur.execute("SELECT * FROM psp_agreements WHERE id = %s", (psp_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def create_agreement(data):
+    with backoffice_rw() as cur:
+        cur.execute("""
+            INSERT INTO psp_agreements (psp_name, provider_name, agreement_entity,
+                agreement_date, addendum_date, auto_settlement, settlement_bank)
+            VALUES (%(psp_name)s, %(provider_name)s, %(agreement_entity)s,
+                %(agreement_date)s, %(addendum_date)s, %(auto_settlement)s, %(settlement_bank)s)
+            RETURNING id
+        """, data)
+        return cur.fetchone()["id"]
+
+
+def update_agreement(psp_id, data):
+    data["id"] = psp_id
+    with backoffice_rw() as cur:
+        cur.execute("""
+            UPDATE psp_agreements SET
+                psp_name = %(psp_name)s, provider_name = %(provider_name)s,
+                agreement_entity = %(agreement_entity)s,
+                agreement_date = %(agreement_date)s, addendum_date = %(addendum_date)s,
+                auto_settlement = %(auto_settlement)s, settlement_bank = %(settlement_bank)s,
+                updated_at = NOW()
+            WHERE id = %(id)s
+        """, data)
+
+
+def delete_agreement(psp_id):
+    with backoffice_rw() as cur:
+        cur.execute("UPDATE psp_agreements SET active = FALSE WHERE id = %s", (psp_id,))
+
+
+# --- Fee Rules ---
+
+def get_fee_rules(agreement_id):
+    with backoffice() as cur:
+        cur.execute("""
+            SELECT * FROM psp_fee_rules
+            WHERE agreement_id = %s
+            ORDER BY payment_method, country, fee_type
+        """, (agreement_id,))
+        rules = [dict(r) for r in cur.fetchall()]
+
+        rule_ids = [r["id"] for r in rules]
+        tiers_by_rule = {}
+        if rule_ids:
+            cur.execute("""
+                SELECT * FROM psp_fee_tiers
+                WHERE fee_rule_id = ANY(%s)
+                ORDER BY fee_rule_id, volume_from
+            """, (rule_ids,))
+            for t in cur.fetchall():
+                tiers_by_rule.setdefault(t["fee_rule_id"], []).append(dict(t))
+
+        for r in rules:
+            r["tiers"] = tiers_by_rule.get(r["id"], [])
+        return rules
+
+
+def create_fee_rule(agreement_id, data):
+    with backoffice_rw() as cur:
+        cur.execute("""
+            INSERT INTO psp_fee_rules (agreement_id, payment_method, fee_type, country,
+                sub_provider, fee_kind, pct_rate, fixed_amount, fixed_currency, description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (agreement_id, data["payment_method"], data["fee_type"], data["country"],
+              data["sub_provider"], data["fee_kind"], data["pct_rate"],
+              data["fixed_amount"], data["fixed_currency"], data["description"]))
+        rule_id = cur.fetchone()["id"]
+
+        if data["fee_kind"] == "tiered" and data.get("tiers"):
+            for t in data["tiers"]:
+                cur.execute("""
+                    INSERT INTO psp_fee_tiers (fee_rule_id, volume_from, volume_to, pct_rate)
+                    VALUES (%s, %s, %s, %s)
+                """, (rule_id, t["volume_from"], t["volume_to"], t["pct_rate"]))
+        return rule_id
+
+
+def delete_fee_rule(rule_id):
+    with backoffice_rw() as cur:
+        cur.execute("DELETE FROM psp_fee_rules WHERE id = %s", (rule_id,))
