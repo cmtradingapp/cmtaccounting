@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'recon-app/**'
+  workflow_dispatch:
 
 jobs:
   deploy:
