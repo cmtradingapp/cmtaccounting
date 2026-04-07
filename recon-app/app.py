@@ -28,6 +28,8 @@ _RECON_USER = os.environ.get("RECON_USER", "")
 _RECON_PASS = os.environ.get("RECON_PASS", "")
 _FEES_USER  = os.environ.get("FEES_USER",  "")
 _FEES_PASS  = os.environ.get("FEES_PASS",  "")
+_FX_USER    = os.environ.get("FX_USER",    "")
+_FX_PASS    = os.environ.get("FX_PASS",    "")
 
 
 def _unauthorized(realm):
@@ -58,6 +60,18 @@ def require_fees_auth(f):
         auth = request.authorization
         if not auth or auth.username != _FEES_USER or auth.password != _FEES_PASS:
             return _unauthorized("CMT Fee Processor")
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_fx_auth(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _FX_USER or not _FX_PASS:
+            abort(500, "FX_USER and FX_PASS env vars not set.")
+        auth = request.authorization
+        if not auth or auth.username != _FX_USER or auth.password != _FX_PASS:
+            return _unauthorized("CMT FX Rates")
         return f(*args, **kwargs)
     return wrapper
 
@@ -127,7 +141,7 @@ def recon_refresh(month):
 
 
 @app.route("/fx")
-@require_recon_auth
+@require_fx_auth
 def fx_rates():
     return render_template("fx.html", fx_groups=queries.FX_GROUPS)
 
@@ -147,7 +161,7 @@ _FX_PERIOD_MAP = {
 
 
 @app.route("/fx/api/rates")
-@require_recon_auth
+@require_fx_auth
 def fx_api_rates():
     """Returns live rates AND reference prices for the requested period in one call,
     eliminating any timing gap between the two fetches."""
@@ -165,7 +179,7 @@ def fx_api_rates():
 
 
 @app.route("/fx/api/ohlc/<symbol>")
-@require_recon_auth
+@require_fx_auth
 def fx_api_ohlc(symbol):
     period = request.args.get("period", "1d")
     try:
@@ -176,7 +190,7 @@ def fx_api_ohlc(symbol):
 
 
 @app.route("/fx/api/history/<symbol>")
-@require_recon_auth
+@require_fx_auth
 def fx_api_history(symbol):
     hours = request.args.get("hours", 168, type=int)
     try:
@@ -523,7 +537,8 @@ def fees_upload():
 
     try:
         file_bytes = f.read()
-        text = ai_parse.extract_text(file_bytes, f.filename)
+        text  = ai_parse.extract_text(file_bytes, f.filename)
+        pages = ai_parse.extract_pages(file_bytes, f.filename)
     except Exception as e:
         return _render_error(f"Could not read file: {e}")
 
@@ -547,7 +562,7 @@ def fees_upload():
             return _render_error("PSP not found.")
 
         try:
-            result = ai_parse.analyze_amendment(text, system_prompt=system_prompt)
+            result = ai_parse.analyze_amendment(text, system_prompt=system_prompt, pages=pages)
         except Exception as e:
             return _render_error(f"AI analysis failed: {e}")
 
@@ -580,11 +595,34 @@ def fees_upload():
             action   = rc.get("action", "add")
             match_on = rc.get("match_on") or {}
             existing = None
+
             if action in ("replace", "remove"):
                 existing = _find_match(match_on)
                 if existing is None:
-                    action = "add"
-            changes.append({"action": action, "new_rule": rc, "existing_rule": existing})
+                    action = "add"   # can't find what to replace — treat as new
+
+            # Cross-session duplicate check: for "add" actions, also verify the rule
+            # doesn't already exist in the DB (e.g. same amendment uploaded twice,
+            # or two amendments covering the same jurisdiction).
+            # If a match is found, downgrade to "replace" so the user sees the conflict
+            # and can decide to skip or overwrite — instead of silently creating a duplicate.
+            auto_replaced = False
+            if action == "add":
+                existing = _find_match({
+                    "payment_method": rc.get("payment_method"),
+                    "country":        rc.get("country"),
+                    "fee_type":       rc.get("fee_type"),
+                })
+                if existing is not None:
+                    action        = "replace"
+                    auto_replaced = True   # flag so UI can warn the user
+
+            changes.append({
+                "action":        action,
+                "new_rule":      rc,
+                "existing_rule": existing,
+                "auto_replaced": auto_replaced,
+            })
 
         return render_template(
             "fee_amendment_confirm.html",
@@ -593,6 +631,9 @@ def fees_upload():
             addendum_date=addendum_date,
             notes=notes,
             cache_token=cache_token,
+            dups_removed=result.get("dups_removed", 0),
+            ai_warnings=result.get("warnings", []),
+            raw_response=result.get("raw_response", ""),
             fee_types=FEE_TYPES,
             payment_methods=PAYMENT_METHODS,
             currencies=CURRENCIES,
@@ -601,7 +642,7 @@ def fees_upload():
 
     # ── New agreement flow ─────────────────────────────────────────────────
     try:
-        result = ai_parse.analyze_agreement(text, system_prompt=system_prompt)
+        result = ai_parse.analyze_agreement(text, system_prompt=system_prompt, pages=pages)
     except Exception as e:
         return _render_error(f"AI analysis failed: {e}")
 
@@ -609,6 +650,9 @@ def fees_upload():
         "fee_confirm.html",
         agreement=result.get("agreement", {}),
         fee_rules=result.get("fee_rules", []),
+        dups_removed=result.get("dups_removed", 0),
+        ai_warnings=result.get("warnings", []),
+        raw_response=result.get("raw_response", ""),
         entities=queries.get_entities(),
         fee_types=FEE_TYPES,
         payment_methods=PAYMENT_METHODS,
