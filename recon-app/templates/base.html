@@ -39,18 +39,11 @@
       padding: 0 var(--sp-4); height: 56px;
       display: flex; align-items: center; gap: var(--sp-3);
     }
-    header .logo {
-      font-weight: 800; font-size: 15px; letter-spacing: -.02em;
-      background: linear-gradient(90deg, #4f8ef7 0%, #a78bfa 60%, #06b6d4 100%);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    header .logo .amp { opacity: .55; font-weight: 600; margin: 0 3px; }
-    header .logo .psps {
-      background: linear-gradient(90deg, #a78bfa, #06b6d4);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
+    header .logo { font-size: 15px; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 0; }
+    header .logo .cmt  { font-weight: 800; color: var(--accent); }
+    header .logo .recon { font-weight: 600; color: var(--text); margin-left: 5px; }
+    header .logo .sep   { font-weight: 400; color: var(--muted); margin: 0 5px; font-size: 13px; }
+    header .logo .psps  { font-weight: 700; color: rgba(255,255,255,.55); letter-spacing: .01em; font-size: 13px; }
     nav { display: flex; gap: 4px; margin-left: 8px; }
     nav a {
       color: var(--muted); text-decoration: none;
@@ -437,7 +430,7 @@
 </head>
 <body>
   <header>
-    <div class="logo">CMT Reconciliation<span class="amp">&amp;</span><span class="psps">PSPs</span></div>
+    <div class="logo"><span class="cmt">CMT</span><span class="recon">Reconciliation</span><span class="sep">&amp;</span><span class="psps">PSPs</span></div>
     <nav>
       <a href="/" class="{{ 'active' if request.path == '/' or request.path.startswith('/recon') }}">Dashboard</a>
       <a href="/fees" class="{{ 'active' if request.path.startswith('/fees') }}">Fees</a>
