@@ -1,7 +1,32 @@
 """All reconciliation SQL lives here."""
 
 import time
+import psycopg2
 from db import dealio, backoffice, fees_db
+
+
+def _db_retry(fn, max_attempts: int = 4, base_delay: float = 1.0):
+    """
+    Execute fn() and retry on PostgreSQL hot-standby conflict errors.
+
+    'canceling statement due to conflict with recovery' is a transient error
+    on read replicas: the primary runs VACUUM and the replica cancels our query
+    to allow WAL replay. Retrying after a short back-off almost always succeeds.
+    """
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except psycopg2.Error as exc:
+            msg = str(exc)
+            code = getattr(exc, 'pgcode', '') or ''
+            is_conflict = 'conflict with recovery' in msg or code in ('57014', '40001')
+            if is_conflict and attempt < max_attempts - 1:
+                last_exc = exc
+                time.sleep(base_delay * (attempt + 1))   # 1s, 2s, 3s
+                continue
+            raise
+    raise last_exc
 
 # ── Simple TTL cache ───────────────────────────────────────────────────────
 # Keyed by arbitrary string; value is (stored_at_timestamp, data).
@@ -83,16 +108,20 @@ def available_months():
     cached = _cache_get("available_months", _TTL_MONTHS)
     if cached is not None:
         return cached
-    with backoffice() as cur:
-        cur.execute("""
-            SELECT DISTINCT TO_CHAR(DATE_TRUNC('month', confirmation_time), 'YYYY-MM') AS month
-            FROM vtiger_mttransactions
-            WHERE transactionapproval = 'Approved'
-              AND confirmation_time IS NOT NULL
-            ORDER BY month DESC
-            LIMIT 36
-        """)
-        result = [r["month"] for r in cur.fetchall()]
+
+    def _fetch():
+        with backoffice() as cur:
+            cur.execute("""
+                SELECT DISTINCT TO_CHAR(DATE_TRUNC('month', confirmation_time), 'YYYY-MM') AS month
+                FROM vtiger_mttransactions
+                WHERE transactionapproval = 'Approved'
+                  AND confirmation_time IS NOT NULL
+                ORDER BY month DESC
+                LIMIT 36
+            """)
+            return [r["month"] for r in cur.fetchall()]
+
+    result = _db_retry(_fetch)
     _cache_set("available_months", result)
     return result
 
@@ -103,22 +132,25 @@ def crm_summary(year: int, month: int):
     month_start = datetime.date(year, month, 1)
     month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
 
-    with backoffice() as cur:
-        cur.execute("""
-            SELECT
-                login,
-                transactiontype,
-                payment_method,
-                transactionapproval,
-                COUNT(*)          AS tx_count,
-                SUM(usdamount)    AS total_usd
-            FROM vtiger_mttransactions
-            WHERE confirmation_time >= %s
-              AND confirmation_time <  %s
-              AND transactionapproval = 'Approved'
-            GROUP BY login, transactiontype, payment_method, transactionapproval
-        """, (month_start, month_end))
-        rows = cur.fetchall()
+    def _fetch_crm():
+        with backoffice() as cur:
+            cur.execute("""
+                SELECT
+                    login,
+                    transactiontype,
+                    payment_method,
+                    transactionapproval,
+                    COUNT(*)          AS tx_count,
+                    SUM(usdamount)    AS total_usd
+                FROM vtiger_mttransactions
+                WHERE confirmation_time >= %s
+                  AND confirmation_time <  %s
+                  AND transactionapproval = 'Approved'
+                GROUP BY login, transactiontype, payment_method, transactionapproval
+            """, (month_start, month_end))
+            return cur.fetchall()
+
+    rows = _db_retry(_fetch_crm)
 
     summary = {}
     for r in rows:
@@ -167,20 +199,23 @@ def mt4_summary(year: int, month: int):
     else:
         month_end = datetime.date(year, month + 1, 1)
 
-    with dealio() as cur:
-        cur.execute("""
-            SELECT
-                login,
-                SUM(convertednetdeposit) AS net_usd,
-                groupcurrency,
-                AVG(conversionratio)     AS avg_fx
-            FROM dealio.daily_profits
-            WHERE date >= %s
-              AND date <  %s
-              AND netdeposit != 0
-            GROUP BY login, groupcurrency
-        """, (month_start, month_end))
-        return {r["login"]: dict(r) for r in cur.fetchall()}
+    def _fetch_mt4():
+        with dealio() as cur:
+            cur.execute("""
+                SELECT
+                    login,
+                    SUM(convertednetdeposit) AS net_usd,
+                    groupcurrency,
+                    AVG(conversionratio)     AS avg_fx
+                FROM dealio.daily_profits
+                WHERE date >= %s
+                  AND date <  %s
+                  AND netdeposit != 0
+                GROUP BY login, groupcurrency
+            """, (month_start, month_end))
+            return {r["login"]: dict(r) for r in cur.fetchall()}
+
+    return _db_retry(_fetch_mt4)
 
 
 def reconcile(year: int, month: int):
