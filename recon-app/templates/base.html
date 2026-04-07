@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CMT Reconciliation & PSPs{% block title %}{% endblock %}</title>
+  <title>CMT Recon & PSPs{% block title %}{% endblock %}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -39,8 +39,18 @@
       padding: 0 var(--sp-4); height: 56px;
       display: flex; align-items: center; gap: var(--sp-3);
     }
-    header .logo { font-weight: 700; font-size: 15px; color: var(--accent); letter-spacing: -.01em; }
-    header .logo span { color: var(--text); }
+    header .logo {
+      font-weight: 800; font-size: 15px; letter-spacing: -.02em;
+      background: linear-gradient(90deg, #4f8ef7 0%, #a78bfa 60%, #06b6d4 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header .logo .amp { opacity: .55; font-weight: 600; margin: 0 3px; }
+    header .logo .psps {
+      background: linear-gradient(90deg, #a78bfa, #06b6d4);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
     nav { display: flex; gap: 4px; margin-left: 8px; }
     nav a {
       color: var(--muted); text-decoration: none;
@@ -427,7 +437,7 @@
 </head>
 <body>
   <header>
-    <div class="logo">CMT <span>Reconciliation</span></div>
+    <div class="logo">CMT Reconciliation<span class="amp">&amp;</span><span class="psps">PSPs</span></div>
     <nav>
       <a href="/" class="{{ 'active' if request.path == '/' or request.path.startswith('/recon') }}">Dashboard</a>
       <a href="/fees" class="{{ 'active' if request.path.startswith('/fees') }}">Fees</a>
