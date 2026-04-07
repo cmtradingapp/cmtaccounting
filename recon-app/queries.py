@@ -1,8 +1,12 @@
 """All reconciliation SQL lives here."""
 
+import os
 import time
 import psycopg2
-from db import dealio, backoffice, fees_db
+from db import dealio, backoffice, fees_db, FEES_MODE
+
+# True when the fees database is PostgreSQL (FEES_MODE=live)
+_PG = FEES_MODE == "live"
 
 
 def _db_retry(fn, max_attempts: int = 4, base_delay: float = 1.0):
@@ -550,10 +554,23 @@ def ensure_fee_tables():
 
 
 def _ensure_prompt_tables():
-    """Create and seed the prompt_templates table."""
+    """Create and seed the prompt_templates table (SQLite or PostgreSQL)."""
     import ai_parse
-    with fees_db() as conn:
-        conn.executescript("""
+    if _PG:
+        _ddl = """
+            CREATE TABLE IF NOT EXISTS prompt_templates (
+                id            SERIAL PRIMARY KEY,
+                name          TEXT NOT NULL,
+                system_prompt TEXT NOT NULL,
+                is_default    INTEGER DEFAULT 0,
+                prompt_type   TEXT DEFAULT 'agreement',
+                is_builtin    INTEGER DEFAULT 0,
+                created_at    TIMESTAMPTZ DEFAULT NOW(),
+                updated_at    TIMESTAMPTZ DEFAULT NOW()
+            );
+        """
+    else:
+        _ddl = """
             CREATE TABLE IF NOT EXISTS prompt_templates (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 name        TEXT NOT NULL,
@@ -562,22 +579,28 @@ def _ensure_prompt_tables():
                 created_at  TEXT DEFAULT (datetime('now')),
                 updated_at  TEXT DEFAULT (datetime('now'))
             );
-        """)
-        # Migration: add prompt_type column if it doesn't exist yet
-        try:
-            conn.execute(
-                "ALTER TABLE prompt_templates ADD COLUMN prompt_type TEXT DEFAULT 'agreement'"
-            )
-        except Exception:
-            pass  # column already exists
+        """
 
-        # Migration: add is_builtin column (built-in templates are read-only)
-        try:
-            conn.execute(
-                "ALTER TABLE prompt_templates ADD COLUMN is_builtin INTEGER DEFAULT 0"
-            )
-        except Exception:
-            pass  # column already exists
+    with fees_db() as conn:
+        conn.executescript(_ddl)
+
+        if not _PG:
+            # SQLite column migrations
+            for col, default in [("prompt_type TEXT", "'agreement'"), ("is_builtin INTEGER", "0")]:
+                try:
+                    conn.execute(f"ALTER TABLE prompt_templates ADD COLUMN {col} DEFAULT {default}")
+                except Exception:
+                    pass
+        else:
+            # PostgreSQL: ADD COLUMN IF NOT EXISTS
+            for col, default in [("prompt_type TEXT", "'agreement'"), ("is_builtin INTEGER", "0")]:
+                col_name = col.split()[0]
+                try:
+                    conn.execute(
+                        f"ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS {col} DEFAULT {default}"
+                    )
+                except Exception:
+                    pass
 
         existing = conn.execute("SELECT COUNT(*) FROM prompt_templates").fetchone()[0]
         if existing == 0:
@@ -593,13 +616,11 @@ def _ensure_prompt_tables():
                 (ptype,)
             ).fetchone()[0]
             if not has_default:
-                # Promote the first template of that type to default
                 conn.execute("""
                     UPDATE prompt_templates SET is_default = 1
                     WHERE id = (SELECT id FROM prompt_templates WHERE prompt_type=? ORDER BY id LIMIT 1)
                 """, (ptype,))
 
-        # Seed default amendment template if none exists
         amend_count = conn.execute(
             "SELECT COUNT(*) FROM prompt_templates WHERE prompt_type = 'amendment'"
         ).fetchone()[0]
@@ -609,7 +630,6 @@ def _ensure_prompt_tables():
                 ("Default — Amendment Parser", ai_parse.AMENDMENT_SYSTEM_PROMPT),
             )
 
-        # Ensure existing seeded templates are marked is_builtin if they were created before the column existed
         for builtin_name in ("Default — Standard Fee Agreement Parser", "Default — Amendment Parser"):
             conn.execute(
                 "UPDATE prompt_templates SET is_builtin=1 WHERE name=? AND is_builtin=0",
@@ -684,8 +704,20 @@ def delete_prompt_template(template_id: int):
 # --- Context Notes ---
 
 def _ensure_context_notes_table():
-    with fees_db() as conn:
-        conn.executescript("""
+    if _PG:
+        _ddl = """
+            CREATE TABLE IF NOT EXISTS context_notes (
+                id           SERIAL PRIMARY KEY,
+                label        TEXT NOT NULL,
+                text         TEXT NOT NULL,
+                use_count    INTEGER DEFAULT 0,
+                note_type    TEXT DEFAULT 'agreement',
+                created_at   TIMESTAMPTZ DEFAULT NOW(),
+                last_used_at TIMESTAMPTZ
+            );
+        """
+    else:
+        _ddl = """
             CREATE TABLE IF NOT EXISTS context_notes (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 label        TEXT NOT NULL,
@@ -694,29 +726,62 @@ def _ensure_context_notes_table():
                 created_at   TEXT DEFAULT (datetime('now')),
                 last_used_at TEXT
             );
-        """)
-        # Migration: add note_type column if missing
-        try:
-            conn.execute(
-                "ALTER TABLE context_notes ADD COLUMN note_type TEXT DEFAULT 'agreement'"
-            )
-        except Exception:
-            pass  # column already exists
+        """
+    with fees_db() as conn:
+        conn.executescript(_ddl)
+        if not _PG:
+            try:
+                conn.execute("ALTER TABLE context_notes ADD COLUMN note_type TEXT DEFAULT 'agreement'")
+            except Exception:
+                pass
+        else:
+            try:
+                conn.execute("ALTER TABLE context_notes ADD COLUMN IF NOT EXISTS note_type TEXT DEFAULT 'agreement'")
+            except Exception:
+                pass
 
 
 def _ensure_amendment_tables():
-    """Create amendment history and upload-cache tables; migrate agreements to store files."""
-    with fees_db() as conn:
-        conn.executescript("""
-            -- Temporary cache: holds uploaded file between /fees/upload POST and confirm POST
+    """Create amendment history and upload-cache tables."""
+    if _PG:
+        _ddl = """
+            CREATE TABLE IF NOT EXISTS amendment_upload_cache (
+                token       TEXT PRIMARY KEY,
+                filename    TEXT,
+                file_data   BYTEA,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS psp_amendments (
+                id              SERIAL PRIMARY KEY,
+                agreement_id    INTEGER NOT NULL REFERENCES psp_agreements(id),
+                addendum_date   TEXT,
+                applied_at      TIMESTAMPTZ DEFAULT NOW(),
+                filename        TEXT,
+                file_data       BYTEA,
+                notes           TEXT,
+                changes_applied INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS psp_amendment_changes (
+                id              SERIAL PRIMARY KEY,
+                amendment_id    INTEGER NOT NULL REFERENCES psp_amendments(id),
+                action          TEXT NOT NULL,
+                fee_rule_id     INTEGER,
+                old_payment_method  TEXT, old_fee_type TEXT, old_country TEXT,
+                old_fee_kind        TEXT, old_pct_rate DOUBLE PRECISION,
+                old_fixed_amount    DOUBLE PRECISION, old_fixed_currency TEXT, old_description TEXT,
+                new_payment_method  TEXT, new_fee_type TEXT, new_country TEXT,
+                new_fee_kind        TEXT, new_pct_rate DOUBLE PRECISION,
+                new_fixed_amount    DOUBLE PRECISION, new_fixed_currency TEXT, new_description TEXT
+            );
+        """
+    else:
+        _ddl = """
             CREATE TABLE IF NOT EXISTS amendment_upload_cache (
                 token       TEXT PRIMARY KEY,
                 filename    TEXT,
                 file_data   BLOB,
                 created_at  TEXT DEFAULT (datetime('now'))
             );
-
-            -- Permanent amendment log
             CREATE TABLE IF NOT EXISTS psp_amendments (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 agreement_id    INTEGER NOT NULL REFERENCES psp_agreements(id),
@@ -727,8 +792,6 @@ def _ensure_amendment_tables():
                 notes           TEXT,
                 changes_applied INTEGER DEFAULT 0
             );
-
-            -- Per-rule change snapshot within an amendment
             CREATE TABLE IF NOT EXISTS psp_amendment_changes (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 amendment_id    INTEGER NOT NULL REFERENCES psp_amendments(id),
@@ -741,28 +804,41 @@ def _ensure_amendment_tables():
                 new_fee_kind        TEXT, new_pct_rate REAL,
                 new_fixed_amount    REAL, new_fixed_currency TEXT, new_description TEXT
             );
-        """)
-        # Migrate psp_agreements to store initial agreement file
-        for col in ("agr_filename TEXT", "agr_file_data BLOB"):
-            try:
-                conn.execute(f"ALTER TABLE psp_agreements ADD COLUMN {col}")
-            except Exception:
-                pass
+        """
+
+    with fees_db() as conn:
+        conn.executescript(_ddl)
+        # SQLite: migrate agr_filename / agr_file_data onto psp_agreements
+        if not _PG:
+            for col in ("agr_filename TEXT", "agr_file_data BLOB"):
+                try:
+                    conn.execute(f"ALTER TABLE psp_agreements ADD COLUMN {col}")
+                except Exception:
+                    pass
         # Expire old cache entries (> 24 h)
-        conn.execute(
-            "DELETE FROM amendment_upload_cache "
-            "WHERE created_at < datetime('now', '-1 day')"
+        expire_sql = (
+            "DELETE FROM amendment_upload_cache WHERE created_at < NOW() - INTERVAL '1 day'"
+            if _PG else
+            "DELETE FROM amendment_upload_cache WHERE created_at < datetime('now', '-1 day')"
         )
+        conn.execute(expire_sql)
 
 
 # --- Amendment history ---
 
 def cache_upload(token: str, filename: str, file_data: bytes):
     with fees_db() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO amendment_upload_cache (token, filename, file_data) VALUES (?, ?, ?)",
-            (token, filename, file_data)
-        )
+        if _PG:
+            conn.execute(
+                "INSERT INTO amendment_upload_cache (token, filename, file_data) VALUES (?, ?, ?)"
+                " ON CONFLICT (token) DO UPDATE SET filename=EXCLUDED.filename, file_data=EXCLUDED.file_data",
+                (token, filename, file_data)
+            )
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO amendment_upload_cache (token, filename, file_data) VALUES (?, ?, ?)",
+                (token, filename, file_data)
+            )
 
 
 def pop_upload_cache(token: str):
@@ -904,9 +980,54 @@ def increment_context_note_usage(note_ids: list):
 
 
 def _ensure_fee_tables_core():
-    """Create fee tables in local SQLite if they don't exist."""
-    with fees_db() as conn:
-        conn.executescript("""
+    """Create core fee tables (SQLite or PostgreSQL depending on FEES_MODE)."""
+    if _PG:
+        _ddl = """
+            CREATE TABLE IF NOT EXISTS psp_agreements (
+                id               SERIAL PRIMARY KEY,
+                psp_name         TEXT NOT NULL,
+                provider_name    TEXT,
+                agreement_entity TEXT,
+                agreement_date   TEXT,
+                addendum_date    TEXT,
+                auto_settlement  INTEGER DEFAULT 0,
+                settlement_bank  TEXT,
+                active           INTEGER DEFAULT 1,
+                agr_filename     TEXT,
+                agr_file_data    BYTEA,
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                updated_at       TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS psp_fee_rules (
+                id               SERIAL PRIMARY KEY,
+                agreement_id     INTEGER NOT NULL REFERENCES psp_agreements(id) ON DELETE CASCADE,
+                payment_method   TEXT,
+                fee_type         TEXT NOT NULL,
+                country          TEXT DEFAULT 'GLOBAL',
+                sub_provider     TEXT,
+                fee_kind         TEXT NOT NULL CHECK (fee_kind IN ('percentage','fixed','fixed_plus_pct','tiered')),
+                pct_rate         DOUBLE PRECISION,
+                fixed_amount     DOUBLE PRECISION,
+                fixed_currency   TEXT,
+                description      TEXT,
+                created_at       TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS psp_fee_tiers (
+                id           SERIAL PRIMARY KEY,
+                fee_rule_id  INTEGER NOT NULL REFERENCES psp_fee_rules(id) ON DELETE CASCADE,
+                volume_from  DOUBLE PRECISION NOT NULL DEFAULT 0,
+                volume_to    DOUBLE PRECISION,
+                pct_rate     DOUBLE PRECISION NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_fee_rules_agreement ON psp_fee_rules(agreement_id);
+            CREATE INDEX IF NOT EXISTS idx_fee_tiers_rule ON psp_fee_tiers(fee_rule_id);
+            CREATE TABLE IF NOT EXISTS agreement_entities (
+                id   SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE
+            );
+        """
+    else:
+        _ddl = """
             CREATE TABLE IF NOT EXISTS psp_agreements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 psp_name TEXT NOT NULL,
@@ -947,12 +1068,29 @@ def _ensure_fee_tables_core():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE
             );
-        """)
+        """
+
+    with fees_db() as conn:
+        conn.executescript(_ddl)
+        # SQLite migrations for agr_filename/agr_file_data (PG DDL already includes them)
+        if not _PG:
+            for col in ("agr_filename TEXT", "agr_file_data BLOB"):
+                try:
+                    conn.execute(f"ALTER TABLE psp_agreements ADD COLUMN {col}")
+                except Exception:
+                    pass
         # Seed default entities if table is empty
         existing = conn.execute("SELECT COUNT(*) FROM agreement_entities").fetchone()[0]
         if existing == 0:
-            conn.executemany("INSERT OR IGNORE INTO agreement_entities (name) VALUES (?)",
-                             [("CMT PROCESSING LTD",), ("GCMT GROUP LTD",)])
+            if _PG:
+                for name in ("CMT PROCESSING LTD", "GCMT GROUP LTD"):
+                    conn.execute(
+                        "INSERT INTO agreement_entities (name) VALUES (%s) ON CONFLICT DO NOTHING",
+                        (name,)
+                    )
+            else:
+                conn.executemany("INSERT OR IGNORE INTO agreement_entities (name) VALUES (?)",
+                                 [("CMT PROCESSING LTD",), ("GCMT GROUP LTD",)])
 
 
 # --- Agreements ---
