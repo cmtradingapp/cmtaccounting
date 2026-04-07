@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% block title %} — Confirm Amendment{% endblock %}
+
+{# ── Macro: read-only rule summary row ── #}
+{% macro rule_summary(rule) %}
+{% if rule %}
+<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--text-2);">
+  {% if rule.payment_method %}<span class="badge" style="background:rgba(255,255,255,.06);color:var(--text-2);">{{ rule.payment_method }}</span>{% endif %}
+  <span class="badge" style="background:rgba(255,255,255,.06);color:var(--text-2);">{{ rule.fee_type }}</span>
+  <span style="color:var(--muted);">{{ rule.country or 'GLOBAL' }}</span>
+  <span style="margin-left:auto;font-weight:600;color:var(--text);font-family:monospace;">
+    {% if rule.fee_kind == 'percentage' and rule.pct_rate %}
+      {{ '%.3g'|format((rule.pct_rate or 0) * 100) }}%
+    {% elif rule.fee_kind == 'fixed' and rule.fixed_amount %}
+      {{ rule.fixed_amount }} {{ rule.fixed_currency or '' }}
+    {% elif rule.fee_kind == 'fixed_plus_pct' %}
+      {{ rule.fixed_amount }} {{ rule.fixed_currency or '' }} + {{ '%.3g'|format((rule.pct_rate or 0) * 100) }}%
+    {% elif rule.fee_kind == 'tiered' %}
+      Tiered
+    {% else %}—{% endif %}
+  </span>
+</div>
+{% if rule.description %}
+<div style="font-size:11px;color:var(--muted);margin-top:4px;">{{ rule.description }}</div>
+{% endif %}
+{% else %}
+<div style="font-size:12px;color:var(--muted);">—</div>
+{% endif %}
+{% endmacro %}
+
+{# ── Macro: editable rule fields for add / replace ── #}
+{% macro render_change_fields(idx, rule, fee_types, payment_methods, currencies) %}
+<div class="form-row">
+  <label>Payment Method
+    <select name="payment_method_{{ idx }}">
+      <option value="">— Any —</option>
+      {% for m in payment_methods %}
+      <option value="{{ m }}" {{ 'selected' if (rule or {}).get('payment_method') == m }}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Fee Type *
+    <select name="fee_type_{{ idx }}" required>
+      {% for t in fee_types %}
+      <option value="{{ t }}" {{ 'selected' if (rule or {}).get('fee_type') == t }}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</div>
+<div class="form-row">
+  <label>Country
+    <input type="text" name="country_{{ idx }}"
+           value="{{ (rule or {}).get('country','GLOBAL') or 'GLOBAL' }}"
+           placeholder="e.g. Ghana or GLOBAL">
+  </label>
+  <label>Sub-Provider
+    <input type="text" name="sub_provider_{{ idx }}"
+           value="{{ (rule or {}).get('sub_provider','') or '' }}"
+           placeholder="e.g. MTN, Airtel">
+  </label>
+</div>
+
+<div class="form-section-divider" style="margin-top:16px;padding-top:14px;">Fee Structure</div>
+<div class="form-row" style="margin-bottom:var(--sp-2);">
+  <label>Structure *
+    <select name="fee_kind_{{ idx }}" onchange="toggleAmendFeeFields({{ idx }}, this.value)" required>
+      {% for k, label in [('percentage','Percentage'),('fixed','Fixed Amount'),
+                          ('fixed_plus_pct','Fixed + Percentage'),('tiered','Volume Tiered')] %}
+      <option value="{{ k }}" {{ 'selected' if (rule or {}).get('fee_kind') == k }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <div></div>
+</div>
+
+<div id="apct_{{ idx }}" class="fee-fields"
+     {{ 'style="display:none;"' if (rule or {}).get('fee_kind') not in (none,'','percentage','fixed_plus_pct') }}>
+  <div class="form-row">
+    <label>Rate (%)
+      <input type="number" name="pct_rate_{{ idx }}" step="0.001" min="0" max="100"
+             placeholder="e.g. 3.5"
+             value="{{ '%.4g'|format(((rule or {}).get('pct_rate') or 0) * 100) if (rule or {}).get('pct_rate') else '' }}">
+    </label>
+    <div></div>
+  </div>
+</div>
+
+<div id="afix_{{ idx }}" class="fee-fields"
+     {{ '' if (rule or {}).get('fee_kind') in ('fixed','fixed_plus_pct') else 'style="display:none;"' }}>
+  <div class="form-row">
+    <label>Amount
+      <input type="number" name="fixed_amount_{{ idx }}" step="0.01" min="0"
+             placeholder="e.g. 100"
+             value="{{ (rule or {}).get('fixed_amount','') or '' }}">
+    </label>
+    <label>Currency
+      <select name="fixed_currency_{{ idx }}">
+        {% for c in currencies %}
+        <option value="{{ c }}" {{ 'selected' if (rule or {}).get('fixed_currency') == c }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+</div>
+
+<div id="atier_{{ idx }}" class="fee-fields"
+     {{ '' if (rule or {}).get('fee_kind') == 'tiered' else 'style="display:none;"' }}>
+  <table class="tier-table" id="atierTable_{{ idx }}">
+    <thead><tr><th>Volume From</th><th>Volume To</th><th>Rate (%)</th><th style="width:36px;"></th></tr></thead>
+    <tbody>
+      {% for tier in (rule or {}).get('tiers', []) %}
+      <tr>
+        <td><input type="number" name="tier_from_{{ idx }}" step="0.01" min="0" value="{{ tier.volume_from }}"></td>
+        <td><input type="number" name="tier_to_{{ idx }}"   step="0.01" min="0" placeholder="unlimited" value="{{ tier.volume_to if tier.volume_to is not none else '' }}"></td>
+        <td><input type="number" name="tier_rate_{{ idx }}"  step="0.001" min="0" max="100" required value="{{ '%.4g'|format(tier.pct_rate * 100) }}"></td>
+        <td><button type="button" class="tier-remove" onclick="this.closest('tr').remove()">✕</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <button type="button" class="btn"
+          onclick="addAmendTierRow({{ idx }})"
+          style="margin-top:8px;height:28px;font-size:12px;padding:0 10px;">+ Add Tier</button>
+</div>
+
+<div class="form-section-divider" style="margin-top:16px;padding-top:14px;">Notes</div>
+<label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">
+  Description
+  <textarea name="description_{{ idx }}"
+            style="margin-top:6px;height:auto;min-height:52px;padding:8px 12px;resize:vertical;
+                   width:100%;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.07);
+                   color:var(--text);border-radius:var(--radius-sm);font-size:13px;"
+            placeholder="Optional notes">{{ (rule or {}).get('description','') or '' }}</textarea>
+</label>
+{% endmacro %}
+
+{% block content %}
+<style>
+  .amend-banner {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px; margin-bottom: var(--sp-4);
+    background: rgba(245,158,11,.07); border: 1px solid rgba(245,158,11,.25);
+    border-radius: var(--radius-sm); font-size: 13px; color: var(--text-2);
+  }
+  .amend-banner .icon { font-size: 20px; flex-shrink: 0; }
+
+  .change-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 20px 24px; margin-bottom: 14px;
+    position: relative; animation: formEnter .15s ease-out both;
+    transition: opacity .2s;
+  }
+  .change-card.skipped { opacity: .4; }
+  .change-card.action-add     { border-left: 3px solid var(--green); }
+  .change-card.action-replace { border-left: 3px solid var(--yellow); }
+  .change-card.action-remove  { border-left: 3px solid var(--red); }
+
+  .change-card-header {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+  }
+  .change-badge {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+    border-radius: 999px; font-size: 11px; font-weight: 700;
+  }
+  .badge-add     { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge-replace { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .badge-remove  { background: rgba(239,68,68,.15);  color: var(--red);   }
+
+  .old-rule-row {
+    background: rgba(239,68,68,.05); border: 1px solid rgba(239,68,68,.15);
+    border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 14px;
+  }
+  .old-rule-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--red); margin-bottom: 6px; opacity: .8;
+  }
+  .skip-label {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    font-size: 12px; color: var(--muted); margin-left: auto;
+  }
+  .skip-label input { accent-color: var(--accent); cursor: pointer; }
+</style>
+
+<div style="max-width:740px;margin:0 auto;">
+
+  <a href="/fees/{{ agreement.id }}" class="back-link">← {{ agreement.psp_name }}</a>
+
+  <div class="page-header" style="margin-bottom:var(--sp-3);margin-top:6px;">
+    <div>
+      <div class="page-title">Review Amendment Changes</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:4px;">
+        {{ agreement.psp_name }} &middot; {{ filename or 'uploaded file' }}
+      </div>
+    </div>
+  </div>
+
+  <div class="amend-banner">
+    <span class="icon">⚡</span>
+    <div>
+      <strong>AI extracted {{ changes|length }} change{{ 's' if changes|length != 1 }}.</strong>
+      Review each one carefully, edit if needed, then click Apply.
+      {% if notes %}<br><span style="color:var(--muted);">Summary: {{ notes }}</span>{% endif %}
+    </div>
+  </div>
+
+  <form method="POST" action="/fees/{{ agreement.id }}/amendment/confirm">
+    <input type="hidden" name="change_count" value="{{ changes|length }}">
+    <input type="hidden" name="cache_token"  value="{{ cache_token or '' }}">
+    <input type="hidden" name="notes"        value="{{ notes or '' }}">
+
+    {# ── Amendment date ─────────────────────────────────────── #}
+    <div class="fee-form" style="margin-bottom:var(--sp-4);">
+      <div class="form-section-label">Amendment Details</div>
+      <div class="form-row">
+        <label>Addendum Date
+          <input type="date" name="addendum_date" value="{{ addendum_date or '' }}"
+                 placeholder="YYYY-MM-DD">
+        </label>
+        <div></div>
+      </div>
+    </div>
+
+    {# ── Change cards ───────────────────────────────────────── #}
+    {% for ch in changes %}
+    {% set i     = loop.index0 %}
+    {% set act   = ch.action %}
+    {% set nr    = ch.new_rule %}
+    {% set er    = ch.existing_rule %}
+
+    <div class="change-card action-{{ act }}" id="changeCard{{ i }}">
+      <input type="hidden" name="action_{{ i }}" value="{{ act }}">
+      <input type="hidden" name="existing_rule_id_{{ i }}" value="{{ er.id if er else '' }}">
+
+      <div class="change-card-header">
+        <span class="change-badge badge-{{ act }}">
+          {% if act == 'add' %}NEW
+          {% elif act == 'replace' %}CHANGED
+          {% else %}REMOVE
+          {% endif %}
+        </span>
+
+        {% if act == 'add' %}
+        <span style="font-size:13px;color:var(--text);">
+          {{ nr.fee_type }}
+          {% if nr.payment_method %} &middot; {{ nr.payment_method }}{% endif %}
+          {% if nr.country and nr.country != 'GLOBAL' %} &middot; {{ nr.country }}{% endif %}
+        </span>
+        {% elif act == 'replace' %}
+        <span style="font-size:13px;color:var(--text);">
+          {{ nr.fee_type }}
+          {% if nr.payment_method %} &middot; {{ nr.payment_method }}{% endif %}
+          {% if nr.country and nr.country != 'GLOBAL' %} &middot; {{ nr.country }}{% endif %}
+        </span>
+        {% else %}
+        <span style="font-size:13px;color:var(--text);">
+          {{ (er or nr).fee_type }}
+          {% if (er or nr).payment_method %} &middot; {{ (er or nr).payment_method }}{% endif %}
+          {% if (er or nr).country and (er or nr).country != 'GLOBAL' %} &middot; {{ (er or nr).country }}{% endif %}
+        </span>
+        {% endif %}
+
+        <label class="skip-label">
+          <input type="checkbox" name="skip_{{ i }}" value="1"
+                 onchange="document.getElementById('changeCard{{ i }}').classList.toggle('skipped', this.checked)">
+          Skip
+        </label>
+      </div>
+
+      {# ── REPLACE: show old rule above new ─── #}
+      {% if act == 'replace' and er %}
+      <div class="old-rule-row">
+        <div class="old-rule-label">Existing rule (will be replaced)</div>
+        {{ rule_summary(er) }}
+      </div>
+      {% endif %}
+
+      {# ── REMOVE: show existing rule only ────── #}
+      {% if act == 'remove' %}
+      <div style="background:rgba(239,68,68,.04);border:1px solid rgba(239,68,68,.12);
+                  border-radius:var(--radius-sm);padding:12px 14px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+                    color:var(--red);margin-bottom:8px;opacity:.8;">Rule to be removed</div>
+        {{ rule_summary(er) }}
+      </div>
+      {% endif %}
+
+      {# ── ADD / REPLACE: editable new fields ── #}
+      {% if act in ('add', 'replace') %}
+      {{ render_change_fields(i, nr, fee_types, payment_methods, currencies) }}
+      {% endif %}
+
+    </div>
+    {% endfor %}
+
+    {# ── Actions ─────────────────────────────────────────────── #}
+    <div style="display:flex;gap:8px;margin-top:var(--sp-4);align-items:center;">
+      <button type="submit" class="btn btn-primary">
+        Apply {{ changes|length }} change{{ 's' if changes|length != 1 }}
+      </button>
+      <a href="/fees/{{ agreement.id }}" class="btn btn-cancel">Cancel</a>
+    </div>
+
+  </form>
+</div>
+
+<script>
+function toggleAmendFeeFields(idx, kind) {
+  const show = (id) => document.getElementById(id) && (document.getElementById(id).style.display = '');
+  const hide = (id) => document.getElementById(id) && (document.getElementById(id).style.display = 'none');
+  hide('apct_' + idx); hide('afix_' + idx); hide('atier_' + idx);
+  if (kind === 'percentage')     show('apct_' + idx);
+  if (kind === 'fixed')          show('afix_' + idx);
+  if (kind === 'fixed_plus_pct') { show('apct_' + idx); show('afix_' + idx); }
+  if (kind === 'tiered')         show('atier_' + idx);
+}
+
+function addAmendTierRow(idx) {
+  const tbody = document.querySelector('#atierTable_' + idx + ' tbody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="number" name="tier_from_${idx}" step="0.01" min="0" value="0"></td>
+    <td><input type="number" name="tier_to_${idx}"   step="0.01" min="0" placeholder="unlimited"></td>
+    <td><input type="number" name="tier_rate_${idx}"  step="0.001" min="0" max="100" required></td>
+    <td><button type="button" class="tier-remove" onclick="this.closest('tr').remove()">✕</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+</script>
+
+{% endblock %}

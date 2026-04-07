@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %} — Amendment History · {{ agreement.psp_name }}{% endblock %}
+{% block content %}
+<style>
+  .history-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: var(--sp-4);
+    align-items: start;
+  }
+  .history-list {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); overflow: hidden;
+    position: sticky; top: 24px;
+  }
+  .history-list-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .history-item {
+    display: block; padding: 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    text-decoration: none; color: var(--text);
+    transition: background .15s;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-item:hover { background: rgba(255,255,255,.03); }
+  .history-item.active { background: rgba(79,142,247,.08); border-left: 2px solid var(--accent); }
+  .history-item-date { font-size: 13px; font-weight: 600; }
+  .history-item-sub  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .history-item-changes {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 7px;
+    border-radius: 999px; font-size: 10px; font-weight: 700;
+    background: rgba(79,142,247,.12); color: var(--accent); margin-top: 5px;
+  }
+
+  /* Detail panel */
+  .amend-detail-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: var(--sp-3);
+  }
+  .change-row {
+    display: grid;
+    grid-template-columns: 80px 120px 90px 100px 1fr 1fr;
+    gap: 8px; align-items: start;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .change-row:last-child { border-bottom: none; }
+  .change-row-head {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted);
+    background: var(--surface); padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .val-old { color: var(--red);   text-decoration: line-through; opacity: .7; }
+  .val-new { color: var(--green); }
+  .val-same { color: var(--text-2); }
+
+  .action-badge {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+    border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap;
+  }
+  .action-add     { background: rgba(34,197,94,.15);  color: var(--green);  }
+  .action-replace { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .action-remove  { background: rgba(239,68,68,.15);  color: var(--red);    }
+
+  .empty-detail {
+    text-align: center; padding: 64px 32px; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+</style>
+
+<a href="/fees/{{ agreement.id }}" class="back-link">← {{ agreement.psp_name }}</a>
+
+<div class="page-header" style="margin-bottom:var(--sp-4);margin-top:6px;">
+  <div>
+    <div class="page-title">Amendment History</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px;">
+      {{ agreement.psp_name }}
+      {% if agreement.provider_name %}&nbsp;&middot;&nbsp;{{ agreement.provider_name }}{% endif %}
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;">
+    {% if has_agr_file %}
+    <a class="btn" href="/fees/{{ agreement.id }}/download-agreement">↓ Initial Agreement</a>
+    {% endif %}
+    <a class="btn btn-primary" href="/fees/upload?psp_id={{ agreement.id }}">⬆ Upload Amendment</a>
+  </div>
+</div>
+
+<div class="history-layout">
+
+  <!-- LEFT: amendment list -->
+  <div class="history-list">
+    <div class="history-list-header">
+      <span>Amendments</span>
+      <span>{{ amendments|length }}</span>
+    </div>
+    {% if amendments %}
+    {% for a in amendments %}
+    <a href="/fees/{{ agreement.id }}/amendments/{{ a.id }}"
+       class="history-item {{ 'active' if selected and selected.id == a.id }}">
+      <div class="history-item-date">
+        {{ a.addendum_date or (a.applied_at or '')[:10] or 'Unknown date' }}
+      </div>
+      {% if a.notes %}
+      <div class="history-item-sub">{{ a.notes[:60] }}{% if a.notes|length > 60 %}…{% endif %}</div>
+      {% endif %}
+      <div style="display:flex;align-items:center;gap:6px;margin-top:5px;">
+        <span class="history-item-changes">{{ a.changes_applied }} change{{ 's' if a.changes_applied != 1 }}</span>
+        {% if a.filename %}
+        <span style="font-size:10px;color:var(--muted);">📄 {{ a.filename[-20:] if a.filename|length > 20 else a.filename }}</span>
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+    {% else %}
+    <div style="padding:32px 20px;text-align:center;color:var(--muted);font-size:13px;">
+      No amendments yet.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- RIGHT: selected amendment detail -->
+  <div>
+    {% if selected %}
+    <div class="amend-detail-header">
+      <div>
+        <div style="font-size:18px;font-weight:700;letter-spacing:-.01em;">
+          {{ selected.addendum_date or 'Amendment' }}
+        </div>
+        <div style="font-size:13px;color:var(--muted);margin-top:4px;">
+          Applied {{ (selected.applied_at or '')[:16] }}
+          {% if selected.notes %}&nbsp;&middot;&nbsp;{{ selected.notes }}{% endif %}
+        </div>
+      </div>
+      {% if selected.filename %}
+      <a class="btn" href="/fees/amendments/{{ selected.id }}/download"
+         style="white-space:nowrap;">↓ {{ selected.filename }}</a>
+      {% endif %}
+    </div>
+
+    {% if selected.changes %}
+    <div class="table-wrap">
+      <div class="change-row change-row-head"
+           style="display:grid;grid-template-columns:80px 120px 90px 100px 1fr 1fr;gap:8px;">
+        <span>Action</span>
+        <span>Type</span>
+        <span>Method</span>
+        <span>Country</span>
+        <span>Old Fee</span>
+        <span>New Fee</span>
+      </div>
+      {% for c in selected.changes %}
+      <div class="change-row">
+        <span>
+          <span class="action-badge action-{{ c.action }}">
+            {{ c.action | upper }}
+          </span>
+        </span>
+        <span class="val-same">
+          {% if c.action == 'remove' %}{{ c.old_fee_type or '—' }}
+          {% else %}{{ c.new_fee_type or '—' }}{% endif %}
+        </span>
+        <span class="val-same">
+          {% if c.action == 'remove' %}{{ c.old_payment_method or '—' }}
+          {% else %}{{ c.new_payment_method or '—' }}{% endif %}
+        </span>
+        <span class="val-same">
+          {% if c.action == 'remove' %}{{ c.old_country or '—' }}
+          {% else %}{{ c.new_country or '—' }}{% endif %}
+        </span>
+        <span>
+          {% if c.action in ('replace', 'remove') and c.old_fee_kind %}
+            <span class="{{ 'val-old' if c.action == 'replace' else 'val-same' }}">
+              {% if c.old_fee_kind == 'percentage' and c.old_pct_rate is not none %}
+                {{ '%.3g'|format(c.old_pct_rate * 100) }}%
+              {% elif c.old_fee_kind == 'fixed' and c.old_fixed_amount is not none %}
+                {{ c.old_fixed_amount }} {{ c.old_fixed_currency or '' }}
+              {% elif c.old_fee_kind == 'fixed_plus_pct' %}
+                {{ c.old_fixed_amount }} {{ c.old_fixed_currency or '' }} + {{ '%.3g'|format((c.old_pct_rate or 0) * 100) }}%
+              {% elif c.old_fee_kind == 'tiered' %}Tiered
+              {% else %}—{% endif %}
+            </span>
+          {% else %}—{% endif %}
+        </span>
+        <span>
+          {% if c.action in ('add', 'replace') and c.new_fee_kind %}
+            <span class="{{ 'val-new' if c.action != 'remove' else '' }}">
+              {% if c.new_fee_kind == 'percentage' and c.new_pct_rate is not none %}
+                {{ '%.3g'|format(c.new_pct_rate * 100) }}%
+              {% elif c.new_fee_kind == 'fixed' and c.new_fixed_amount is not none %}
+                {{ c.new_fixed_amount }} {{ c.new_fixed_currency or '' }}
+              {% elif c.new_fee_kind == 'fixed_plus_pct' %}
+                {{ c.new_fixed_amount }} {{ c.new_fixed_currency or '' }} + {{ '%.3g'|format((c.new_pct_rate or 0) * 100) }}%
+              {% elif c.new_fee_kind == 'tiered' %}Tiered
+              {% else %}—{% endif %}
+            </span>
+          {% else %}—{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="color:var(--muted);font-size:13px;">No change detail recorded.</div>
+    {% endif %}
+
+    {% elif amendments %}
+    <div class="empty-detail">
+      <div style="font-size:32px;margin-bottom:12px;opacity:.3;">📋</div>
+      <div style="font-weight:600;margin-bottom:6px;">Select an amendment</div>
+      <div style="font-size:13px;">Click an entry on the left to see its changes.</div>
+    </div>
+    {% else %}
+    <div class="empty-detail">
+      <div style="font-size:32px;margin-bottom:12px;opacity:.3;">📋</div>
+      <div style="font-weight:600;margin-bottom:6px;">No amendment history yet</div>
+      <div style="font-size:13px;">Upload an amendment to start tracking changes.</div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
