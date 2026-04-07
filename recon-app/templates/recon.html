@@ -2,16 +2,28 @@
 {% block title %} — {{ month }}{% endblock %}
 {% block content %}
 
-<div class="month-bar">
-  <select onchange="window.location.href = '/recon/' + this.value + '?status={{ status_filter }}'">
-    {% for m in months %}
-    <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
-    {% endfor %}
-  </select>
-  <a class="btn btn-primary" href="/recon/{{ month }}/export">↓ Export Excel</a>
-  <span style="color:var(--muted);margin-left:auto;font-size:13px;">
-    MT4 netdeposit vs CRM <em>cash</em> transactions &nbsp;·&nbsp; {{ stats.total }} clients
-  </span>
+{% set parts = month.split('-') %}
+{% set mon_names = ['January','February','March','April','May','June','July','August','September','October','November','December'] %}
+{% set mon_label = mon_names[(parts[1]|int) - 1] + ' ' + parts[0] %}
+
+<div class="page-header" style="margin-bottom: var(--sp-4);">
+  <div>
+    <div style="margin-bottom:4px;">
+      <a href="/" class="back-link">← All periods</a>
+    </div>
+    <div class="page-title">{{ mon_label }}</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px;">
+      MT4 net deposits vs CRM cash transactions &middot; {{ stats.total }} clients
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <select onchange="window.location.href = '/recon/' + this.value + '?status={{ status_filter }}'" style="width:160px;">
+      {% for m in months %}
+      <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+    <a class="btn btn-primary" href="/recon/{{ month }}/export">↓ Export Excel</a>
+  </div>
 </div>
 
 <div class="stats-grid">

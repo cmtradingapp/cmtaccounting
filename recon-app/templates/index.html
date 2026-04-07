@@ -1,19 +1,14 @@
 {% extends "base.html" %}
-{% block title %} — Net Deposit Reconciliation{% endblock %}
+{% block title %} — Dashboard{% endblock %}
 {% block content %}
 
-<div class="month-bar">
-  <form method="get" action="/recon/{{ months[0] if months else '' }}" id="month-form">
-    <select name="_month" onchange="
-      var m = this.value;
-      window.location.href = '/recon/' + m;
-    ">
-      <option value="">Select a month…</option>
-      {% for m in months %}
-      <option value="{{ m }}">{{ m }}</option>
-      {% endfor %}
-    </select>
-  </form>
+<div class="page-header" style="margin-bottom: var(--sp-4);">
+  <div>
+    <div class="page-title">Net Deposit Reconciliation</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px;">
+      MT4 net deposits vs CRM approved cash transactions
+    </div>
+  </div>
 </div>
 
 {% if error %}
@@ -22,10 +17,80 @@
 </div>
 {% endif %}
 
-<div class="empty">
-  <div style="font-size:48px;margin-bottom:16px;">📊</div>
-  <div style="font-size:18px;font-weight:600;margin-bottom:8px;">Select a month to run reconciliation</div>
-  <div style="color:var(--muted);">Compares MT4 net deposits (dealio) against CRM approved transactions (backoffice)</div>
+<div style="max-width:700px;">
+
+  {# ── Recent months grid ───────────────────────────────────── #}
+  {% if months %}
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">
+    Select period
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:20px;">
+    {% for m in months[:12] %}
+    {% set parts = m.split('-') %}
+    {% set year = parts[0] %}
+    {% set mon = parts[1]|int %}
+    {% set mon_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+    <a href="/recon/{{ m }}" class="month-tile">
+      <span class="month-tile-name">{{ mon_names[mon - 1] }}</span>
+      <span class="month-tile-year">{{ year }}</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  {# ── Older months fallback ────────────────────────────────── #}
+  {% if months|length > 12 %}
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">
+    Older periods
+  </div>
+  <select onchange="if(this.value) window.location.href='/recon/'+this.value" style="width:100%;">
+    <option value="">Select a month…</option>
+    {% for m in months[12:] %}
+    <option value="{{ m }}">{{ m }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  {% else %}
+  {# ── Empty state ─────────────────────────────────────────── #}
+  <div style="
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 64px 40px; text-align: center;
+  ">
+    <div style="
+      width:56px;height:56px;border-radius:50%;
+      background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.2);
+      display:flex;align-items:center;justify-content:center;
+      font-size:24px;margin:0 auto 20px;
+    ">📊</div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:8px;">No data available</div>
+    <div style="color:var(--muted);font-size:13px;line-height:1.6;max-width:340px;margin:0 auto;">
+      No reconciliation periods found. Check your database connection.
+    </div>
+  </div>
+  {% endif %}
+
 </div>
+
+<style>
+.month-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 16px 12px; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-decoration: none; color: var(--text);
+  transition: border-color .15s, background .15s, transform .12s;
+}
+.month-tile:hover {
+  border-color: var(--accent);
+  background: rgba(79,142,247,.06);
+  transform: translateY(-2px);
+}
+.month-tile-name {
+  font-size: 16px; font-weight: 700; letter-spacing: -.01em;
+}
+.month-tile-year {
+  font-size: 11px; color: var(--muted); font-weight: 500;
+}
+</style>
 
 {% endblock %}
