@@ -48,14 +48,27 @@
                  value="{{ template.name if template else '' }}"
                  placeholder="e.g. Standard Fee Agreement Parser">
         </label>
-        <label class="check-card" for="set_default" style="align-self:flex-end;">
+        <label>Type
+          <select name="prompt_type">
+            <option value="agreement" {{ 'selected' if not template or (template.get('prompt_type','agreement') == 'agreement') }}>
+              Initial Agreement
+            </option>
+            <option value="amendment" {{ 'selected' if template and template.get('prompt_type') == 'amendment' }}>
+              Amendment
+            </option>
+          </select>
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="check-card" for="set_default" style="align-self:flex-start;">
           <input type="checkbox" id="set_default" name="set_default"
                  {{ 'checked' if template and template.is_default }}>
           <div>
-            <div class="check-card-label">Set as Default</div>
-            <div class="check-card-hint">Pre-selected on the upload page</div>
+            <div class="check-card-label">Set as Default for its type</div>
+            <div class="check-card-hint">Pre-selected when uploading that document type</div>
           </div>
         </label>
+        <div></div>
       </div>
 
       <div class="form-section-divider">System Prompt</div>
@@ -65,6 +78,24 @@
         The document text is appended separately in the user message.
       </div>
 
+      {% if not template %}
+      {# ── Base picker (new templates only) ── #}
+      <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+                      color:var(--muted);white-space:nowrap;">Start from</label>
+        <select id="basePicker" onchange="loadBase(this.value)"
+                style="flex:1;height:34px;border-radius:var(--radius-sm);font-size:13px;">
+          <option value="">— blank —</option>
+          {% for t in (templates or []) %}
+          <option value="{{ t.id }}" {{ 'selected' if base_id and t.id == base_id }}>
+            {{ t.name }}{% if t.is_builtin %} (built-in){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap;">pre-fills the editor</span>
+      </div>
+      {% endif %}
+
       <div style="border:1px solid rgba(255,255,255,.07);border-radius:var(--radius-sm);overflow:hidden;">
         <textarea name="system_prompt" class="prompt-editor"
                   id="promptText"
@@ -73,7 +104,7 @@
                          border:none;color:var(--text);border-radius:0;outline:none;"
                   oninput="updateCount()"
                   spellcheck="false"
-                  required>{{ template.system_prompt if template else (prefill_prompt or '') }}</textarea>
+                  required>{{ template.system_prompt if template else '' }}</textarea>
         <div class="prompt-meta">
           <span class="char-count" id="charCount">0</span> characters
           <span style="margin-left:auto;">
@@ -106,6 +137,28 @@ function updateCount() {
     document.getElementById('promptText').value.length.toLocaleString();
 }
 updateCount();
+
+function loadBase(id) {
+  if (!id) return;
+  var picker = document.getElementById('basePicker');
+  if (picker) picker.disabled = true;
+  fetch('/fees/prompts/' + id + '/content')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var ta = document.getElementById('promptText');
+      ta.value = data.system_prompt || '';
+      updateCount();
+      ta.scrollTop = 0;
+      if (picker) picker.disabled = false;
+    })
+    .catch(function() { if (picker) picker.disabled = false; });
+}
+
+// Auto-load base on page open if one was pre-selected (e.g. ?base=N)
+(function() {
+  var picker = document.getElementById('basePicker');
+  if (picker && picker.value) loadBase(picker.value);
+})();
 
 // Tab key inserts two spaces instead of moving focus
 document.getElementById('promptText').addEventListener('keydown', function(e) {
