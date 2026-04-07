@@ -81,10 +81,21 @@ def recon(month):
         abort(400)
     try:
         rows = queries.reconcile(year, mon)
-        stats = queries.summary_stats(rows)
         months = queries.available_months()
+        cache_age = queries.cache_age(year, mon)
     except Exception as e:
         return render_template("index.html", months=[], error=str(e))
+
+    # Filter out rows that have ONLY non-cash CRM activity (no real cash deposits/withdrawals)
+    hide_noncash = request.args.get("hide_noncash") == "1"
+    if hide_noncash:
+        rows = [r for r in rows if not (
+            r["crm_cash_dep"] == 0 and r["crm_cash_with"] == 0
+            and (r["crm_noncash_in"] or r["crm_noncash_out"])
+        )]
+
+    # Stats computed after non-cash filter so cards reflect what's shown
+    stats = queries.summary_stats(rows)
 
     status_filter = request.args.get("status", "all")
     if status_filter != "all":
@@ -97,7 +108,71 @@ def recon(month):
         stats=stats,
         months=months,
         status_filter=status_filter,
+        hide_noncash=hide_noncash,
+        cache_age=cache_age,
     )
+
+
+@app.route("/recon/<month>/refresh", methods=["POST"])
+@require_recon_auth
+def recon_refresh(month):
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+    except (ValueError, IndexError):
+        abort(400)
+    queries.cache_invalidate(year, mon)
+    return redirect(url_for("recon", month=month,
+                            status=request.form.get("status", "all"),
+                            hide_noncash=request.form.get("hide_noncash", "0")))
+
+
+@app.route("/fx")
+@require_recon_auth
+def fx_rates():
+    return render_template("fx.html", fx_groups=queries.FX_GROUPS)
+
+
+_FX_PERIOD_MAP = {
+    "5s":  1,     # nearest available tick ~ 1 min ago (5s not in history, use 1m)
+    "30s": 1,
+    "1m":  1,
+    "5m":  5,
+    "15m": 15,
+    "1h":  60,
+    "4h":  240,
+    "1d":  1440,
+    "1w":  10080,
+    "1mo": 43200,
+}
+
+
+@app.route("/fx/api/rates")
+@require_recon_auth
+def fx_api_rates():
+    """Returns live rates AND reference prices for the requested period in one call,
+    eliminating any timing gap between the two fetches."""
+    symbols    = request.args.getlist("s") or None
+    ref_period = request.args.get("ref_period", "1h")
+    minutes    = _FX_PERIOD_MAP.get(ref_period, 60)
+    try:
+        rows = queries.get_live_fx_rates(symbols)
+        refs = queries.get_reference_fx_rates(minutes, symbols)
+        age  = queries.cache_age_key("fx_live:" + ",".join(sorted(symbols or queries.FX_ALL_SYMBOLS)))
+        return jsonify({"rates": rows, "references": refs,
+                        "ref_period": ref_period, "cache_age": age})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fx/api/history/<symbol>")
+@require_recon_auth
+def fx_api_history(symbol):
+    hours = request.args.get("hours", 168, type=int)
+    try:
+        rows = queries.get_fx_history(symbol, hours)
+        return jsonify({"symbol": symbol, "hours": hours, "data": rows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/recon/<month>/export")
