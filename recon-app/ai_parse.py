@@ -388,6 +388,232 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
     raise ValueError(f"Unsupported file type: .{ext}  (only PDF and DOCX are supported)")
 
 
+def extract_pages(file_bytes: bytes, filename: str) -> list:
+    """Return [(page_num, text), ...] for source-location lookup.
+    Page numbers are 1-indexed. DOCX returns [(1, full_text)].
+
+    For PDFs, tables are re-extracted with extract_tables() and appended
+    as pipe-separated rows so snippets remain human-readable.
+    pdfplumber extract_text() flattens table cells into a string like
+    "4.4% 4.4% 4.4% 2.25%" which is unreadable as a source quote.
+    """
+    ext = filename.lower().rsplit(".", 1)[-1]
+    if ext == "pdf":
+        import pdfplumber
+        pages = []
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for i, page in enumerate(pdf.pages, 1):
+                parts = []
+                plain = page.extract_text()
+                if plain and plain.strip():
+                    parts.append(plain)
+                for table in (page.extract_tables() or []):
+                    for row in table:
+                        cells = [str(c or "").strip() for c in row]
+                        line  = " | ".join(cells)
+                        if line.strip(" |"):
+                            parts.append(line)
+                combined = chr(10).join(parts)
+                if combined.strip():
+                    pages.append((i, combined))
+        return pages
+    if ext in ("docx", "doc"):
+        return [(1, extract_text(file_bytes, filename))]
+    return []
+
+def annotate_sources(rules: list, pages: list) -> None:
+    """
+    Mutate each rule dict in-place, adding:
+      source_page        : int | None    -- 1-indexed PDF page
+      source_quote       : str | None    -- verbatim snippet <= 160 chars
+      source_confidence  : float | None  -- 0.0-1.0 match probability
+
+    Probabilistic scoring model
+    ---------------------------
+    For every occurrence of the rate number on a page compute three
+    proximity sub-scores (each 0-1) using inverse-distance decay bands:
+
+      pct_score     -- distance to nearest '%'
+                       (0-4 -> 1.0, 5-20 -> 0.8, 21-60 -> 0.55,
+                        61-150 -> 0.30, 151-400 -> 0.10, beyond -> 0.0)
+      country_score -- distance to country name
+                       (0-60 -> 1.0, 61-200 -> 0.70, 201-450 -> 0.35, beyond -> 0.05)
+      method_score  -- distance to payment method word
+                       (0-120 -> 1.0, 121-400 -> 0.60, 401-800 -> 0.25, beyond -> 0.10)
+
+    Combined probability = pct*0.55 + country*0.30 + method*0.15
+
+    % proximity is weighted most heavily: a number far from any % is
+    likely a registration number, page reference, or section heading.
+    Results with probability < 0.30 are suppressed (shown as None).
+    """
+    import re
+
+    MIN_CONFIDENCE = 0.30
+
+    def _decay(dist, bands):
+        for max_d, s in bands:
+            if dist <= max_d:
+                return s
+        return bands[-1][1]
+
+    PCT_BANDS     = [(4, 1.0), (20, 0.80), (60, 0.55), (150, 0.30), (400, 0.10), (9999, 0.0)]
+    COUNTRY_BANDS = [(60, 1.0), (200, 0.70), (450, 0.35), (9999, 0.05)]
+    METHOD_BANDS  = [(120, 1.0), (400, 0.60), (800, 0.25), (9999, 0.10)]
+
+    def _rate_vals(rule):
+        vals = []
+        pct = rule.get("pct_rate")
+        if pct is not None:
+            v = pct * 100
+            for fmt in (f"{v:.4g}", f"{v:.2f}", f"{v:.1f}"):
+                if fmt not in vals:
+                    vals.append(fmt)
+        for tier in rule.get("tiers") or []:
+            tr = tier.get("pct_rate")
+            if tr is not None:
+                v2 = f"{tr*100:.4g}"
+                if v2 not in vals:
+                    vals.append(v2)
+        return vals
+
+    for rule in rules:
+        country = (rule.get("country") or "").lower().strip()
+        if country == "global":
+            country = ""
+        method  = (rule.get("payment_method") or "").lower()
+        vals    = _rate_vals(rule)
+
+        best_page  = None
+        best_quote = None
+        best_conf  = 0.0
+
+        for page_num, page_text in pages:
+            tl = page_text.lower()
+
+            pct_pos     = [m.start() for m in re.finditer(r'%', tl)]
+            country_pos = ([m.start() for m in re.finditer(re.escape(country), tl)]
+                           if country else [])
+            method_words = [w for w in re.split(r'\W+', method) if len(w) > 3]
+            method_pos  = []
+            for w in method_words:
+                method_pos += [m.start() for m in re.finditer(re.escape(w), tl)]
+
+            page_best_conf = 0.0
+            page_best_idx  = -1
+
+            for val in vals:
+                pat = re.compile(r'(?<!\d)' + re.escape(val) + r'(?!\d)')
+                for m in pat.finditer(tl):
+                    pos = m.start()
+
+                    d_pct = min((abs(pos - p) for p in pct_pos), default=9999)
+                    ps = _decay(d_pct, PCT_BANDS)
+
+                    if country_pos:
+                        d_co = min(abs(pos - p) for p in country_pos)
+                        cs = _decay(d_co, COUNTRY_BANDS)
+                    else:
+                        cs = 0.5
+
+                    if method_pos:
+                        d_me = min(abs(pos - p) for p in method_pos)
+                        ms = _decay(d_me, METHOD_BANDS)
+                    else:
+                        ms = 0.2
+
+                    conf = ps * 0.55 + cs * 0.30 + ms * 0.15
+
+                    if conf > page_best_conf:
+                        page_best_conf = conf
+                        page_best_idx  = pos
+
+            if page_best_conf > best_conf:
+                best_conf  = page_best_conf
+                best_page  = page_num
+                best_quote = None
+                if page_best_idx >= 0:
+                    lo = page_best_idx
+                    hi = page_best_idx + 6
+                    if country_pos:
+                        nearest_co = min(country_pos, key=lambda p: abs(p - page_best_idx))
+                        if abs(nearest_co - page_best_idx) <= 450:
+                            lo = min(lo, nearest_co)
+                            hi = max(hi, nearest_co + len(country))
+                    start = max(0, lo - 25)
+                    end   = min(len(page_text), hi + 130)
+                    best_quote = re.sub(r'\s+', ' ', page_text[start:end]).strip()
+
+        rule["source_page"]       = best_page  if best_conf >= MIN_CONFIDENCE else None
+        rule["source_quote"]      = best_quote if best_conf >= MIN_CONFIDENCE else None
+        rule["source_confidence"] = round(best_conf, 2) if best_conf >= MIN_CONFIDENCE else None
+
+
+
+def find_potential_gaps(rules: list, pages: list) -> list:
+    """
+    Heuristic scan for fee-like percentage values in the document that
+    were not matched to any extracted rule.
+
+    Strategy:
+    - For every page that has at least one matched rule, count all
+      "fee-like" % occurrences (0.1 – 30%, word-boundary matched).
+    - If the count significantly exceeds the number of matched rules on
+      that page, flag the page as potentially having missed entries and
+      return a sample snippet for review.
+    - Also flags pages with any fee-like % that have NO matched rules
+      at all, if at least one other page does have matches (i.e. the AI
+      found some fee schedule pages but skipped others).
+
+    Returns list of dicts: {page, pct_found, rules_matched, snippet}.
+    Capped at 8 items to avoid noise.
+    """
+    import re
+
+    fee_pct = re.compile(r'(?<!\d)(\d{1,2}\.?\d{0,2})\s{0,4}%')
+
+    # Count matched rules per page (only pages with confident matches)
+    rules_by_page = {}
+    for rule in rules:
+        p = rule.get("source_page")
+        if p and (rule.get("source_confidence") or 0) >= 0.30:
+            rules_by_page[p] = rules_by_page.get(p, 0) + 1
+
+    any_match_pages = set(rules_by_page)
+
+    gaps = []
+    for page_num, page_text in pages:
+        tl = page_text.lower()
+        fee_hits = []
+        for m in fee_pct.finditer(tl):
+            try:
+                v = float(m.group(1))
+            except ValueError:
+                continue
+            if 0.1 <= v <= 30:          # plausible fee range
+                fee_hits.append((m.start(), m.group()))
+
+        if not fee_hits:
+            continue
+
+        matched = rules_by_page.get(page_num, 0)
+        # Flag if: many rates but few/no matched rules
+        # Threshold: more than 2 + 2*matched unaccounted hits
+        if len(fee_hits) > matched * 2 + 2:
+            pos, rate_str = fee_hits[0]
+            start   = max(0, pos - 30)
+            end     = min(len(page_text), pos + 80)
+            snippet = re.sub(r"\s+", " ", page_text[start:end]).strip()
+            gaps.append({
+                "page":          page_num,
+                "pct_found":     len(fee_hits),
+                "rules_matched": matched,
+                "snippet":       snippet,
+            })
+
+    return gaps[:8]
+
+
 def _smart_truncate(text: str) -> str:
     """
     Keep the first HEAD_CHARS (agreement header: PSP name, entity, dates) +
@@ -427,10 +653,61 @@ def _normalise_rule(rule: dict) -> dict:
     return rule
 
 
+def _dedup_rules(rules: list) -> list:
+    """
+    Remove duplicate fee rules produced by the AI extracting the same fee twice
+    under slightly different descriptions (e.g. 'Rwanda' vs 'New Jurisdiction Rwanda').
+
+    Dedup key: (payment_method, fee_type, country, fee_kind, pct_rate, fixed_amount,
+                fixed_currency) — i.e. identical fee economics regardless of description.
+    When duplicates are found the first occurrence is kept (usually more specific description).
+    """
+    seen = {}
+    out  = []
+    for rule in rules:
+        key = (
+            (rule.get("payment_method") or "").lower().strip(),
+            (rule.get("fee_type")       or "").lower().strip(),
+            (rule.get("country")        or "").lower().strip(),
+            (rule.get("fee_kind")       or ""),
+            rule.get("pct_rate"),
+            rule.get("fixed_amount"),
+            (rule.get("fixed_currency") or ""),
+        )
+        if key not in seen:
+            seen[key] = True
+            out.append(rule)
+    return out
+
+
+def _validate_rules(rules: list) -> list[str]:
+    """
+    Validate extracted fee rules against allowed enums.
+    Returns a list of human-readable warning strings (empty = all good).
+    """
+    warnings = []
+    for i, rule in enumerate(rules):
+        label = f"Rule {i+1}"
+        ft = rule.get("fee_type")
+        if ft not in FEE_TYPES:
+            warnings.append(f"{label}: unknown fee_type '{ft}'")
+        pm = rule.get("payment_method")
+        if pm is not None and pm not in PAYMENT_METHODS:
+            warnings.append(f"{label}: unknown payment_method '{pm}'")
+        fk = rule.get("fee_kind")
+        if fk not in ("percentage", "fixed", "fixed_plus_pct", "tiered"):
+            warnings.append(f"{label}: unknown fee_kind '{fk}'")
+        if fk in ("percentage", "fixed_plus_pct") and rule.get("pct_rate") is None:
+            warnings.append(f"{label}: fee_kind='{fk}' but pct_rate is null")
+        if fk in ("fixed", "fixed_plus_pct") and rule.get("fixed_amount") is None:
+            warnings.append(f"{label}: fee_kind='{fk}' but fixed_amount is null")
+    return warnings
+
+
 # ── Main API call ──────────────────────────────────────────────────────────
 
 def _call_claude(system_prompt: str, user_msg: str) -> str:
-    """Call Claude and return the raw text response. Uses prefill to force JSON output."""
+    """Call Claude and return the raw JSON text response."""
     if not ANTHROPIC_KEY:
         raise RuntimeError(
             "ANTHROPIC_API_KEY is not set. "
@@ -442,16 +719,20 @@ def _call_claude(system_prompt: str, user_msg: str) -> str:
         max_tokens=4096,
         temperature=0.0,
         system=system_prompt,
-        messages=[
-            {"role": "user",      "content": user_msg},
-            {"role": "assistant", "content": "{"},   # prefill forces JSON output
-        ],
+        messages=[{"role": "user", "content": user_msg}],
     )
-    # The model continues from the prefilled "{", so prepend it back
-    return "{" + message.content[0].text
+    raw = message.content[0].text.strip()
+    # Strip markdown code fences if Claude wraps the JSON
+    if raw.startswith("```"):
+        raw = raw.split("```", 2)[1]          # drop opening fence + lang tag
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.rsplit("```", 1)[0].strip()
+    return raw
 
 
-def analyze_agreement(text: str, system_prompt: str = None) -> dict:
+def analyze_agreement(text: str, system_prompt: str = None,
+                      pages: list = None) -> dict:
     """
     Send extracted agreement text to Claude and return a normalised dict:
       { "agreement": {...}, "fee_rules": [...] }
@@ -479,8 +760,20 @@ def analyze_agreement(text: str, system_prompt: str = None) -> dict:
 
     result.setdefault("agreement", {})
     result.setdefault("fee_rules", [])
-    result["fee_rules"] = [_normalise_rule(r) for r in result["fee_rules"]]
 
+    rules = [_normalise_rule(r) for r in result["fee_rules"]]
+    before          = len(rules)
+    rules           = _dedup_rules(rules)
+    dups_removed    = before - len(rules)
+    warnings        = _validate_rules(rules)
+
+    if pages:
+        annotate_sources(rules, pages)
+    result["fee_rules"]     = rules
+    result["dups_removed"]  = dups_removed
+    result["warnings"]      = warnings
+    result["gaps"]          = find_potential_gaps(rules, pages) if pages else []
+    result["raw_response"]  = raw
     return result
 
 
@@ -705,7 +998,8 @@ _AMENDMENT_SCHEMA = {
 }
 
 
-def analyze_amendment(text: str, system_prompt: str = None) -> dict:
+def analyze_amendment(text: str, system_prompt: str = None,
+                      pages: list = None) -> dict:
     """
     Parse an amendment document and return:
       { "amendment": { "addendum_date": ..., "notes": ... },
@@ -733,6 +1027,17 @@ def analyze_amendment(text: str, system_prompt: str = None) -> dict:
 
     result.setdefault("amendment", {})
     result.setdefault("rule_changes", [])
-    result["rule_changes"] = [_normalise_rule(r) for r in result["rule_changes"]]
 
+    rules        = [_normalise_rule(r) for r in result["rule_changes"]]
+    before       = len(rules)
+    rules        = _dedup_rules(rules)
+    warnings     = _validate_rules(rules)
+
+    if pages:
+        annotate_sources(rules, pages)
+    result["rule_changes"]  = rules
+    result["dups_removed"]  = before - len(rules)
+    result["warnings"]      = warnings
+    result["gaps"]          = find_potential_gaps(rules, pages) if pages else []
+    result["raw_response"]  = raw
     return result
