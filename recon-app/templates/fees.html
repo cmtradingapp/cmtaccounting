@@ -28,6 +28,26 @@
   .tab-btn.active .tab-count { background: rgba(79,142,247,.15); color: var(--accent); }
   .terminated-row td { opacity: .55; }
   .terminated-row:hover td { opacity: .75; }
+
+  /* ── Search bar ── */
+  .fees-search-wrap {
+    display: flex; align-items: center;
+    background: var(--surface-alt); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 0 8px 0 8px;
+    height: 30px; transition: border-color .15s; gap: 4px;
+  }
+  .fees-search-wrap:focus-within { border-color: var(--accent); }
+  .fees-search {
+    background: transparent; border: none; outline: none;
+    color: var(--text); font-size: 13px; width: 210px; padding: 0;
+  }
+  .fees-search::placeholder { color: var(--muted); }
+  .fees-search-clear {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 15px; padding: 0; line-height: 1; display: none;
+    transition: color .15s; flex-shrink: 0;
+  }
+  .fees-search-clear:hover { color: var(--text); }
 </style>
 
 <div class="page-header">
@@ -39,19 +59,33 @@
 </div>
 
 <!-- Tab bar -->
-<div class="tab-bar">
-  <button class="tab-btn active" id="tab-active-btn" onclick="switchTab('active')">
-    Active <span class="tab-count">{{ agreements|length }}</span>
-  </button>
-  <button class="tab-btn" id="tab-historical-btn" onclick="switchTab('historical')">
-    Historical <span class="tab-count">{{ terminated|length }}</span>
-  </button>
+<div class="tab-bar" style="justify-content:space-between;align-items:center;">
+  <div style="display:flex;gap:2px;margin-bottom:-1px;">
+    <button class="tab-btn active" id="tab-active-btn" onclick="switchTab('active')">
+      Active <span class="tab-count">{{ agreements|length }}</span>
+    </button>
+    <button class="tab-btn" id="tab-historical-btn" onclick="switchTab('historical')">
+      Historical <span class="tab-count">{{ terminated|length }}</span>
+    </button>
+  </div>
+  <div class="fees-search-wrap" style="margin-bottom:6px;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+         style="color:var(--muted);flex-shrink:0;">
+      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
+    <input type="text" id="feesSearch" class="fees-search"
+           placeholder="Search agreements…" oninput="filterAgreements(this.value)"
+           autocomplete="off" spellcheck="false">
+    <button class="fees-search-clear" id="feesSearchClear"
+            onclick="clearSearch()" title="Clear">×</button>
+  </div>
 </div>
 
 <!-- Active tab -->
 <div id="tab-active">
   {% if agreements %}
-  <div class="table-meta">{{ agreements|length }} active agreement{{ 's' if agreements|length != 1 }}</div>
+  <div class="table-meta" id="meta-active">{{ agreements|length }} active agreement{{ 's' if agreements|length != 1 }}</div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -64,9 +98,10 @@
           <th class="num">Rules</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="tbody-active">
         {% for a in agreements %}
-        <tr class="clickable" onclick="window.location='/fees/{{ a.id }}'">
+        <tr class="clickable" data-searchable="{{ [a.psp_name or '', a.provider_name or '', a.agreement_entity or '', a.agreement_date or '', a.settlement_bank or '', a.rule_count|string]|join(' ')|lower }}"
+            onclick="window.location='/fees/{{ a.id }}'">
           <td>
             <div style="font-weight:600;color:var(--accent);">{{ a.psp_name }}</div>
             {% if a.provider_name %}
@@ -87,6 +122,11 @@
           <td class="num" style="font-weight:600;">{{ a.rule_count }}</td>
         </tr>
         {% endfor %}
+        <tr id="no-results-active" style="display:none;">
+          <td colspan="6" class="empty" style="padding:32px;color:var(--muted);">
+            No agreements match your search.
+          </td>
+        </tr>
       </tbody>
     </table>
   </div>
@@ -103,7 +143,7 @@
 <!-- Historical tab -->
 <div id="tab-historical" style="display:none;">
   {% if terminated %}
-  <div class="table-meta">{{ terminated|length }} terminated agreement{{ 's' if terminated|length != 1 }}</div>
+  <div class="table-meta" id="meta-historical">{{ terminated|length }} terminated agreement{{ 's' if terminated|length != 1 }}</div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -117,9 +157,11 @@
           <th class="num">Rules</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="tbody-historical">
         {% for a in terminated %}
-        <tr class="terminated-row clickable" onclick="window.location='/fees/{{ a.id }}'">
+        <tr class="terminated-row clickable"
+            data-searchable="{{ [a.psp_name or '', a.provider_name or '', a.agreement_entity or '', a.agreement_date or '', (a.updated_at or '')[:10], a.settlement_bank or '', a.rule_count|string]|join(' ')|lower }}"
+            onclick="window.location='/fees/{{ a.id }}'">
           <td style="font-weight:600;">{{ a.psp_name }}</td>
           <td style="color:var(--text-2);">{{ a.provider_name or '—' }}</td>
           <td style="color:var(--text-2);">{{ a.agreement_entity or '—' }}</td>
@@ -129,6 +171,11 @@
           <td class="num">{{ a.rule_count }}</td>
         </tr>
         {% endfor %}
+        <tr id="no-results-historical" style="display:none;">
+          <td colspan="7" class="empty" style="padding:32px;color:var(--muted);">
+            No terminated agreements match your search.
+          </td>
+        </tr>
       </tbody>
     </table>
   </div>
@@ -161,11 +208,59 @@
 </div>
 
 <script>
+var _totalActive     = {{ agreements|length }};
+var _totalHistorical = {{ terminated|length }};
+var _searchQuery     = '';
+
 function switchTab(name) {
   document.getElementById('tab-active').style.display     = name === 'active'     ? '' : 'none';
   document.getElementById('tab-historical').style.display = name === 'historical' ? '' : 'none';
   document.getElementById('tab-active-btn').classList.toggle('active',     name === 'active');
   document.getElementById('tab-historical-btn').classList.toggle('active', name === 'historical');
+  // Re-apply filter on tab switch
+  if (_searchQuery) filterAgreements(_searchQuery);
+}
+
+function filterAgreements(q) {
+  _searchQuery = q.toLowerCase().trim();
+  var clearBtn = document.getElementById('feesSearchClear');
+  if (clearBtn) clearBtn.style.display = _searchQuery ? 'block' : 'none';
+
+  _filterTbody('tbody-active',     'meta-active',     'no-results-active',
+               _totalActive,     ' active agreement');
+  _filterTbody('tbody-historical', 'meta-historical', 'no-results-historical',
+               _totalHistorical, ' terminated agreement');
+}
+
+function _filterTbody(tbodyId, metaId, noResultsId, total, label) {
+  var tbody  = document.getElementById(tbodyId);
+  var noRow  = document.getElementById(noResultsId);
+  var metaEl = document.getElementById(metaId);
+  if (!tbody) return;
+
+  var rows    = tbody.querySelectorAll('tr[data-searchable]');
+  var visible = 0;
+  rows.forEach(function(tr) {
+    var match = !_searchQuery || tr.dataset.searchable.indexOf(_searchQuery) !== -1;
+    tr.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+
+  if (noRow) noRow.style.display = (visible === 0 && _searchQuery) ? '' : 'none';
+
+  if (metaEl) {
+    if (_searchQuery && visible !== total) {
+      metaEl.textContent = visible + ' of ' + total + label + (total !== 1 ? 's' : '') + ' match';
+    } else {
+      metaEl.textContent = total + label + (total !== 1 ? 's' : '');
+    }
+  }
+}
+
+function clearSearch() {
+  var inp = document.getElementById('feesSearch');
+  if (inp) inp.value = '';
+  filterAgreements('');
 }
 
 // If redirected back after terminating, switch to historical tab
