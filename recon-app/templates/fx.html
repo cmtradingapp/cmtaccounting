@@ -5,23 +5,24 @@
   /* ── Layout ─────────────────────────────────────────────────── */
   .fx-layout {
     display: grid;
-    grid-template-columns: 1fr 380px;
-    gap: var(--sp-4);
+    grid-template-columns: 1fr 420px;
+    gap: var(--sp-5);
     align-items: start;
   }
 
   /* ── Control bar ─────────────────────────────────────────────── */
   .ctrl-bar {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
-    margin-bottom: var(--sp-3);
-    padding: 10px 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px 14px;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius-md);
   }
   .ctrl-group { display: flex; align-items: center; gap: 6px; }
+  .ctrl-sep { display: none; }
   .ctrl-label {
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .08em; color: var(--muted); white-space: nowrap;
+    width: 90px; flex-shrink: 0;
   }
   .ctrl-sep { width: 1px; height: 20px; background: var(--border); }
   .ctrl-btn {
@@ -55,7 +56,7 @@
   }
   .fx-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 8px;
     margin-bottom: 4px;
   }
@@ -120,7 +121,7 @@
   /* ── Chart panel ─────────────────────────────────────────────── */
   .chart-panel {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius-md); padding: 20px 24px;
+    border-radius: var(--radius-md); padding: 16px 18px;
     position: sticky; top: 24px;
   }
   .chart-panel-header {
@@ -131,19 +132,24 @@
   .chart-mid-big     { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
   .chart-bid-ask     { font-size: 11px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 
-  .chart-timeframe {
-    display: flex; gap: 4px;
-  }
-  .chart-tf-btn {
-    font-size: 11px; font-weight: 600; padding: 3px 9px;
+  .chart-tf-btn, .chart-type-btn {
+    font-size: 11px; font-weight: 600; padding: 3px 8px;
     border-radius: 6px; border: 1px solid var(--border);
     background: transparent; color: var(--muted); cursor: pointer;
     transition: border-color .15s, color .15s, background .15s;
   }
-  .chart-tf-btn:hover  { color: var(--text); border-color: rgba(255,255,255,.15); }
-  .chart-tf-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(79,142,247,.08); }
+  .chart-tf-btn:hover,  .chart-type-btn:hover  { color: var(--text); border-color: rgba(255,255,255,.15); }
+  .chart-tf-btn.active, .chart-type-btn.active {
+    color: var(--accent); border-color: var(--accent); background: rgba(79,142,247,.08);
+  }
+  .chart-type-btn.active-candle { color: var(--yellow); border-color: var(--yellow); background: rgba(245,158,11,.08); }
 
-  .chart-wrap { position: relative; height: 260px; margin-top: 12px; }
+  .chart-wrap { position: relative; height: 340px; margin-top: 12px; }
+  #fxChart    { width: 100%; height: 340px; }
+  .chart-empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--muted); pointer-events: none;
+  }
 
   /* ── Footer strip ────────────────────────────────────────────── */
   .fx-footer {
@@ -164,29 +170,30 @@
   <div style="font-size:12px;color:var(--muted);" id="lastUpdated"></div>
 </div>
 
+<!-- Control bar — full width above the grid -->
+{% set periods = [('5s','5s'),('10s','10s'),('30s','30s'),('1m','1m'),('5m','5m'),('15m','15m'),('1h','1h'),('4h','4h'),('1d','1D'),('1w','1W'),('1mo','1mo')] %}
+<div class="ctrl-bar" style="margin-bottom:var(--sp-3);">
+  <div class="ctrl-group">
+    <span class="ctrl-label">Update rate</span>
+    {% for r, lbl in periods %}
+    <button class="ctrl-btn {{ 'active' if r == '5s' }}"
+            onclick="setUpdateRate('{{ r }}', this)">{{ lbl }}</button>
+    {% endfor %}
+  </div>
+  <div class="ctrl-sep"></div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">% badge vs</span>
+    {% for p, lbl in periods %}
+    <button class="ctrl-btn {{ 'active' if p == '1h' }}"
+            onclick="setRefPeriod('{{ p }}', this)">{{ lbl }}</button>
+    {% endfor %}
+  </div>
+</div>
+
 <div class="fx-layout">
 
   <!-- LEFT: rate cards -->
   <div>
-    <!-- Control bar -->
-    <div class="ctrl-bar">
-      <div class="ctrl-group">
-        <span class="ctrl-label">Update rate</span>
-        {% for r, lbl in [('1s','1s'),('5s','5s'),('10s','10s'),('30s','30s'),('1m','1m'),('15m','15m'),('1h','1h')] %}
-        <button class="ctrl-btn {{ 'active' if r == '5s' }}"
-                onclick="setUpdateRate('{{ r }}', this)">{{ lbl }}</button>
-        {% endfor %}
-      </div>
-      <div class="ctrl-sep"></div>
-      <div class="ctrl-group">
-        <span class="ctrl-label">% badge vs</span>
-        {% for p, lbl in [('5s','5s'),('30s','30s'),('1m','1m'),('5m','5m'),('15m','15m'),('1h','1h'),('4h','4h'),('1d','1D'),('1w','1W'),('1mo','1mo')] %}
-        <button class="ctrl-btn {{ 'active' if p == '1h' }}"
-                onclick="setRefPeriod('{{ p }}', this)">{{ lbl }}</button>
-        {% endfor %}
-      </div>
-    </div>
-
     {% for group_name, symbols in fx_groups.items() %}
     <div class="fx-group-label">{{ group_name }}</div>
     <div class="fx-grid">
@@ -213,109 +220,116 @@
 
   <!-- RIGHT: chart panel -->
   <div class="chart-panel" id="chartPanel">
-    <div class="chart-panel-header">
-      <div>
-        <div class="chart-symbol-name" id="chartSymbol">—</div>
-        <div class="chart-mid-big" id="chartMid">—</div>
-        <div class="chart-bid-ask" id="chartBidAsk">Bid — · Ask —</div>
-      </div>
-      <div class="chart-timeframe">
-        <button class="chart-tf-btn active" onclick="setTimeframe(24,  this)">1D</button>
-        <button class="chart-tf-btn"        onclick="setTimeframe(72,  this)">3D</button>
-        <button class="chart-tf-btn"        onclick="setTimeframe(168, this)">1W</button>
-        <button class="chart-tf-btn"        onclick="setTimeframe(720, this)">1M</button>
+
+    <!-- Row 1: symbol + type toggle -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <div class="chart-symbol-name" id="chartSymbol">—</div>
+      <div style="display:flex;gap:4px;">
+        <button class="chart-type-btn"                        onclick="setChartType('line',   this)">— Line</button>
+        <button class="chart-type-btn active active-candle" onclick="setChartType('candle', this)">▪ Candle</button>
       </div>
     </div>
+
+    <!-- Row 2: big price -->
+    <div class="chart-mid-big" id="chartMid" style="margin-bottom:2px;">—</div>
+    <div class="chart-bid-ask" id="chartBidAsk" style="margin-bottom:10px;">Bid — · Ask —</div>
+
+    <!-- Row 3: timeframe buttons -->
+    <div style="display:flex;gap:4px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;">
+      {% for p, lbl in [('5m','5m'),('15m','15m'),('1h','1h'),('4h','4h'),('1d','1D'),('1w','1W'),('1mo','1mo')] %}
+      <button class="chart-tf-btn {{ 'active' if p == '1d' }}" style="flex-shrink:0;"
+              onclick="setChartPeriod('{{ p }}', this)">{{ lbl }}</button>
+      {% endfor %}
+    </div>
+
+    <!-- Chart area -->
     <div class="chart-wrap">
-      <canvas id="fxChart"></canvas>
+      <div id="fxChart"></div>
+      <div class="chart-empty" id="chartEmpty" style="display:none;"></div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center;" id="chartHint">
+
+    <div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;" id="chartHint">
       Click any rate card to view its chart
     </div>
   </div>
 
 </div>
 
-<!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<!-- TradingView Lightweight Charts — handles line + candlestick natively -->
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-var prevRates        = {};      // symbol → mid at last poll (for flash direction)
-var refPrices        = {};      // symbol → mid at period start (for % badge + tint)
-var currentRefPeriod = '1h';   // "% badge vs" period
-var currentInterval  = 5000;   // update rate in ms
+var prevRates        = {};
+var refPrices        = {};
+var currentRefPeriod = '1h';
+var currentInterval  = 5000;
 var currentSym       = null;
-var currentHours     = 24;
+var currentChartPeriod = '1d';
+var chartType        = 'candle';
 var refreshTimer     = null;
 var countdownInt     = null;
 var chart            = null;
 var lastChartRefresh = 0;
 
-// Update rate label → ms
-var UPDATE_RATES = { '1s':1000,'5s':5000,'10s':10000,'30s':30000,'1m':60000,'15m':900000,'1h':3600000 };
+var UPDATE_RATES = {
+  '5s':5000,'10s':10000,'30s':30000,
+  '1m':60000,'5m':300000,'15m':900000,
+  '1h':3600000,'4h':14400000,'1d':86400000,'1w':604800000,'1mo':2592000000
+};
 
 // Symbols list from template
 var allSymbols = {{ fx_groups.values() | map('list') | sum(start=[]) | tojson }};
 
-// ── Chart initialisation ───────────────────────────────────────────────────
-var ctx = document.getElementById('fxChart').getContext('2d');
-chart = new Chart(ctx, {
-  type: 'line',
-  data: { labels: [], datasets: [{
-    data: [], borderColor: '#4f8ef7', borderWidth: 2,
-    backgroundColor: 'rgba(79,142,247,.08)',
-    pointRadius: 0, pointHoverRadius: 4,
-    tension: 0.3, fill: true,
-  }]},
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(22,25,32,.95)',
-        borderColor: 'rgba(79,142,247,.3)', borderWidth: 1,
-        titleColor: '#94a3b8', bodyColor: '#e2e8f0',
-        padding: 10,
-        callbacks: {
-          label: function(ctx) { return ' ' + ctx.parsed.y.toFixed(5); }
-        }
-      }
-    },
-    scales: {
-      x: {
-        grid: { color: 'rgba(255,255,255,.04)' },
-        ticks: { color: '#64748b', maxTicksLimit: 8, font: { size: 11 },
-                 callback: function(v, i) { return this.getLabelForValue(v); } }
-      },
-      y: {
-        grid: { color: 'rgba(255,255,255,.04)' },
-        ticks: { color: '#64748b', font: { size: 11 },
-                 callback: function(v) { return v.toFixed(4); } },
-        position: 'right'
-      }
-    }
+// ── Lightweight Charts (TradingView) ───────────────────────────────────────
+var lwChart  = null;   // LightweightCharts chart instance
+var lwSeries = null;   // active series (area or candlestick)
+
+var _lwBaseOpts = {
+  layout:    { background: { type: 'solid', color: 'transparent' }, textColor: '#64748b' },
+  grid:      { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
+  crosshair: { mode: 1 },
+  rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.1, bottom: 0.05 } },
+  timeScale:       { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false,
+                     rightOffset: 2, fixLeftEdge: true },
+  handleScroll:    { vertTouchDrag: false },
+  handleScale:     { axisPressedMouseMove: { time: true, price: false } },
+};
+
+function initChart(type) {
+  var el = document.getElementById('fxChart');
+  if (lwChart) { lwChart.remove(); lwChart = null; lwSeries = null; }
+
+  // autoSize lets the library read the container's CSS dimensions
+  lwChart = LightweightCharts.createChart(el, Object.assign({}, _lwBaseOpts, {
+    autoSize: true,
+  }));
+
+  if (type === 'candle') {
+    lwSeries = lwChart.addCandlestickSeries({
+      upColor:        '#22c55e', downColor:        '#ef4444',
+      borderUpColor:  '#22c55e', borderDownColor:  '#ef4444',
+      wickUpColor:    '#22c55e', wickDownColor:    '#ef4444',
+    });
+  } else {
+    lwSeries = lwChart.addAreaSeries({
+      lineColor:   '#4f8ef7', lineWidth: 2,
+      topColor:    'rgba(79,142,247,.18)',
+      bottomColor: 'rgba(79,142,247,0)',
+      crosshairMarkerVisible: true,
+      priceLineVisible: false,
+    });
   }
-});
+}
+
+// ts ISO string → unix seconds (lightweight-charts uses seconds)
+function isoToUnix(iso) { return Math.floor(new Date(iso).getTime() / 1000); }
 
 // ── Format helpers ─────────────────────────────────────────────────────────
 function formatMid(sym, val) {
   if (val == null) return '—';
-  // Crypto and big numbers: fewer decimals
   if (val > 1000) return val.toFixed(2);
   if (val > 10)   return val.toFixed(4);
   return val.toFixed(5);
-}
-
-function formatTS(iso) {
-  var d = new Date(iso);
-  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-}
-
-function formatHour(iso) {
-  var d = new Date(iso);
-  var mo = d.toLocaleString('en', {month:'short'});
-  return mo + ' ' + d.getDate() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12:false});
 }
 
 // ── Poll live rates + references in one call ──────────────────────────────
@@ -428,48 +442,96 @@ function resetCountdown() {
 // ── Symbol selection + chart ───────────────────────────────────────────────
 function selectSymbol(sym) {
   currentSym = sym;
-  // Highlight selected card
   document.querySelectorAll('.fx-card').forEach(function(c) { c.classList.remove('active'); });
   var card = document.getElementById('card-' + sym);
   if (card) card.classList.add('active');
-
   document.getElementById('chartSymbol').textContent = sym;
   document.getElementById('chartHint').style.display = 'none';
-
-  // Show current mid from already-polled data
   var mid = prevRates[sym];
   if (mid) document.getElementById('chartMid').textContent = formatMid(sym, mid);
-
-  loadChart(sym, currentHours);
+  loadChart(sym, currentChartPeriod);
 }
 
-function setTimeframe(hours, btn) {
-  currentHours = hours;
+function setChartPeriod(period, btn) {
+  currentChartPeriod = period;
   document.querySelectorAll('.chart-tf-btn').forEach(function(b) { b.classList.remove('active'); });
   btn.classList.add('active');
-  if (currentSym) loadChart(currentSym, hours);
+  if (currentSym) loadChart(currentSym, period);
 }
 
-function loadChart(sym, hours) {
-  fetch('/fx/api/history/' + sym + '?hours=' + hours)
+function setChartType(type, btn) {
+  chartType = type;
+  document.querySelectorAll('.chart-type-btn').forEach(function(b) {
+    b.classList.remove('active', 'active-candle');
+  });
+  btn.classList.add('active');
+  if (type === 'candle') btn.classList.add('active-candle');
+  initChart(type);
+  if (currentSym) loadChart(currentSym, currentChartPeriod);
+}
+
+function _setChartEmpty(msg) {
+  var el = document.getElementById('chartEmpty');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.display = msg ? 'flex' : 'none';
+}
+
+function _applyChartData(d) {
+  if (!lwSeries || !d || !d.length) { _setChartEmpty('No data for this period'); return; }
+  _setChartEmpty(null);
+
+  try {
+    if (chartType === 'candle') {
+      lwSeries.setData(d.map(function(p) {
+        return { time: isoToUnix(p.ts), open: p.o, high: p.h, low: p.l, close: p.c };
+      }));
+    } else {
+      var trendUp = d[d.length - 1].c >= d[0].c;
+      lwSeries.applyOptions({
+        lineColor:   trendUp ? '#22c55e' : '#ef4444',
+        topColor:    trendUp ? 'rgba(34,197,94,.2)'  : 'rgba(239,68,68,.15)',
+        bottomColor: trendUp ? 'rgba(34,197,94,0)'   : 'rgba(239,68,68,0)',
+      });
+      lwSeries.setData(d.map(function(p) {
+        return { time: isoToUnix(p.ts), value: p.c };
+      }));
+    }
+    if (lwChart) lwChart.timeScale().fitContent();
+    lastChartRefresh = Date.now();
+  } catch(e) {
+    _setChartEmpty('Chart error: ' + e.message);
+    console.error('lwchart error', e);
+  }
+}
+
+function loadChart(sym, period) {
+  _setChartEmpty('Loading…');
+  fetch('/fx/api/ohlc/' + sym + '?period=' + period)
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.error || !data.data) return;
-      var labels = data.data.map(function(d) { return formatHour(d.ts); });
-      var vals   = data.data.map(function(d) { return d.mid; });
-
-      // Dynamic colour based on first vs last value
-      var trendUp = vals.length > 1 && vals[vals.length-1] >= vals[0];
-      var col  = trendUp ? '#22c55e' : '#ef4444';
-      var fill = trendUp ? 'rgba(34,197,94,.07)' : 'rgba(239,68,68,.06)';
-
-      chart.data.labels = labels;
-      chart.data.datasets[0].data   = vals;
-      chart.data.datasets[0].borderColor     = col;
-      chart.data.datasets[0].backgroundColor = fill;
-      chart.update('none');  // no animation for smooth refresh
+      if (data.error) {
+        // OHLC failed — fall back to hourly history for line charts
+        if (chartType !== 'candle') {
+          var hrs = {'5m':1,'15m':2,'1h':4,'4h':12,'1d':24,'1w':168,'1mo':720};
+          var h = hrs[period] || 24;
+          fetch('/fx/api/history/' + sym + '?hours=' + h)
+            .then(function(r) { return r.json(); })
+            .then(function(hdata) {
+              if (!hdata.data || !hdata.data.length) { _setChartEmpty('No data'); return; }
+              // Wrap history mid values as close prices
+              _applyChartData(hdata.data.map(function(p) {
+                return { ts: p.ts, o: p.mid, h: p.mid, l: p.mid, c: p.mid };
+              }));
+            }).catch(function() { _setChartEmpty('Failed to load'); });
+        } else {
+          _setChartEmpty('Error: ' + data.error);
+        }
+        return;
+      }
+      _applyChartData(data.data);
     })
-    .catch(function() {});
+    .catch(function(e) { _setChartEmpty('Network error'); console.error(e); });
 }
 
 // ── Tick function (called by interval) ────────────────────────────────────
@@ -477,14 +539,13 @@ function tick() {
   pollRates();
   // Refresh chart on a slower cadence (every 30s) to avoid flicker
   if (currentSym && (Date.now() - lastChartRefresh > 28000)) {
-    loadChart(currentSym, currentHours);
-    lastChartRefresh = Date.now();
+    loadChart(currentSym, currentChartPeriod);
   }
 }
 
 // ── Start ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
-  // First poll immediately — rates endpoint now returns references too
+  initChart('candle'); // create chart now that the div is in the DOM
   pollRates();
   refreshTimer = setInterval(tick, currentInterval);
   if (allSymbols.length > 0) {
