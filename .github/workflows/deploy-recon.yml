@@ -13,38 +13,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Copy and rebuild on server
-        uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 213.199.45.213
-          port: 22
-          username: root
-          password: ${{ secrets.SERVER_PASS }}
-          script_stop: true
-          script: |
-            mkdir -p /root/recon-app/templates
-            find /root/recon-app -name '*.py' -o -name '*.html' -o -name '*.txt' -o -name '*.yml' | xargs rm -f
+          fetch-depth: 2   # need HEAD~1 for requirements diff check
 
-      - name: Upload files
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: 213.199.45.213
-          port: 22
-          username: root
-          password: ${{ secrets.SERVER_PASS }}
-          source: "recon-app/"
-          target: "/root/"
+      - name: Rsync files to server
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASS }}
+        run: |
+          # sshpass lets us use password auth without interactive prompt
+          sudo apt-get install -y -q sshpass
 
-      - name: Rebuild container
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: 213.199.45.213
-          port: 22
-          username: root
-          password: ${{ secrets.SERVER_PASS }}
-          script_stop: true
-          script: |
-            cd /root/recon-app
-            docker compose up -d --build
-            docker compose ps
+          # rsync: only transfers changed files, skips DB and secrets
+          sshpass -e rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            --exclude='fees.db' \
+            --exclude='.env' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='*.db-shm' \
+            --exclude='*.db-wal' \
+            recon-app/ root@213.199.45.213:/root/recon-app/
+
+      - name: Restart or rebuild container
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASS }}
+        run: |
+          # Only rebuild the image when dependencies actually changed.
+          # Otherwise a plain restart is ~10x faster.
+          if git diff HEAD~1 HEAD -- recon-app/requirements.txt | grep -q .; then
+            echo "requirements.txt changed — full rebuild"
+            sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
+              "cd /root/recon-app && docker compose up -d --build && docker compose ps"
+          else
+            echo "Code-only change — fast restart"
+            sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
+              "docker restart recon-app-recon-1 && docker ps --filter name=recon-app-recon-1 --format '{{.Status}}'"
+          fi
