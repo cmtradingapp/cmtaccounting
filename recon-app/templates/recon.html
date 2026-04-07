@@ -17,13 +17,26 @@
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
-    <select onchange="window.location.href = '/recon/' + this.value + '?status={{ status_filter }}'" style="width:160px;">
+    <select onchange="window.location.href = '/recon/' + this.value + '?status={{ status_filter }}&hide_noncash={{ '1' if hide_noncash else '0' }}'" style="width:160px;">
       {% for m in months %}
       <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
       {% endfor %}
     </select>
     <a class="btn btn-primary" href="/recon/{{ month }}/export">↓ Export Excel</a>
+    <form method="POST" action="/recon/{{ month }}/refresh" style="display:contents;">
+      <input type="hidden" name="status"       value="{{ status_filter }}">
+      <input type="hidden" name="hide_noncash" value="{{ '1' if hide_noncash else '0' }}">
+      <button type="submit" class="btn" title="Force re-query from DB">↺ Refresh</button>
+    </form>
   </div>
+  {% if cache_age is not none %}
+  <div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:right;">
+    Cached
+    {% if cache_age < 60 %}{{ cache_age }}s ago
+    {% else %}{{ (cache_age // 60) }}m {{ cache_age % 60 }}s ago{% endif %}
+    &middot; refreshes automatically after 5 min
+  </div>
+  {% endif %}
 </div>
 
 <div class="stats-grid">
@@ -59,11 +72,26 @@
   <span class="legend-item noncash">Non-cash</span> Bonus, Commission, Transfer, Credit, Fee — visible but excluded from match
 </div>
 
-<div class="filter-bar">
-  {% for f, label in [('all','All'), ('matched','Matched'), ('discrepancy','Discrepancy'), ('mt4_only','MT4 Only'), ('crm_only','CRM Only')] %}
-  <a class="filter-btn {% if status_filter == f %}active{% endif %}"
-     href="/recon/{{ month }}?status={{ f }}">{{ label }}</a>
-  {% endfor %}
+{% set nc = '1' if hide_noncash else '0' %}
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:var(--sp-3);">
+  <div class="filter-bar" style="margin-bottom:0;">
+    {% for f, label in [('all','All'), ('matched','Matched'), ('discrepancy','Discrepancy'), ('mt4_only','MT4 Only'), ('crm_only','CRM Only')] %}
+    <a class="filter-btn {% if status_filter == f %}active{% endif %}"
+       href="/recon/{{ month }}?status={{ f }}&hide_noncash={{ nc }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <a href="/recon/{{ month }}?status={{ status_filter }}&hide_noncash={{ '0' if hide_noncash else '1' }}"
+     style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;text-decoration:none;
+            font-size:12px;font-weight:500;padding:4px 10px;border-radius:999px;
+            border:1px solid {{ 'var(--accent)' if hide_noncash else 'var(--border)' }};
+            color:{{ 'var(--accent)' if hide_noncash else 'var(--muted)' }};
+            transition:border-color .15s,color .15s;">
+    <span style="width:14px;height:14px;border-radius:3px;border:1.5px solid currentColor;
+                 display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">
+      {% if hide_noncash %}<span style="font-size:10px;line-height:1;">✓</span>{% endif %}
+    </span>
+    Deposits &amp; withdrawals only
+  </a>
 </div>
 
 <div class="table-wrap">
@@ -105,7 +133,7 @@
             {% if r.abs_diff >= 0.01 %}{{ "{:+,.2f}".format(r.difference) }}{% else %}—{% endif %}
           </td>
           <td><span class="badge {{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
-          <td class="methods" title="{{ r.payment_methods }}">{{ r.payment_methods or '—' }}</td>
+          <td class="methods" title="{{ r.payment_methods }}">{{ r.cash_methods or '—' }}</td>
           <td class="num">{{ r.tx_count or '—' }}</td>
           <td>{{ r.currency }}</td>
         </tr>
