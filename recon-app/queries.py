@@ -233,6 +233,8 @@ def login_mt4_detail(year: int, month: int, login: int):
 def ensure_fee_tables():
     _ensure_fee_tables_core()
     _ensure_prompt_tables()
+    _ensure_context_notes_table()
+    _ensure_amendment_tables()
 
 
 def _ensure_prompt_tables():
@@ -249,11 +251,57 @@ def _ensure_prompt_tables():
                 updated_at  TEXT DEFAULT (datetime('now'))
             );
         """)
+        # Migration: add prompt_type column if it doesn't exist yet
+        try:
+            conn.execute(
+                "ALTER TABLE prompt_templates ADD COLUMN prompt_type TEXT DEFAULT 'agreement'"
+            )
+        except Exception:
+            pass  # column already exists
+
+        # Migration: add is_builtin column (built-in templates are read-only)
+        try:
+            conn.execute(
+                "ALTER TABLE prompt_templates ADD COLUMN is_builtin INTEGER DEFAULT 0"
+            )
+        except Exception:
+            pass  # column already exists
+
         existing = conn.execute("SELECT COUNT(*) FROM prompt_templates").fetchone()[0]
         if existing == 0:
             conn.execute(
-                "INSERT INTO prompt_templates (name, system_prompt, is_default) VALUES (?, ?, 1)",
+                "INSERT INTO prompt_templates (name, system_prompt, is_default, prompt_type, is_builtin) VALUES (?, ?, 1, 'agreement', 1)",
                 ("Default — Standard Fee Agreement Parser", ai_parse.SYSTEM_PROMPT),
+            )
+
+        # Ensure every type has at least one default
+        for ptype in ("agreement", "amendment"):
+            has_default = conn.execute(
+                "SELECT COUNT(*) FROM prompt_templates WHERE prompt_type=? AND is_default=1",
+                (ptype,)
+            ).fetchone()[0]
+            if not has_default:
+                # Promote the first template of that type to default
+                conn.execute("""
+                    UPDATE prompt_templates SET is_default = 1
+                    WHERE id = (SELECT id FROM prompt_templates WHERE prompt_type=? ORDER BY id LIMIT 1)
+                """, (ptype,))
+
+        # Seed default amendment template if none exists
+        amend_count = conn.execute(
+            "SELECT COUNT(*) FROM prompt_templates WHERE prompt_type = 'amendment'"
+        ).fetchone()[0]
+        if amend_count == 0:
+            conn.execute(
+                "INSERT INTO prompt_templates (name, system_prompt, is_default, prompt_type, is_builtin) VALUES (?, ?, 1, 'amendment', 1)",
+                ("Default — Amendment Parser", ai_parse.AMENDMENT_SYSTEM_PROMPT),
+            )
+
+        # Ensure existing seeded templates are marked is_builtin if they were created before the column existed
+        for builtin_name in ("Default — Standard Fee Agreement Parser", "Default — Amendment Parser"):
+            conn.execute(
+                "UPDATE prompt_templates SET is_builtin=1 WHERE name=? AND is_builtin=0",
+                (builtin_name,)
             )
 
 
@@ -262,8 +310,8 @@ def _ensure_prompt_tables():
 def get_prompt_templates():
     with fees_db() as conn:
         rows = conn.execute(
-            "SELECT id, name, is_default, created_at, updated_at "
-            "FROM prompt_templates ORDER BY is_default DESC, name"
+            "SELECT id, name, is_default, prompt_type, is_builtin, created_at, updated_at "
+            "FROM prompt_templates ORDER BY is_builtin DESC, prompt_type, is_default DESC, name"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -284,32 +332,263 @@ def get_default_prompt_template():
         return dict(row) if row else None
 
 
-def create_prompt_template(name: str, system_prompt: str) -> int:
+def create_prompt_template(name: str, system_prompt: str, prompt_type: str = "agreement") -> int:
     with fees_db() as conn:
         cur = conn.execute(
-            "INSERT INTO prompt_templates (name, system_prompt) VALUES (?, ?)",
-            (name, system_prompt),
+            "INSERT INTO prompt_templates (name, system_prompt, prompt_type) VALUES (?, ?, ?)",
+            (name, system_prompt, prompt_type),
         )
         return cur.lastrowid
 
 
-def update_prompt_template(template_id: int, name: str, system_prompt: str):
+def update_prompt_template(template_id: int, name: str, system_prompt: str, prompt_type: str = "agreement"):
     with fees_db() as conn:
         conn.execute(
-            "UPDATE prompt_templates SET name=?, system_prompt=?, updated_at=datetime('now') WHERE id=?",
-            (name, system_prompt, template_id),
+            "UPDATE prompt_templates SET name=?, system_prompt=?, prompt_type=?, updated_at=datetime('now') WHERE id=?",
+            (name, system_prompt, prompt_type, template_id),
         )
 
 
 def set_default_prompt_template(template_id: int):
     with fees_db() as conn:
-        conn.execute("UPDATE prompt_templates SET is_default = 0")
+        # Determine the type of the template being set as default
+        row = conn.execute(
+            "SELECT prompt_type FROM prompt_templates WHERE id = ?", (template_id,)
+        ).fetchone()
+        if row:
+            # Only clear the default flag within the same type
+            conn.execute(
+                "UPDATE prompt_templates SET is_default = 0 WHERE prompt_type = ?",
+                (row["prompt_type"],)
+            )
         conn.execute("UPDATE prompt_templates SET is_default = 1 WHERE id = ?", (template_id,))
 
 
 def delete_prompt_template(template_id: int):
     with fees_db() as conn:
         conn.execute("DELETE FROM prompt_templates WHERE id = ?", (template_id,))
+
+
+# --- Context Notes ---
+
+def _ensure_context_notes_table():
+    with fees_db() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS context_notes (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                label        TEXT NOT NULL,
+                text         TEXT NOT NULL,
+                use_count    INTEGER DEFAULT 0,
+                created_at   TEXT DEFAULT (datetime('now')),
+                last_used_at TEXT
+            );
+        """)
+        # Migration: add note_type column if missing
+        try:
+            conn.execute(
+                "ALTER TABLE context_notes ADD COLUMN note_type TEXT DEFAULT 'agreement'"
+            )
+        except Exception:
+            pass  # column already exists
+
+
+def _ensure_amendment_tables():
+    """Create amendment history and upload-cache tables; migrate agreements to store files."""
+    with fees_db() as conn:
+        conn.executescript("""
+            -- Temporary cache: holds uploaded file between /fees/upload POST and confirm POST
+            CREATE TABLE IF NOT EXISTS amendment_upload_cache (
+                token       TEXT PRIMARY KEY,
+                filename    TEXT,
+                file_data   BLOB,
+                created_at  TEXT DEFAULT (datetime('now'))
+            );
+
+            -- Permanent amendment log
+            CREATE TABLE IF NOT EXISTS psp_amendments (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                agreement_id    INTEGER NOT NULL REFERENCES psp_agreements(id),
+                addendum_date   TEXT,
+                applied_at      TEXT DEFAULT (datetime('now')),
+                filename        TEXT,
+                file_data       BLOB,
+                notes           TEXT,
+                changes_applied INTEGER DEFAULT 0
+            );
+
+            -- Per-rule change snapshot within an amendment
+            CREATE TABLE IF NOT EXISTS psp_amendment_changes (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                amendment_id    INTEGER NOT NULL REFERENCES psp_amendments(id),
+                action          TEXT NOT NULL,
+                fee_rule_id     INTEGER,
+                old_payment_method  TEXT, old_fee_type TEXT, old_country TEXT,
+                old_fee_kind        TEXT, old_pct_rate REAL,
+                old_fixed_amount    REAL, old_fixed_currency TEXT, old_description TEXT,
+                new_payment_method  TEXT, new_fee_type TEXT, new_country TEXT,
+                new_fee_kind        TEXT, new_pct_rate REAL,
+                new_fixed_amount    REAL, new_fixed_currency TEXT, new_description TEXT
+            );
+        """)
+        # Migrate psp_agreements to store initial agreement file
+        for col in ("agr_filename TEXT", "agr_file_data BLOB"):
+            try:
+                conn.execute(f"ALTER TABLE psp_agreements ADD COLUMN {col}")
+            except Exception:
+                pass
+        # Expire old cache entries (> 24 h)
+        conn.execute(
+            "DELETE FROM amendment_upload_cache "
+            "WHERE created_at < datetime('now', '-1 day')"
+        )
+
+
+# --- Amendment history ---
+
+def cache_upload(token: str, filename: str, file_data: bytes):
+    with fees_db() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO amendment_upload_cache (token, filename, file_data) VALUES (?, ?, ?)",
+            (token, filename, file_data)
+        )
+
+
+def pop_upload_cache(token: str):
+    """Return (filename, file_data) and delete the cache entry."""
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT filename, file_data FROM amendment_upload_cache WHERE token=?", (token,)
+        ).fetchone()
+        if row:
+            conn.execute("DELETE FROM amendment_upload_cache WHERE token=?", (token,))
+            return row["filename"], bytes(row["file_data"])
+    return None, None
+
+
+def create_amendment_record(agreement_id, addendum_date, filename, file_data, notes, changes_applied):
+    with fees_db() as conn:
+        cur = conn.execute("""
+            INSERT INTO psp_amendments
+              (agreement_id, addendum_date, filename, file_data, notes, changes_applied)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (agreement_id, addendum_date, filename, file_data, notes, changes_applied))
+        return cur.lastrowid
+
+
+def add_amendment_change(amendment_id, action, fee_rule_id, old_rule, new_rule):
+    def _r(d, k): return (d or {}).get(k)
+    with fees_db() as conn:
+        conn.execute("""
+            INSERT INTO psp_amendment_changes
+              (amendment_id, action, fee_rule_id,
+               old_payment_method, old_fee_type, old_country, old_fee_kind,
+               old_pct_rate, old_fixed_amount, old_fixed_currency, old_description,
+               new_payment_method, new_fee_type, new_country, new_fee_kind,
+               new_pct_rate, new_fixed_amount, new_fixed_currency, new_description)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            amendment_id, action, fee_rule_id,
+            _r(old_rule,"payment_method"), _r(old_rule,"fee_type"), _r(old_rule,"country"),
+            _r(old_rule,"fee_kind"), _r(old_rule,"pct_rate"),
+            _r(old_rule,"fixed_amount"), _r(old_rule,"fixed_currency"), _r(old_rule,"description"),
+            _r(new_rule,"payment_method"), _r(new_rule,"fee_type"), _r(new_rule,"country"),
+            _r(new_rule,"fee_kind"), _r(new_rule,"pct_rate"),
+            _r(new_rule,"fixed_amount"), _r(new_rule,"fixed_currency"), _r(new_rule,"description"),
+        ))
+
+
+def get_amendments(agreement_id):
+    with fees_db() as conn:
+        rows = conn.execute("""
+            SELECT id, addendum_date, applied_at, filename, notes, changes_applied
+            FROM psp_amendments WHERE agreement_id=? ORDER BY applied_at DESC
+        """, (agreement_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_amendment(amendment_id):
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM psp_amendments WHERE id=?", (amendment_id,)
+        ).fetchone()
+        if not row:
+            return None
+        amend = dict(row)
+        amend.pop("file_data", None)  # don't return blob in normal fetch
+        changes = conn.execute(
+            "SELECT * FROM psp_amendment_changes WHERE amendment_id=? ORDER BY id",
+            (amendment_id,)
+        ).fetchall()
+        amend["changes"] = [dict(c) for c in changes]
+        return amend
+
+
+def get_amendment_file(amendment_id):
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT filename, file_data FROM psp_amendments WHERE id=?", (amendment_id,)
+        ).fetchone()
+        if row and row["file_data"]:
+            return row["filename"], bytes(row["file_data"])
+    return None, None
+
+
+def save_agreement_file(agreement_id, filename, file_data):
+    with fees_db() as conn:
+        conn.execute(
+            "UPDATE psp_agreements SET agr_filename=?, agr_file_data=? WHERE id=?",
+            (filename, file_data, agreement_id)
+        )
+
+
+def get_agreement_file(agreement_id):
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT agr_filename, agr_file_data FROM psp_agreements WHERE id=?",
+            (agreement_id,)
+        ).fetchone()
+        if row and row["agr_file_data"]:
+            return row["agr_filename"], bytes(row["agr_file_data"])
+    return None, None
+
+
+def get_context_notes():
+    """Return all notes sorted by type then use_count desc, with usage_pct calculated."""
+    with fees_db() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM context_notes ORDER BY note_type, use_count DESC, label"
+        ).fetchall()]
+    total = sum(r["use_count"] for r in rows) or 1
+    for r in rows:
+        r["usage_pct"] = round(r["use_count"] / total * 100, 1)
+        r.setdefault("note_type", "agreement")
+    return rows
+
+
+def save_context_note(label: str, text: str, note_type: str = "agreement") -> int:
+    with fees_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO context_notes (label, text, note_type) VALUES (?, ?, ?)",
+            (label, text, note_type)
+        )
+        return cur.lastrowid
+
+
+def delete_context_note(note_id: int):
+    with fees_db() as conn:
+        conn.execute("DELETE FROM context_notes WHERE id = ?", (note_id,))
+
+
+def increment_context_note_usage(note_ids: list):
+    if not note_ids:
+        return
+    with fees_db() as conn:
+        placeholders = ",".join("?" * len(note_ids))
+        conn.execute(
+            f"UPDATE context_notes SET use_count = use_count + 1, "
+            f"last_used_at = datetime('now') WHERE id IN ({placeholders})",
+            note_ids,
+        )
 
 
 def _ensure_fee_tables_core():
@@ -407,7 +686,12 @@ def get_terminated_agreements():
 
 def get_agreement(psp_id):
     with fees_db() as conn:
-        row = conn.execute("SELECT * FROM psp_agreements WHERE id = ?", (psp_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id, psp_name, provider_name, agreement_entity, agreement_date, "
+            "addendum_date, auto_settlement, settlement_bank, active, "
+            "agr_filename, created_at, updated_at "
+            "FROM psp_agreements WHERE id = ?", (psp_id,)
+        ).fetchone()
         return dict(row) if row else None
 
 
@@ -441,6 +725,14 @@ def delete_agreement(psp_id):
         conn.execute("UPDATE psp_agreements SET active = 0 WHERE id = ?", (psp_id,))
 
 
+def update_addendum_date(psp_id, addendum_date):
+    with fees_db() as conn:
+        conn.execute(
+            "UPDATE psp_agreements SET addendum_date=?, updated_at=datetime('now') WHERE id=?",
+            (addendum_date, psp_id)
+        )
+
+
 # --- Fee Rules ---
 
 def get_fee_rules(agreement_id):
@@ -466,6 +758,12 @@ def get_fee_rules(agreement_id):
         for r in rules:
             r["tiers"] = tiers_by_rule.get(r["id"], [])
         return rules
+
+
+def get_fee_rule(rule_id):
+    with fees_db() as conn:
+        row = conn.execute("SELECT * FROM psp_fee_rules WHERE id=?", (rule_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def create_fee_rule(agreement_id, data):
