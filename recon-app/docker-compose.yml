@@ -37,6 +37,8 @@ services:
       - FEES_PG_DB=fees
       - FEES_PG_USER=fees
       - FEES_PG_PASS=FeesLive2026!
+    volumes:
+      - /root/recon-app:/app   # mount source → container; rsync + restart is sufficient
     networks:
       - recon_net
       - backoffice_net
