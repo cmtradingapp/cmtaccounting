@@ -4,3 +4,4 @@ openpyxl==3.1.5
 python-dotenv==1.0.1
 python-docx
 pdfplumber
+anthropic

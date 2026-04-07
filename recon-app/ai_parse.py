@@ -1,5 +1,5 @@
 """
-Document text extraction + OpenRouter AI analysis for PSP agreements.
+Document text extraction + Anthropic Claude AI analysis for PSP agreements.
 
 The FEES system schema this module targets:
   psp_agreements  — one row per PSP
@@ -9,20 +9,10 @@ The FEES system schema this module targets:
 import io
 import os
 import json
-import requests
+import anthropic
 
-OPENROUTER_KEY   = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
-
-# Models that support json_schema structured outputs (strict validation).
-# All others fall back to json_object mode (valid JSON guaranteed, schema not enforced by API).
-_SCHEMA_CAPABLE_MODELS = {
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "openai/gpt-4.1",
-    "openai/gpt-4.1-mini",
-    "openai/o3-mini",
-}
+ANTHROPIC_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 # Head+tail strategy: 4 k of agreement header + 12 k of tail (where fee schedules live)
 HEAD_CHARS = 4_000
@@ -364,14 +354,6 @@ _OUTPUT_SCHEMA = {
 }
 
 
-def _response_format() -> dict:
-    """Return the appropriate response_format dict for the configured model."""
-    if OPENROUTER_MODEL in _SCHEMA_CAPABLE_MODELS:
-        return {"type": "json_schema", "json_schema": _OUTPUT_SCHEMA}
-    # Fallback: guarantees valid JSON syntax but doesn't enforce schema shape.
-    return {"type": "json_object"}
-
-
 # ── Text extraction ────────────────────────────────────────────────────────
 
 def extract_text(file_bytes: bytes, filename: str) -> str:
@@ -447,19 +429,33 @@ def _normalise_rule(rule: dict) -> dict:
 
 # ── Main API call ──────────────────────────────────────────────────────────
 
+def _call_claude(system_prompt: str, user_msg: str) -> str:
+    """Call Claude and return the raw text response. Uses prefill to force JSON output."""
+    if not ANTHROPIC_KEY:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is not set. "
+            "Add it to recon-app/.env: ANTHROPIC_API_KEY=sk-ant-..."
+        )
+    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    message = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=4096,
+        temperature=0.0,
+        system=system_prompt,
+        messages=[
+            {"role": "user",      "content": user_msg},
+            {"role": "assistant", "content": "{"},   # prefill forces JSON output
+        ],
+    )
+    # The model continues from the prefilled "{", so prepend it back
+    return "{" + message.content[0].text
+
+
 def analyze_agreement(text: str, system_prompt: str = None) -> dict:
     """
-    Send extracted agreement text to OpenRouter and return a normalised dict:
+    Send extracted agreement text to Claude and return a normalised dict:
       { "agreement": {...}, "fee_rules": [...] }
-
-    Raises RuntimeError / requests.HTTPError on failure.
     """
-    if not OPENROUTER_KEY:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. "
-            "Add it to recon-app/.env: OPENROUTER_API_KEY=sk-or-..."
-        )
-
     active_prompt = system_prompt or SYSTEM_PROMPT
     trimmed = _smart_truncate(text)
 
@@ -478,30 +474,8 @@ def analyze_agreement(text: str, system_prompt: str = None) -> dict:
         "Return ONLY the JSON object. No markdown, no commentary."
     )
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization":  f"Bearer {OPENROUTER_KEY}",
-            "Content-Type":   "application/json",
-            "HTTP-Referer":   "https://cmtaccounting.internal",
-            "X-Title":        "CMT PSP Fee Parser",
-        },
-        json={
-            "model":   OPENROUTER_MODEL,
-            "messages": [
-                {"role": "system", "content": active_prompt},
-                {"role": "user",   "content": user_msg},
-            ],
-            "response_format": _response_format(),
-            "temperature": 0.0,   # deterministic — we want no creativity here
-            "max_tokens":  4096,
-        },
-        timeout=120,
-    )
-    response.raise_for_status()
-
-    raw     = response.json()["choices"][0]["message"]["content"]
-    result  = json.loads(raw)
+    raw    = _call_claude(active_prompt, user_msg)
+    result = json.loads(raw)
 
     result.setdefault("agreement", {})
     result.setdefault("fee_rules", [])
@@ -731,24 +705,12 @@ _AMENDMENT_SCHEMA = {
 }
 
 
-def _amendment_response_format() -> dict:
-    if OPENROUTER_MODEL in _SCHEMA_CAPABLE_MODELS:
-        return {"type": "json_schema", "json_schema": _AMENDMENT_SCHEMA}
-    return {"type": "json_object"}
-
-
 def analyze_amendment(text: str, system_prompt: str = None) -> dict:
     """
     Parse an amendment document and return:
       { "amendment": { "addendum_date": ..., "notes": ... },
         "rule_changes": [ { "action", "match_on", ...fee fields... }, ... ] }
     """
-    if not OPENROUTER_KEY:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. "
-            "Add it to recon-app/.env: OPENROUTER_API_KEY=sk-or-..."
-        )
-
     active_prompt = system_prompt or AMENDMENT_SYSTEM_PROMPT
     trimmed = _smart_truncate(text)
 
@@ -766,29 +728,7 @@ def analyze_amendment(text: str, system_prompt: str = None) -> dict:
         "Return ONLY the JSON object. No markdown, no commentary."
     )
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization":  f"Bearer {OPENROUTER_KEY}",
-            "Content-Type":   "application/json",
-            "HTTP-Referer":   "https://cmtaccounting.internal",
-            "X-Title":        "CMT PSP Amendment Parser",
-        },
-        json={
-            "model":   OPENROUTER_MODEL,
-            "messages": [
-                {"role": "system", "content": active_prompt},
-                {"role": "user",   "content": user_msg},
-            ],
-            "response_format": _amendment_response_format(),
-            "temperature": 0.0,
-            "max_tokens":  4096,
-        },
-        timeout=120,
-    )
-    response.raise_for_status()
-
-    raw    = response.json()["choices"][0]["message"]["content"]
+    raw    = _call_claude(active_prompt, user_msg)
     result = json.loads(raw)
 
     result.setdefault("amendment", {})
