@@ -99,6 +99,10 @@ def available_months():
 
 def crm_summary(year: int, month: int):
     """Per-login totals from CRM, split into cash vs non-cash."""
+    import datetime
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
     with backoffice() as cur:
         cur.execute("""
             SELECT
@@ -109,11 +113,11 @@ def crm_summary(year: int, month: int):
                 COUNT(*)          AS tx_count,
                 SUM(usdamount)    AS total_usd
             FROM vtiger_mttransactions
-            WHERE EXTRACT(YEAR  FROM confirmation_time) = %s
-              AND EXTRACT(MONTH FROM confirmation_time) = %s
+            WHERE confirmation_time >= %s
+              AND confirmation_time <  %s
               AND transactionapproval = 'Approved'
             GROUP BY login, transactiontype, payment_method, transactionapproval
-        """, (year, month))
+        """, (month_start, month_end))
         rows = cur.fetchall()
 
     summary = {}
@@ -152,7 +156,17 @@ def crm_summary(year: int, month: int):
 
 
 def mt4_summary(year: int, month: int):
-    """Per-login net deposit from dealio daily_profits."""
+    """Per-login net deposit from dealio daily_profits.
+    Uses an explicit date range so TimescaleDB can exclude irrelevant hypertable chunks.
+    EXTRACT()-based filtering scans ALL chunks and kills the replica at peak hours.
+    """
+    import datetime
+    month_start = datetime.date(year, month, 1)
+    if month == 12:
+        month_end = datetime.date(year + 1, 1, 1)
+    else:
+        month_end = datetime.date(year, month + 1, 1)
+
     with dealio() as cur:
         cur.execute("""
             SELECT
@@ -161,11 +175,11 @@ def mt4_summary(year: int, month: int):
                 groupcurrency,
                 AVG(conversionratio)     AS avg_fx
             FROM dealio.daily_profits
-            WHERE EXTRACT(YEAR  FROM date) = %s
-              AND EXTRACT(MONTH FROM date) = %s
+            WHERE date >= %s
+              AND date <  %s
               AND netdeposit != 0
             GROUP BY login, groupcurrency
-        """, (year, month))
+        """, (month_start, month_end))
         return {r["login"]: dict(r) for r in cur.fetchall()}
 
 
