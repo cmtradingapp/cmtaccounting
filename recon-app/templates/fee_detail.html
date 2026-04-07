@@ -213,6 +213,11 @@
 
       <div class="psp-card-actions">
         <button class="btn btn-ghost" onclick="toggleEdit()">✎ Edit Agreement</button>
+        <a class="btn" href="/fees/upload?psp_id={{ agreement.id }}">⬆ Upload Amendment</a>
+        <a class="btn" href="/fees/{{ agreement.id }}/amendments">📋 Amendment History</a>
+        {% if agreement.agr_filename %}
+        <a class="btn" href="/fees/{{ agreement.id }}/download-agreement">↓ Download Initial Agreement</a>
+        {% endif %}
         <div id="terminateArea">
           <button class="btn btn-danger" id="terminateBtn" onclick="showTerminateConfirm()">Terminate</button>
           <div id="terminateConfirm" style="display:none;">

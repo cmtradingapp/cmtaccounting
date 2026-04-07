@@ -165,7 +165,8 @@
   </div>
 
   <form method="POST" action="/fees/upload/confirm" id="confirmForm">
-    <input type="hidden" name="rule_count" id="ruleCount" value="{{ fee_rules|length }}">
+    <input type="hidden" name="rule_count"   id="ruleCount" value="{{ fee_rules|length }}">
+    <input type="hidden" name="cache_token"  value="{{ cache_token or '' }}">
 
     <!-- ── Agreement details ────────────────────────────────── -->
     <div class="section-title">Agreement Details</div>
