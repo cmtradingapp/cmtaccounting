@@ -164,6 +164,17 @@ def fx_api_rates():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/fx/api/ohlc/<symbol>")
+@require_recon_auth
+def fx_api_ohlc(symbol):
+    period = request.args.get("period", "1d")
+    try:
+        rows = queries.get_fx_ohlc(symbol, period)
+        return jsonify({"symbol": symbol, "period": period, "data": rows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/fx/api/history/<symbol>")
 @require_recon_auth
 def fx_api_history(symbol):
