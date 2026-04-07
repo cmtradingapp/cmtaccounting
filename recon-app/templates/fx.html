@@ -1,0 +1,496 @@
+{% extends "base.html" %}
+{% block title %} — FX Rates{% endblock %}
+{% block content %}
+<style>
+  /* ── Layout ─────────────────────────────────────────────────── */
+  .fx-layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: var(--sp-4);
+    align-items: start;
+  }
+
+  /* ── Control bar ─────────────────────────────────────────────── */
+  .ctrl-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+    margin-bottom: var(--sp-3);
+    padding: 10px 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .ctrl-group { display: flex; align-items: center; gap: 6px; }
+  .ctrl-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); white-space: nowrap;
+  }
+  .ctrl-sep { width: 1px; height: 20px; background: var(--border); }
+  .ctrl-btn {
+    font-size: 11px; font-weight: 700; padding: 3px 9px;
+    border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .ctrl-btn:hover  { color: var(--text); border-color: rgba(255,255,255,.2); }
+  .ctrl-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(79,142,247,.08); }
+
+  /* ── Page header ─────────────────────────────────────────────── */
+  .fx-live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green); flex-shrink: 0;
+    box-shadow: 0 0 0 0 rgba(34,197,94,.4);
+    animation: pulse-dot 2s infinite;
+  }
+  @keyframes pulse-dot {
+    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,.5); }
+    70%  { box-shadow: 0 0 0 7px rgba(34,197,94,0); }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+  }
+
+  /* ── Rate cards ──────────────────────────────────────────────── */
+  .fx-group-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .1em; color: var(--muted);
+    margin: var(--sp-3) 0 var(--sp-2);
+    padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
+  .fx-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .fx-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 14px 16px;
+    cursor: pointer; transition: border-color .15s, background .15s, transform .1s;
+    position: relative; overflow: hidden;
+  }
+  .fx-card:hover  { border-color: var(--accent); background: rgba(79,142,247,.05); transform: translateY(-1px); }
+  .fx-card.active { border-color: var(--accent); background: rgba(79,142,247,.08); }
+  .fx-card-symbol { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -.01em; margin-bottom: 6px; }
+  .fx-card-mid    { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+  .fx-card-sub    { font-size: 10px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .fx-card-change {
+    position: absolute; top: 8px; right: 8px;
+    font-size: 10px; font-weight: 700; padding: 3px 7px;
+    border-radius: 6px; text-align: center; line-height: 1.3;
+  }
+  .fx-card-change.up   { background: rgba(34,197,94,.15);  color: var(--green); }
+  .fx-card-change.down { background: rgba(239,68,68,.15);  color: var(--red);   }
+  .fx-card-change.flat { background: rgba(255,255,255,.06); color: var(--muted); }
+  .fx-card-change .chg-period { display: block; font-size: 9px; opacity: .7; font-weight: 600; }
+
+  /* Persistent directional tint (stays until period changes) */
+  .fx-card.tinted-up   {
+    background: rgba(34,197,94,.07);
+    border-color: rgba(34,197,94,.3);
+  }
+  .fx-card.tinted-down {
+    background: rgba(239,68,68,.07);
+    border-color: rgba(239,68,68,.25);
+  }
+
+  /* Tick flash — bright burst on top of persistent tint */
+  @keyframes flash-green {
+    0%   { background: rgba(34,197,94,.45); box-shadow: 0 0 14px rgba(34,197,94,.3); }
+    100% { background: rgba(34,197,94,.07); box-shadow: none; }
+  }
+  @keyframes flash-red {
+    0%   { background: rgba(239,68,68,.4);  box-shadow: 0 0 14px rgba(239,68,68,.25); }
+    100% { background: rgba(239,68,68,.07); box-shadow: none; }
+  }
+  @keyframes flash-neutral {
+    0%   { background: rgba(79,142,247,.25); }
+    100% { background: var(--surface); }
+  }
+  .fx-card.tinted-up.flash-up     { animation: flash-green   .7s ease-out forwards; }
+  .fx-card.tinted-down.flash-down { animation: flash-red     .7s ease-out forwards; }
+  /* Direction reversal — bright alert */
+  .fx-card.tinted-up.flash-down   { animation: flash-red     .7s ease-out forwards; }
+  .fx-card.tinted-down.flash-up   { animation: flash-green   .7s ease-out forwards; }
+  .fx-card.flash-up:not(.tinted-up):not(.tinted-down)   { animation: flash-green   .7s ease-out forwards; }
+  .fx-card.flash-down:not(.tinted-up):not(.tinted-down) { animation: flash-red     .7s ease-out forwards; }
+
+  /* Mid number flash */
+  @keyframes num-up   { 0%{color:var(--green)} 100%{color:var(--text)} }
+  @keyframes num-down { 0%{color:var(--red)}   100%{color:var(--text)} }
+  .mid-flash-up   { animation: num-up   .7s ease-out forwards; }
+  .mid-flash-down { animation: num-down .7s ease-out forwards; }
+
+  /* ── Chart panel ─────────────────────────────────────────────── */
+  .chart-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 20px 24px;
+    position: sticky; top: 24px;
+  }
+  .chart-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .chart-symbol-name { font-size: 18px; font-weight: 700; }
+  .chart-mid-big     { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .chart-bid-ask     { font-size: 11px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+  .chart-timeframe {
+    display: flex; gap: 4px;
+  }
+  .chart-tf-btn {
+    font-size: 11px; font-weight: 600; padding: 3px 9px;
+    border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .chart-tf-btn:hover  { color: var(--text); border-color: rgba(255,255,255,.15); }
+  .chart-tf-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(79,142,247,.08); }
+
+  .chart-wrap { position: relative; height: 260px; margin-top: 12px; }
+
+  /* ── Footer strip ────────────────────────────────────────────── */
+  .fx-footer {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: var(--sp-3); font-size: 11px; color: var(--muted);
+  }
+  .fx-countdown { font-variant-numeric: tabular-nums; }
+</style>
+
+<div class="page-header" style="margin-bottom:var(--sp-4);">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div class="page-title">FX Rates</div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
+      <span class="fx-live-dot"></span>
+      <span id="liveLabel">Live</span>
+    </div>
+  </div>
+  <div style="font-size:12px;color:var(--muted);" id="lastUpdated"></div>
+</div>
+
+<div class="fx-layout">
+
+  <!-- LEFT: rate cards -->
+  <div>
+    <!-- Control bar -->
+    <div class="ctrl-bar">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Update rate</span>
+        {% for r, lbl in [('1s','1s'),('5s','5s'),('10s','10s'),('30s','30s'),('1m','1m'),('15m','15m'),('1h','1h')] %}
+        <button class="ctrl-btn {{ 'active' if r == '5s' }}"
+                onclick="setUpdateRate('{{ r }}', this)">{{ lbl }}</button>
+        {% endfor %}
+      </div>
+      <div class="ctrl-sep"></div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">% badge vs</span>
+        {% for p, lbl in [('5s','5s'),('30s','30s'),('1m','1m'),('5m','5m'),('15m','15m'),('1h','1h'),('4h','4h'),('1d','1D'),('1w','1W'),('1mo','1mo')] %}
+        <button class="ctrl-btn {{ 'active' if p == '1h' }}"
+                onclick="setRefPeriod('{{ p }}', this)">{{ lbl }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% for group_name, symbols in fx_groups.items() %}
+    <div class="fx-group-label">{{ group_name }}</div>
+    <div class="fx-grid">
+      {% for sym in symbols %}
+      <div class="fx-card" id="card-{{ sym }}" onclick="selectSymbol('{{ sym }}')">
+        <div class="fx-card-symbol">{{ sym }}</div>
+        <div class="fx-card-mid" id="mid-{{ sym }}">—</div>
+        <div class="fx-card-sub" id="sub-{{ sym }}">B — · A —</div>
+        <span class="fx-card-change flat" id="chg-{{ sym }}">—</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+    <div class="fx-footer">
+      <span class="fx-live-dot" style="width:6px;height:6px;"></span>
+      <span>Next update in <span class="fx-countdown" id="countdown">5s</span></span>
+      <span style="color:rgba(255,255,255,.1);">·</span>
+      <span>Source: dealio.live_ticks (MT4 feed) &middot; rates every 5s &middot; chart every 30s</span>
+      <span style="color:rgba(255,255,255,.1);">·</span>
+      <span id="cacheAge"></span>
+    </div>
+  </div>
+
+  <!-- RIGHT: chart panel -->
+  <div class="chart-panel" id="chartPanel">
+    <div class="chart-panel-header">
+      <div>
+        <div class="chart-symbol-name" id="chartSymbol">—</div>
+        <div class="chart-mid-big" id="chartMid">—</div>
+        <div class="chart-bid-ask" id="chartBidAsk">Bid — · Ask —</div>
+      </div>
+      <div class="chart-timeframe">
+        <button class="chart-tf-btn active" onclick="setTimeframe(24,  this)">1D</button>
+        <button class="chart-tf-btn"        onclick="setTimeframe(72,  this)">3D</button>
+        <button class="chart-tf-btn"        onclick="setTimeframe(168, this)">1W</button>
+        <button class="chart-tf-btn"        onclick="setTimeframe(720, this)">1M</button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="fxChart"></canvas>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center;" id="chartHint">
+      Click any rate card to view its chart
+    </div>
+  </div>
+
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+var prevRates        = {};      // symbol → mid at last poll (for flash direction)
+var refPrices        = {};      // symbol → mid at period start (for % badge + tint)
+var currentRefPeriod = '1h';   // "% badge vs" period
+var currentInterval  = 5000;   // update rate in ms
+var currentSym       = null;
+var currentHours     = 24;
+var refreshTimer     = null;
+var countdownInt     = null;
+var chart            = null;
+var lastChartRefresh = 0;
+
+// Update rate label → ms
+var UPDATE_RATES = { '1s':1000,'5s':5000,'10s':10000,'30s':30000,'1m':60000,'15m':900000,'1h':3600000 };
+
+// Symbols list from template
+var allSymbols = {{ fx_groups.values() | map('list') | sum(start=[]) | tojson }};
+
+// ── Chart initialisation ───────────────────────────────────────────────────
+var ctx = document.getElementById('fxChart').getContext('2d');
+chart = new Chart(ctx, {
+  type: 'line',
+  data: { labels: [], datasets: [{
+    data: [], borderColor: '#4f8ef7', borderWidth: 2,
+    backgroundColor: 'rgba(79,142,247,.08)',
+    pointRadius: 0, pointHoverRadius: 4,
+    tension: 0.3, fill: true,
+  }]},
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(22,25,32,.95)',
+        borderColor: 'rgba(79,142,247,.3)', borderWidth: 1,
+        titleColor: '#94a3b8', bodyColor: '#e2e8f0',
+        padding: 10,
+        callbacks: {
+          label: function(ctx) { return ' ' + ctx.parsed.y.toFixed(5); }
+        }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(255,255,255,.04)' },
+        ticks: { color: '#64748b', maxTicksLimit: 8, font: { size: 11 },
+                 callback: function(v, i) { return this.getLabelForValue(v); } }
+      },
+      y: {
+        grid: { color: 'rgba(255,255,255,.04)' },
+        ticks: { color: '#64748b', font: { size: 11 },
+                 callback: function(v) { return v.toFixed(4); } },
+        position: 'right'
+      }
+    }
+  }
+});
+
+// ── Format helpers ─────────────────────────────────────────────────────────
+function formatMid(sym, val) {
+  if (val == null) return '—';
+  // Crypto and big numbers: fewer decimals
+  if (val > 1000) return val.toFixed(2);
+  if (val > 10)   return val.toFixed(4);
+  return val.toFixed(5);
+}
+
+function formatTS(iso) {
+  var d = new Date(iso);
+  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+
+function formatHour(iso) {
+  var d = new Date(iso);
+  var mo = d.toLocaleString('en', {month:'short'});
+  return mo + ' ' + d.getDate() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12:false});
+}
+
+// ── Poll live rates + references in one call ──────────────────────────────
+function pollRates() {
+  fetch('/fx/api/rates?ref_period=' + currentRefPeriod)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) return;
+      // Update references from the same response — no timing gap
+      if (data.references) refPrices = data.references;
+      updateCards(data.rates);
+      var d = new Date();
+      document.getElementById('lastUpdated').textContent =
+        'Updated ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      if (data.cache_age != null)
+        document.getElementById('cacheAge').textContent = 'cached ' + data.cache_age + 's ago';
+      if (currentSym) {
+        var hit = data.rates.find(function(r) { return r.symbol === currentSym; });
+        if (hit) updateChartHeader(hit);
+      }
+    })
+    .catch(function() {});
+  resetCountdown();
+}
+
+function updateCards(rates) {
+  rates.forEach(function(r) {
+    var sym   = r.symbol;
+    var mid   = r.mid;
+    var prev  = prevRates[sym];
+    var ref   = refPrices[sym];
+    var card  = document.getElementById('card-' + sym);
+    var midEl = document.getElementById('mid-' + sym);
+    var subEl = document.getElementById('sub-' + sym);
+    var chgEl = document.getElementById('chg-' + sym);
+    if (!midEl) return;
+
+    midEl.textContent = formatMid(sym, mid);
+    if (r.bid !== null && r.ask !== null)
+      subEl.textContent = 'B ' + (r.bid ? r.bid.toFixed(5) : '—') + '  A ' + (r.ask ? r.ask.toFixed(5) : '—');
+
+    // ── Persistent tint & badge vs period reference ───────────────
+    if (ref != null && mid != null) {
+      var pct   = ((mid - ref) / ref * 100);
+      var upRef = mid >= ref;
+      chgEl.innerHTML = (upRef ? '▲ ' : '▼ ') + Math.abs(pct).toFixed(3) + '%'
+                      + '<span class="chg-period">' + currentRefPeriod + '</span>';
+      chgEl.className = 'fx-card-change ' + (upRef ? 'up' : 'down');
+      card.classList.toggle('tinted-up',   upRef);
+      card.classList.toggle('tinted-down', !upRef);
+    }
+
+    // ── Tick flash vs previous 5s poll ───────────────────────────
+    if (prev != null && mid != null && mid !== prev) {
+      var tickUp = mid > prev;
+      card.classList.remove('flash-up', 'flash-down');
+      void card.offsetWidth;
+      card.classList.add(tickUp ? 'flash-up' : 'flash-down');
+      midEl.classList.remove('mid-flash-up', 'mid-flash-down');
+      void midEl.offsetWidth;
+      midEl.classList.add(tickUp ? 'mid-flash-up' : 'mid-flash-down');
+    }
+
+    if (mid != null) prevRates[sym] = mid;
+  });
+}
+
+// ── % badge period selector ────────────────────────────────────────────────
+function setRefPeriod(period, btn) {
+  currentRefPeriod = period;
+  document.querySelectorAll('.ctrl-group:last-child .ctrl-btn').forEach(function(b) { b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  // Immediately re-poll so references update
+  pollRates();
+}
+
+// ── Update rate selector ───────────────────────────────────────────────────
+function setUpdateRate(rate, btn) {
+  currentInterval = UPDATE_RATES[rate] || 5000;
+  document.querySelectorAll('.ctrl-group:first-child .ctrl-btn').forEach(function(b) { b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  // Restart the interval at the new rate
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(tick, currentInterval);
+  pollRates();
+}
+
+function updateChartHeader(r) {
+  document.getElementById('chartMid').textContent = formatMid(r.symbol, r.mid);
+  document.getElementById('chartBidAsk').textContent =
+    'Bid ' + (r.bid ? r.bid.toFixed(5) : '—') + '  ·  Ask ' + (r.ask ? r.ask.toFixed(5) : '—');
+}
+
+// ── Countdown ─────────────────────────────────────────────────────────────
+function resetCountdown() {
+  if (countdownInt) clearInterval(countdownInt);
+  var totalSecs = Math.round(currentInterval / 1000);
+  var secs = totalSecs;
+  var el = document.getElementById('countdown');
+  if (!el) return;
+  el.textContent = totalSecs < 2 ? '<1' : secs + 's';
+  if (totalSecs < 2) return; // don't bother counting down for 1s interval
+  countdownInt = setInterval(function() {
+    secs--;
+    el.textContent = Math.max(secs, 0) + 's';
+    if (secs <= 0) clearInterval(countdownInt);
+  }, 1000);
+}
+
+// ── Symbol selection + chart ───────────────────────────────────────────────
+function selectSymbol(sym) {
+  currentSym = sym;
+  // Highlight selected card
+  document.querySelectorAll('.fx-card').forEach(function(c) { c.classList.remove('active'); });
+  var card = document.getElementById('card-' + sym);
+  if (card) card.classList.add('active');
+
+  document.getElementById('chartSymbol').textContent = sym;
+  document.getElementById('chartHint').style.display = 'none';
+
+  // Show current mid from already-polled data
+  var mid = prevRates[sym];
+  if (mid) document.getElementById('chartMid').textContent = formatMid(sym, mid);
+
+  loadChart(sym, currentHours);
+}
+
+function setTimeframe(hours, btn) {
+  currentHours = hours;
+  document.querySelectorAll('.chart-tf-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  if (currentSym) loadChart(currentSym, hours);
+}
+
+function loadChart(sym, hours) {
+  fetch('/fx/api/history/' + sym + '?hours=' + hours)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error || !data.data) return;
+      var labels = data.data.map(function(d) { return formatHour(d.ts); });
+      var vals   = data.data.map(function(d) { return d.mid; });
+
+      // Dynamic colour based on first vs last value
+      var trendUp = vals.length > 1 && vals[vals.length-1] >= vals[0];
+      var col  = trendUp ? '#22c55e' : '#ef4444';
+      var fill = trendUp ? 'rgba(34,197,94,.07)' : 'rgba(239,68,68,.06)';
+
+      chart.data.labels = labels;
+      chart.data.datasets[0].data   = vals;
+      chart.data.datasets[0].borderColor     = col;
+      chart.data.datasets[0].backgroundColor = fill;
+      chart.update('none');  // no animation for smooth refresh
+    })
+    .catch(function() {});
+}
+
+// ── Tick function (called by interval) ────────────────────────────────────
+function tick() {
+  pollRates();
+  // Refresh chart on a slower cadence (every 30s) to avoid flicker
+  if (currentSym && (Date.now() - lastChartRefresh > 28000)) {
+    loadChart(currentSym, currentHours);
+    lastChartRefresh = Date.now();
+  }
+}
+
+// ── Start ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  // First poll immediately — rates endpoint now returns references too
+  pollRates();
+  refreshTimer = setInterval(tick, currentInterval);
+  if (allSymbols.length > 0) {
+    setTimeout(function() { selectSymbol(allSymbols[0]); }, 400);
+  }
+});
+</script>
+
+{% endblock %}
