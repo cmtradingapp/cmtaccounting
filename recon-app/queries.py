@@ -1,6 +1,52 @@
 """All reconciliation SQL lives here."""
 
+import time
 from db import dealio, backoffice, fees_db
+
+# ── Simple TTL cache ───────────────────────────────────────────────────────
+# Keyed by arbitrary string; value is (stored_at_timestamp, data).
+# reconcile() results are expensive (two remote DBs) — cache for 5 minutes.
+# available_months() is cheap but called on every page load — cache for 2 min.
+
+_CACHE: dict = {}
+_TTL_RECONCILE = 300   # 5 minutes
+_TTL_MONTHS    = 120   # 2 minutes
+
+
+def _cache_get(key: str, ttl: int):
+    entry = _CACHE.get(key)
+    if entry and (time.time() - entry[0]) < ttl:
+        return entry[1]
+    return None
+
+
+def _cache_set(key: str, value):
+    _CACHE[key] = (time.time(), value)
+
+
+def cache_invalidate(year: int = None, month: int = None):
+    """Clear cached reconciliation data.
+    If year+month given, clears only that period; otherwise clears all recon cache.
+    Always clears the months list too.
+    """
+    if year and month:
+        _CACHE.pop(f"reconcile:{year}:{month}", None)
+    else:
+        for k in [k for k in _CACHE if k.startswith("reconcile:")]:
+            _CACHE.pop(k, None)
+    _CACHE.pop("available_months", None)
+
+
+def cache_age(year: int, month: int) -> int | None:
+    """Return how many seconds ago this month was cached, or None if not cached."""
+    entry = _CACHE.get(f"reconcile:{year}:{month}")
+    return int(time.time() - entry[0]) if entry else None
+
+
+def cache_age_key(key: str) -> int | None:
+    """Return how many seconds ago an arbitrary cache key was stored, or None."""
+    entry = _CACHE.get(key)
+    return int(time.time() - entry[0]) if entry else None
 
 # Payment methods that represent real cash movements
 CASH_METHODS = {
@@ -34,6 +80,9 @@ def _is_cash(payment_method, transactiontype):
 
 def available_months():
     """Months that have data in backoffice, most recent first."""
+    cached = _cache_get("available_months", _TTL_MONTHS)
+    if cached is not None:
+        return cached
     with backoffice() as cur:
         cur.execute("""
             SELECT DISTINCT TO_CHAR(DATE_TRUNC('month', confirmation_time), 'YYYY-MM') AS month
@@ -43,7 +92,9 @@ def available_months():
             ORDER BY month DESC
             LIMIT 36
         """)
-        return [r["month"] for r in cur.fetchall()]
+        result = [r["month"] for r in cur.fetchall()]
+    _cache_set("available_months", result)
+    return result
 
 
 def crm_summary(year: int, month: int):
@@ -119,7 +170,12 @@ def mt4_summary(year: int, month: int):
 
 
 def reconcile(year: int, month: int):
-    """Join MT4 netdeposit vs CRM cash transactions per login."""
+    """Join MT4 netdeposit vs CRM cash transactions per login (cached 5 min)."""
+    key = f"reconcile:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
     crm = crm_summary(year, month)
     mt4 = mt4_summary(year, month)
 
@@ -158,7 +214,166 @@ def reconcile(year: int, month: int):
         })
 
     rows.sort(key=lambda r: r["abs_diff"], reverse=True)
+
+    # Add cash_methods: only the subset of payment_methods that are cash-relevant
+    for r in rows:
+        raw = [m.strip() for m in (r.get("payment_methods") or "").split(",") if m.strip()]
+        cash_only = [m for m in raw if m in CASH_METHODS]
+        r["cash_methods"] = ", ".join(cash_only) if cash_only else None
+
+    _cache_set(key, rows)
     return rows
+
+
+# ── FX Rate queries (dealio.ticks) ────────────────────────────────────────
+
+_TTL_FX_LIVE      = 5    # 5 seconds  — live rate display (uses live_ticks, small hot table)
+_TTL_FX_REFERENCE = 60   # 60 seconds — reference price for % calculation
+_TTL_FX_HISTORY   = 300  # 5 minutes  — historical chart data
+_TTL_FX_MONTHLY   = 300  # 5 minutes  — monthly averages for fee calculator
+
+# Curated symbol groups shown on the FX Rates page
+FX_GROUPS = {
+    "Major":              ["EURUSD", "GBPUSD", "USDJPY", "USDCAD", "USDCHF", "AUDUSD", "NZDUSD"],
+    "African & Emerging": ["USDNGN", "USDKES", "USDZAR", "USDMXN", "USDTRY", "USDINR", "USDAED"],
+    "Crypto":             ["BTCUSD", "ETHUSD", "XAUUSD", "XAGUSD"],
+}
+FX_ALL_SYMBOLS = [s for g in FX_GROUPS.values() for s in g]
+
+
+def get_live_fx_rates(symbols: list = None) -> list:
+    """Latest bid/ask/mid per symbol from dealio.live_ticks (hot table, current state only).
+    Falls back to dealio.ticks if live_ticks has no data for a symbol.
+    Cached 5 s — DB hit is rare; all client polls within the window are served from cache.
+    """
+    syms = symbols or FX_ALL_SYMBOLS
+    key = "fx_live:" + ",".join(sorted(syms))
+    cached = _cache_get(key, _TTL_FX_LIVE)
+    if cached is not None:
+        return cached
+
+    placeholders = ",".join(["%s"] * len(syms))
+    with dealio() as cur:
+        # live_ticks has one row per symbol — very fast, no time-range scan needed
+        cur.execute(f"""
+            SELECT DISTINCT ON (symbol)
+                symbol,
+                bid,
+                ask,
+                ROUND(((bid + ask) / 2.0)::numeric, 5) AS mid,
+                lastmodified
+            FROM dealio.live_ticks
+            WHERE symbol IN ({placeholders})
+            ORDER BY symbol, lastmodified DESC
+        """, syms)
+        rows = [dict(r) for r in cur.fetchall()]
+
+    # Any symbols missing from live_ticks? Fill from ticks as fallback
+    found = {r["symbol"] for r in rows}
+    missing = [s for s in syms if s not in found]
+    if missing:
+        mp = ",".join(["%s"] * len(missing))
+        with dealio() as cur:
+            cur.execute(f"""
+                SELECT DISTINCT ON (symbol)
+                    symbol, bid, ask,
+                    ROUND(((bid + ask) / 2.0)::numeric, 5) AS mid,
+                    lastmodified
+                FROM dealio.ticks
+                WHERE symbol IN ({mp})
+                ORDER BY symbol, lastmodified DESC
+            """, missing)
+            rows += [dict(r) for r in cur.fetchall()]
+
+    # Preserve group order
+    order = {s: i for i, s in enumerate(syms)}
+    rows.sort(key=lambda r: order.get(r["symbol"], 999))
+    # Serialize datetime for JSON
+    for r in rows:
+        if r.get("lastmodified"):
+            r["lastmodified"] = r["lastmodified"].isoformat()
+        for col in ("bid", "ask", "mid"):
+            if r.get(col) is not None:
+                r[col] = float(r[col])
+
+    _cache_set(key, rows)
+    return rows
+
+
+def get_reference_fx_rates(minutes_ago: int, symbols: list = None) -> dict:
+    """Mid-rate for each symbol at approximately N minutes ago. Used for % change calculation.
+    Finds the most recent tick at or before (NOW - interval). Cached 60 s.
+    Returns {symbol: mid_float}.
+    """
+    syms = symbols or FX_ALL_SYMBOLS
+    key  = f"fx_ref:{minutes_ago}:" + ",".join(sorted(syms))
+    cached = _cache_get(key, _TTL_FX_REFERENCE)
+    if cached is not None:
+        return cached
+
+    placeholders = ",".join(["%s"] * len(syms))
+    with dealio() as cur:
+        cur.execute(f"""
+            SELECT DISTINCT ON (symbol)
+                symbol,
+                ROUND(((bid + ask) / 2.0)::numeric, 6) AS mid
+            FROM dealio.ticks
+            WHERE symbol IN ({placeholders})
+              AND lastmodified <= NOW() - ({minutes_ago}::int * INTERVAL '1 minute')
+            ORDER BY symbol, lastmodified DESC
+        """, syms)
+        result = {r["symbol"]: float(r["mid"]) for r in cur.fetchall()}
+
+    _cache_set(key, result)
+    return result
+
+
+def get_fx_history(symbol: str, hours: int = 168) -> list:
+    """Hourly average mid-rate for a symbol over the last N hours. Cached 5 min."""
+    key = f"fx_history:{symbol}:{hours}"
+    cached = _cache_get(key, _TTL_FX_HISTORY)
+    if cached is not None:
+        return cached
+
+    with dealio() as cur:
+        cur.execute("""
+            SELECT
+                date_trunc('hour', lastmodified) AS ts,
+                ROUND(AVG((bid + ask) / 2.0)::numeric, 5) AS mid
+            FROM dealio.ticks
+            WHERE symbol = %s
+              AND lastmodified >= NOW() - (%s || ' hours')::interval
+            GROUP BY 1
+            ORDER BY 1
+        """, (symbol, str(hours)))
+        rows = [{"ts": r["ts"].isoformat(), "mid": float(r["mid"])} for r in cur.fetchall()]
+
+    _cache_set(key, rows)
+    return rows
+
+
+def get_monthly_fx_rate(symbol: str, year: int, month: int) -> float | None:
+    """Monthly average mid-rate for fee calculations. Cached 5 min.
+    Falls back to None if no ticks data for that period (pre-Sept 2025).
+    """
+    key = f"fx_monthly:{symbol}:{year}:{month}"
+    cached = _cache_get(key, _TTL_FX_MONTHLY)
+    if cached is not None:
+        return cached
+
+    with dealio() as cur:
+        cur.execute("""
+            SELECT ROUND(AVG((bid + ask) / 2.0)::numeric, 6) AS mid
+            FROM dealio.ticks
+            WHERE symbol = %s
+              AND EXTRACT(YEAR  FROM lastmodified) = %s
+              AND EXTRACT(MONTH FROM lastmodified) = %s
+        """, (symbol, year, month))
+        row = cur.fetchone()
+        result = float(row["mid"]) if row and row["mid"] is not None else None
+
+    _cache_set(key, result)
+    return result
 
 
 def summary_stats(rows):
