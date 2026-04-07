@@ -108,6 +108,24 @@
                      color:var(--text);border-radius:var(--radius-sm);font-size:13px;"
               placeholder="Optional notes">{{ rule.get('description','') or '' }}</textarea>
   </label>
+
+  {% set conf = rule.get('source_confidence') %}
+  {% if rule.get('source_page') and conf %}
+  {% set dot_color = '#22c55e' if conf >= 0.75 else ('#f59e0b' if conf >= 0.50 else '#94a3b8') %}
+  <div style="margin-top:8px;display:flex;align-items:flex-start;gap:8px;
+              padding:8px 12px;background:rgba(79,142,247,.04);
+              border:1px solid rgba(79,142,247,.13);border-radius:var(--radius-sm);">
+    <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap;margin-top:1px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:{{ dot_color }};flex-shrink:0;"
+            title="{{ (conf * 100)|int }}% confidence"></span>
+      <span style="font-size:10px;font-weight:700;color:var(--accent);">p.{{ rule.source_page }}</span>
+    </span>
+    {% if rule.get('source_quote') %}
+    <span style="font-size:11px;color:var(--muted);font-family:monospace;line-height:1.5;
+                 word-break:break-word;">"…{{ rule.source_quote }}…"</span>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endmacro %}
 
@@ -159,10 +177,31 @@
   <div class="ai-banner">
     <span class="ai-icon">🤖</span>
     <div>
-      <strong>AI extracted the following from <em>{{ filename }}</em></strong><br>
+      <strong>AI extracted {{ fee_rules|length }} rule{{ 's' if fee_rules|length != 1 }} from <em>{{ filename }}</em></strong><br>
       Review carefully — edit any fields before saving. Nothing is committed until you click Save.
     </div>
   </div>
+
+  {% if dups_removed %}
+  <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;margin-bottom:14px;
+              background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);
+              border-radius:var(--radius-sm);font-size:13px;">
+    <span style="font-size:16px;">⚠</span>
+    <span><strong style="color:var(--yellow);">{{ dups_removed }} duplicate{{ 's' if dups_removed != 1 }} removed</strong>
+    — the AI extracted the same fee rule more than once (identical rate/country/method). Duplicates were automatically dropped.</span>
+  </div>
+  {% endif %}
+
+  {% if ai_warnings %}
+  <div style="padding:11px 16px;margin-bottom:14px;
+              background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);
+              border-radius:var(--radius-sm);font-size:13px;">
+    <strong style="color:var(--red);">⚠ Validation warnings — review these rules carefully:</strong>
+    <ul style="margin:6px 0 0 16px;color:var(--text-2);">
+      {% for w in ai_warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <form method="POST" action="/fees/upload/confirm" id="confirmForm">
     <input type="hidden" name="rule_count"   id="ruleCount" value="{{ fee_rules|length }}">
@@ -366,5 +405,92 @@ function addBlankRule() {
   setRuleCount(container.children.length);
 }
 </script>
+
+{% set _low_conf  = fee_rules | selectattr('source_confidence', 'defined') | selectattr('source_confidence', 'ne', none) | selectattr('source_confidence', 'lt', 0.5) | list %}
+{% set _no_source = fee_rules | rejectattr('source_page', 'defined') | list + (fee_rules | selectattr('source_page', 'equalto', None) | list) %}
+{% set _has_issues = ai_warnings or dups_removed or gaps or _low_conf %}
+
+<div style="max-width:840px;margin:var(--sp-5) auto 0;">
+  {% if _has_issues %}
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+    <div style="padding:12px 18px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;gap:10px;">
+      <span style="font-size:16px;">⚠</span>
+      <span style="font-size:13px;font-weight:700;">Attention Required</span>
+      <span style="font-size:12px;color:var(--muted);margin-left:auto;">
+        {{ (ai_warnings|length) + (dups_removed or 0) + (gaps|length) + (_low_conf|length) }} item{{ 's' if ((ai_warnings|length) + (dups_removed or 0) + (gaps|length) + (_low_conf|length)) != 1 }}
+      </span>
+    </div>
+    <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">
+
+      {% if dups_removed %}
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span style="color:var(--yellow);font-size:13px;flex-shrink:0;">◆</span>
+        <span style="font-size:13px;"><strong style="color:var(--yellow);">{{ dups_removed }} duplicate{{ 's' if dups_removed != 1 }} removed</strong>
+        — the AI extracted the same rule more than once. Only the first occurrence was kept.</span>
+      </div>
+      {% endif %}
+
+      {% for w in ai_warnings %}
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span style="color:var(--red);font-size:13px;flex-shrink:0;">✕</span>
+        <span style="font-size:13px;color:var(--text-2);">{{ w }}</span>
+      </div>
+      {% endfor %}
+
+      {% for r in _low_conf %}
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span style="font-size:8px;margin-top:4px;flex-shrink:0;">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                       background:{% if r.source_confidence >= 0.5 %}var(--yellow){% else %}#94a3b8{% endif %};"></span>
+        </span>
+        <span style="font-size:13px;color:var(--text-2);">
+          <strong>Rule {{ loop.index }} ({{ r.get('fee_type','?') }} · {{ r.get('country','?') }})</strong>
+          — source match confidence {{ (r.source_confidence * 100)|int }}% — verify location in document manually.
+        </span>
+      </div>
+      {% endfor %}
+
+      {% for g in gaps %}
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span style="color:var(--accent);font-size:13px;flex-shrink:0;">?</span>
+        <div>
+          <span style="font-size:13px;color:var(--text-2);">
+            <strong style="color:var(--accent);">p.{{ g.page }} — potential missed entries</strong>
+            — found {{ g.pct_found }} rate value{{ 's' if g.pct_found != 1 }} but only {{ g.rules_matched }} rule{{ 's' if g.rules_matched != 1 }} matched. Some fees may not have been extracted.
+          </span>
+          {% if g.snippet %}
+          <div style="margin-top:4px;font-size:11px;color:var(--muted);font-family:monospace;">
+            "…{{ g.snippet }}…"
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+
+    </div>
+  </div>
+  {% else %}
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 18px;
+              background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);
+              border-radius:var(--radius-md);font-size:13px;color:var(--green);">
+    <span>✓</span> All checks passed — no validation issues, duplicates, or suspected gaps detected.
+  </div>
+  {% endif %}
+</div>
+
+{% if raw_response %}
+<details style="margin-top:var(--sp-5);max-width:840px;margin-left:auto;margin-right:auto;">
+  <summary style="cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.08em;color:var(--muted);user-select:none;
+                  list-style:none;display:flex;align-items:center;gap:6px;">
+    <span style="font-size:9px;">▶</span> Raw AI Response (debug)
+  </summary>
+  <pre style="margin-top:10px;padding:16px;overflow-x:auto;
+              background:var(--surface);border:1px solid var(--border);
+              border-radius:var(--radius-sm);font-size:11px;line-height:1.55;
+              color:var(--text-2);white-space:pre-wrap;word-break:break-all;">{{ raw_response }}</pre>
+</details>
+{% endif %}
 
 {% endblock %}

@@ -132,6 +132,25 @@
                    color:var(--text);border-radius:var(--radius-sm);font-size:13px;"
             placeholder="Optional notes">{{ (rule or {}).get('description','') or '' }}</textarea>
 </label>
+
+{% set _r = rule or {} %}
+{% set conf = _r.get('source_confidence') %}
+{% if _r.get('source_page') and conf %}
+{% set dot_color = '#22c55e' if conf >= 0.75 else ('#f59e0b' if conf >= 0.50 else '#94a3b8') %}
+<div style="margin-top:8px;display:flex;align-items:flex-start;gap:8px;
+            padding:8px 12px;background:rgba(79,142,247,.04);
+            border:1px solid rgba(79,142,247,.13);border-radius:var(--radius-sm);">
+  <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap;margin-top:1px;">
+    <span style="width:7px;height:7px;border-radius:50%;background:{{ dot_color }};flex-shrink:0;"
+          title="{{ (conf * 100)|int }}% confidence"></span>
+    <span style="font-size:10px;font-weight:700;color:var(--accent);">p.{{ _r.source_page }}</span>
+  </span>
+  {% if _r.get('source_quote') %}
+  <span style="font-size:11px;color:var(--muted);font-family:monospace;line-height:1.5;
+               word-break:break-word;">"…{{ _r.source_quote }}…"</span>
+  {% endif %}
+</div>
+{% endif %}
 {% endmacro %}
 
 {% block content %}
@@ -203,6 +222,27 @@
     </div>
   </div>
 
+  {% if dups_removed %}
+  <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;margin-bottom:14px;
+              background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);
+              border-radius:var(--radius-sm);font-size:13px;">
+    <span style="font-size:16px;">⚠</span>
+    <span><strong style="color:var(--yellow);">{{ dups_removed }} duplicate{{ 's' if dups_removed != 1 }} removed</strong>
+    — the AI extracted the same rule more than once. Duplicates were automatically dropped.</span>
+  </div>
+  {% endif %}
+
+  {% if ai_warnings %}
+  <div style="padding:11px 16px;margin-bottom:14px;
+              background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);
+              border-radius:var(--radius-sm);font-size:13px;">
+    <strong style="color:var(--red);">⚠ Validation warnings:</strong>
+    <ul style="margin:6px 0 0 16px;color:var(--text-2);">
+      {% for w in ai_warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   <form method="POST" action="/fees/{{ agreement.id }}/amendment/confirm">
     <input type="hidden" name="change_count" value="{{ changes|length }}">
     <input type="hidden" name="cache_token"  value="{{ cache_token or '' }}">
@@ -223,9 +263,10 @@
     {# ── Change cards ───────────────────────────────────────── #}
     {% for ch in changes %}
     {% set i     = loop.index0 %}
-    {% set act   = ch.action %}
-    {% set nr    = ch.new_rule %}
-    {% set er    = ch.existing_rule %}
+    {% set act          = ch.action %}
+    {% set nr           = ch.new_rule %}
+    {% set er           = ch.existing_rule %}
+    {% set auto_replaced = ch.get('auto_replaced', False) %}
 
     <div class="change-card action-{{ act }}" id="changeCard{{ i }}">
       <input type="hidden" name="action_{{ i }}" value="{{ act }}">
@@ -265,6 +306,17 @@
           Skip
         </label>
       </div>
+
+      {# ── Auto-replaced warning ─── #}
+      {% if auto_replaced %}
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:12px;
+                  background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);
+                  border-radius:var(--radius-sm);font-size:12px;color:var(--red);">
+        <span>⚠</span>
+        <span>This rule <strong>already exists</strong> in the DB — it was added by a previous amendment.
+        The card was changed from NEW → CHANGED. Skip it to avoid overwriting, or confirm to update.</span>
+      </div>
+      {% endif %}
 
       {# ── REPLACE: show old rule above new ─── #}
       {% if act == 'replace' and er %}
@@ -326,5 +378,85 @@ function addAmendTierRow(idx) {
   tbody.appendChild(tr);
 }
 </script>
+
+{% set _chg_rules  = changes | map(attribute='new_rule') | list %}
+{% set _low_conf   = _chg_rules | selectattr('source_confidence', 'defined') | selectattr('source_confidence', 'ne', none) | selectattr('source_confidence', 'lt', 0.5) | list %}
+{% set _has_issues = ai_warnings or dups_removed or gaps or _low_conf %}
+
+<div style="max-width:740px;margin:var(--sp-4) auto 0;">
+  {% if _has_issues %}
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+    <div style="padding:12px 18px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;gap:10px;">
+      <span style="font-size:16px;">⚠</span>
+      <span style="font-size:13px;font-weight:700;">Attention Required</span>
+    </div>
+    <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">
+
+      {% if dups_removed %}
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span style="color:var(--yellow);font-size:13px;flex-shrink:0;">◆</span>
+        <span style="font-size:13px;"><strong style="color:var(--yellow);">{{ dups_removed }} duplicate{{ 's' if dups_removed != 1 }} removed</strong> — kept first occurrence only.</span>
+      </div>
+      {% endif %}
+
+      {% for w in ai_warnings %}
+      <div style="display:flex;gap:10px;">
+        <span style="color:var(--red);flex-shrink:0;">✕</span>
+        <span style="font-size:13px;color:var(--text-2);">{{ w }}</span>
+      </div>
+      {% endfor %}
+
+      {% for r in _low_conf %}
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span style="font-size:8px;margin-top:4px;flex-shrink:0;">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#94a3b8;"></span>
+        </span>
+        <span style="font-size:13px;color:var(--text-2);">
+          <strong>{{ r.get('fee_type','?') }} · {{ r.get('country','?') }}</strong>
+          — source confidence {{ (r.source_confidence * 100)|int }}% — verify manually.
+        </span>
+      </div>
+      {% endfor %}
+
+      {% for g in gaps %}
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span style="color:var(--accent);flex-shrink:0;">?</span>
+        <div>
+          <span style="font-size:13px;color:var(--text-2);">
+            <strong style="color:var(--accent);">p.{{ g.page }} — potential missed entries</strong>
+            — {{ g.pct_found }} rates found, {{ g.rules_matched }} matched.
+          </span>
+          {% if g.snippet %}
+          <div style="margin-top:4px;font-size:11px;color:var(--muted);font-family:monospace;">"…{{ g.snippet }}…"</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+
+    </div>
+  </div>
+  {% else %}
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 18px;
+              background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);
+              border-radius:var(--radius-md);font-size:13px;color:var(--green);">
+    <span>✓</span> All checks passed — no issues detected.
+  </div>
+  {% endif %}
+</div>
+
+{% if raw_response %}
+<details style="margin-top:var(--sp-5);max-width:740px;margin-left:auto;margin-right:auto;">
+  <summary style="cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.08em;color:var(--muted);user-select:none;
+                  list-style:none;display:flex;align-items:center;gap:6px;">
+    <span style="font-size:9px;">▶</span> Raw AI Response (debug)
+  </summary>
+  <pre style="margin-top:10px;padding:16px;overflow-x:auto;
+              background:var(--surface);border:1px solid var(--border);
+              border-radius:var(--radius-sm);font-size:11px;line-height:1.55;
+              color:var(--text-2);white-space:pre-wrap;word-break:break-all;">{{ raw_response }}</pre>
+</details>
+{% endif %}
 
 {% endblock %}
