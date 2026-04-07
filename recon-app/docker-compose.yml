@@ -16,8 +16,14 @@ services:
       - BACKOFFICE_USER=backoffice
       - BACKOFFICE_PASS=Hdtkfvi12345
       - FLASK_SECRET=cmt-recon-2026
-      - AUTH_USER=cmt
-      - AUTH_PASS=Rec0n@CMT2026!
+      - RECON_USER=CMTRecon
+      - RECON_PASS=5UvJIBkmEeulzmiRG9dFMg
+      - FEES_USER=CMTFeeProcessor
+      - FEES_PASS=PUlDNl_ZZDirFBxaF8FFtQ
+      - FX_USER=CMTFxRates
+      - FX_PASS=I0vcjes2tgVfkQxE1DHQac1H
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
     networks:
       - recon_net
       - backoffice_net
