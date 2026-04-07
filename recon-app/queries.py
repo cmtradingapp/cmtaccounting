@@ -328,6 +328,54 @@ def get_reference_fx_rates(minutes_ago: int, symbols: list = None) -> dict:
     return result
 
 
+# (bucket_seconds, lookback_interval) for each chart period.
+# Uses epoch-division bucketing — pure PostgreSQL, no TimescaleDB extension needed.
+_FX_OHLC_PARAMS = {
+    '5m':  (300,    '8 hours'),
+    '15m': (900,    '24 hours'),
+    '1h':  (3600,   '5 days'),
+    '4h':  (14400,  '3 weeks'),
+    '1d':  (86400,  '90 days'),
+    '1w':  (86400,  '180 days'),   # daily candles — data only from Sept 2025
+    '1mo': (86400,  '365 days'),
+}
+
+
+def get_fx_ohlc(symbol: str, period: str = '1d') -> list:
+    """OHLC candlestick data using epoch-division bucketing. Cached 5 min."""
+    bucket_secs, lookback = _FX_OHLC_PARAMS.get(period, (3600, '5 days'))
+    key = f"fx_ohlc:{symbol}:{period}"
+    cached = _cache_get(key, _TTL_FX_HISTORY)
+    if cached is not None:
+        return cached
+
+    with dealio() as cur:
+        cur.execute("""
+            SELECT
+                TO_TIMESTAMP(
+                    FLOOR(EXTRACT(EPOCH FROM lastmodified) / %(b)s) * %(b)s
+                ) AS ts,
+                ROUND(((array_agg((bid+ask) ORDER BY lastmodified))[1] / 2.0)::numeric, 5)       AS o,
+                ROUND((MAX(bid+ask) / 2.0)::numeric, 5)                                           AS h,
+                ROUND((MIN(bid+ask) / 2.0)::numeric, 5)                                           AS l,
+                ROUND(((array_agg((bid+ask) ORDER BY lastmodified DESC))[1] / 2.0)::numeric, 5)  AS c
+            FROM dealio.ticks
+            WHERE symbol = %(sym)s
+              AND lastmodified >= NOW() - %(lb)s::interval
+            GROUP BY 1
+            ORDER BY 1
+        """, {"b": bucket_secs, "sym": symbol, "lb": lookback})
+        rows = [
+            {"ts": r["ts"].isoformat(),
+             "o": float(r["o"]), "h": float(r["h"]),
+             "l": float(r["l"]), "c": float(r["c"])}
+            for r in cur.fetchall()
+        ]
+
+    _cache_set(key, rows)
+    return rows
+
+
 def get_fx_history(symbol: str, hours: int = 168) -> list:
     """Hourly average mid-rate for a symbol over the last N hours. Cached 5 min."""
     key = f"fx_history:{symbol}:{hours}"
