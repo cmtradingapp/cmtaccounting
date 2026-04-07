@@ -190,7 +190,7 @@
     .th-noncash { border-top: 2px solid rgba(245,158,11,.25); }
     .cash-col   { background: rgba(34,197,94,.03); }
     .noncash-col{ background: rgba(245,158,11,.03); color: var(--muted); }
-    .methods    { color: var(--muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+    .methods    { color: var(--muted); max-width: 240px; font-size: 12px; white-space: normal; line-height: 1.4; }
     .legend     { font-size: 12px; color: var(--muted); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .legend-item{ display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
     .legend-item.cash    { background: rgba(34,197,94,.15);  color: var(--green); }
@@ -431,6 +431,7 @@
     <nav>
       <a href="/" class="{{ 'active' if request.path == '/' or request.path.startswith('/recon') }}">Dashboard</a>
       <a href="/fees" class="{{ 'active' if request.path.startswith('/fees') }}">Fees</a>
+      <a href="/fx"   class="{{ 'active' if request.path.startswith('/fx') }}">FX Rates</a>
     </nav>
   </header>
   <main>
