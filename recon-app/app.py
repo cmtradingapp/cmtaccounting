@@ -646,6 +646,24 @@ CURRENCIES = [
     "RWF", "XOF", "XAF", "AED", "BRL", "CLP", "COP", "MXN", "PEN",
 ]
 
+@app.route("/fees/calculator")
+@require_fees_auth
+def fees_calculator():
+    import datetime as _dt
+    span = request.args.get("span", "1m")
+    span_map = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365}
+    span_labels = {"1w":"1 Week","1m":"1 Month","3m":"3 Months","6m":"6 Months","1y":"1 Year"}
+    today = _dt.date.today()
+    date_from = today - _dt.timedelta(days=span_map.get(span,31))
+    date_to   = today + _dt.timedelta(days=1)
+    try:
+        data = queries.fee_calculator(date_from, date_to)
+    except Exception as e:
+        data = {"by_psp":[],"by_method":[],"totals":{},"unmatched_processors":[],"date_from":str(date_from),"date_to":str(date_to)}
+    return render_template("fee_calculator.html", data=data, span=span,
+                           span_label=span_labels.get(span,span))
+
+
 @app.route("/fees/db-backup")
 @require_fees_auth
 def fees_db_backup():

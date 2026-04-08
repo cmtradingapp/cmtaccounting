@@ -582,6 +582,188 @@ def get_monthly_fx_rate(symbol: str, year: int, month: int) -> float | None:
 _TTL_CLIENT_LIST = 3600   # 1 hour — expensive cross-DB aggregate
 
 
+_TTL_FEE_CALC = 300   # 5 minutes
+
+
+def fee_calculator(date_from=None, date_to=None) -> dict:
+    """
+    Compare actual Praxis fees vs expected fees from psp_fee_rules.
+
+    Returns:
+      {
+        "by_psp": [
+          {
+            "psp_name":        str,    # matched agreement psp_name
+            "payment_processor": str,  # raw Praxis processor string
+            "tx_count":        int,
+            "gross_volume":    float,  # sum usd_amount
+            "actual_fees":     float,  # sum fee/100
+            "expected_fees":   float,  # computed from fee rules
+            "variance":        float,  # actual - expected
+            "match_rate":      float,  # % of txs with a matching rule
+          }
+        ],
+        "by_method": [ same shape, grouped by payment_method ],
+        "totals": { gross_volume, actual_fees, expected_fees, variance },
+        "unmatched_processors": [ list of processor strings with no fee rule ],
+        "date_from": str,
+        "date_to":   str,
+      }
+    """
+    import datetime as _dt
+    if date_from is None: date_from = _dt.date.today() - _dt.timedelta(days=31)
+    if date_to   is None: date_to   = _dt.date.today() + _dt.timedelta(days=1)
+
+    key = f"fee_calc:{date_from}:{date_to}"
+    cached = _cache_get(key, _TTL_FEE_CALC)
+    if cached is not None:
+        return cached
+
+    # Load fee rules keyed by psp_name lower
+    all_agreements = get_all_agreements()
+    fee_rules_by_psp: dict = {}
+    for agr in all_agreements:
+        rules = get_fee_rules(agr["id"])
+        fee_rules_by_psp[agr["psp_name"].lower()] = {"rules": rules, "psp_name": agr["psp_name"]}
+
+    # Pull Praxis transactions for the period
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT
+                        payment_processor,
+                        payment_method,
+                        session_intent   AS direction,
+                        usd_amount,
+                        fee / 100.0      AS fee_actual,
+                        currency
+                    FROM praxis_transactions
+                    WHERE created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
+                      AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
+                      AND session_intent IN ('payment','withdrawal','payout')
+                    ORDER BY payment_processor, payment_method
+                """, (date_from, date_to))
+                return cur.fetchall()
+        rows = _db_retry(_fetch)
+    except Exception:
+        rows = []
+
+    # Helper — reuse app.py _expected_fee logic inline
+    def _calc_expected(usd_amount, payment_method, direction, processor):
+        if not usd_amount:
+            return 0.0, False
+        fee_type = "Deposit" if direction == "payment" else "Withdrawal"
+        pm_norm  = (payment_method or "").lower()
+        proc_l   = (processor or "").lower()
+
+        # Find PSP match
+        matched_psp = None
+        for psp_key, psp_data in fee_rules_by_psp.items():
+            if psp_key in proc_l or proc_l in psp_key:
+                matched_psp = psp_data
+                break
+        if not matched_psp:
+            return 0.0, False
+
+        best = None
+        for rule in matched_psp["rules"]:
+            if rule.get("fee_type") != fee_type:
+                continue
+            rule_pm = (rule.get("payment_method") or "").lower()
+            if rule_pm and rule_pm not in pm_norm and pm_norm not in rule_pm:
+                continue
+            best = rule
+            break
+
+        if not best:
+            return 0.0, False
+
+        kind = best.get("fee_kind", "percentage")
+        pct  = float(best.get("pct_rate") or 0)
+        fix  = float(best.get("fixed_amount") or 0)
+        usd  = float(usd_amount or 0)
+
+        if kind == "percentage":      fee = round(usd * pct, 4)
+        elif kind == "fixed":         fee = round(fix, 4)
+        elif kind == "fixed_plus_pct":fee = round(fix + usd * pct, 4)
+        elif kind == "tiered":
+            tiers = sorted(best.get("tiers", []), key=lambda t: t.get("volume_from", 0))
+            fee = 0.0
+            for tier in reversed(tiers):
+                if usd >= tier.get("volume_from", 0):
+                    fee = round(usd * float(tier.get("pct_rate", 0)), 4)
+                    break
+        else:
+            fee = 0.0
+        return fee, True
+
+    # Aggregate by processor
+    from collections import defaultdict
+    by_psp: dict     = defaultdict(lambda: {"tx_count":0,"gross":0.0,"actual":0.0,"expected":0.0,"matched":0})
+    by_method: dict  = defaultdict(lambda: {"tx_count":0,"gross":0.0,"actual":0.0,"expected":0.0,"matched":0})
+    unmatched: set   = set()
+
+    for r in rows:
+        proc  = (r["payment_processor"] or "unknown")
+        meth  = (r["payment_method"]    or "unknown")
+        usd   = float(r["usd_amount"]   or 0)
+        act   = float(r["fee_actual"]   or 0)
+        dirn  = r["direction"]
+
+        exp, hit = _calc_expected(usd, meth, dirn, proc)
+        if not hit:
+            unmatched.add(proc)
+
+        for bucket, key2 in [(by_psp, proc), (by_method, meth)]:
+            bucket[key2]["tx_count"]  += 1
+            bucket[key2]["gross"]     += usd
+            bucket[key2]["actual"]    += act
+            bucket[key2]["expected"]  += exp
+            if hit:
+                bucket[key2]["matched"] += 1
+
+    def _to_rows(d):
+        result = []
+        for label, v in d.items():
+            tc = v["tx_count"]
+            result.append({
+                "label":        label,
+                "tx_count":     tc,
+                "gross_volume": round(v["gross"],    2),
+                "actual_fees":  round(v["actual"],   2),
+                "expected_fees":round(v["expected"], 2),
+                "variance":     round(v["actual"] - v["expected"], 2),
+                "match_rate":   round(v["matched"] / tc * 100, 1) if tc else 0.0,
+            })
+        result.sort(key=lambda r: abs(r["variance"]), reverse=True)
+        return result
+
+    by_psp_rows    = _to_rows(by_psp)
+    by_method_rows = _to_rows(by_method)
+
+    total_gross  = sum(r["gross_volume"]  for r in by_psp_rows)
+    total_actual = sum(r["actual_fees"]   for r in by_psp_rows)
+    total_exp    = sum(r["expected_fees"] for r in by_psp_rows)
+
+    result = {
+        "by_psp":               by_psp_rows,
+        "by_method":            by_method_rows,
+        "totals": {
+            "gross_volume":  round(total_gross,  2),
+            "actual_fees":   round(total_actual, 2),
+            "expected_fees": round(total_exp,    2),
+            "variance":      round(total_actual - total_exp, 2),
+        },
+        "unmatched_processors": sorted(unmatched),
+        "date_from":  str(date_from),
+        "date_to":    str(date_to),
+    }
+    _cache_set(key, result)
+    return result
+
+
 def equity_report(date_from=None, date_to=None) -> list:
     """
     Per-CID equity statement for a date range. Cached 1 hour.
