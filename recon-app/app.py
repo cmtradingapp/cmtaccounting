@@ -672,9 +672,13 @@ def fees_processor_map():
         processors = []
 
     agreements = queries.get_all_agreements()
-    mappings   = queries.get_processor_mappings()
+    # Strip binary fields so tojson works in the template
+    agr_safe = [{"id": a["id"], "psp_name": a["psp_name"],
+                 "provider_name": a.get("provider_name") or ""}
+                for a in agreements]
+    mappings  = queries.get_processor_mappings()
     return render_template("fee_processor_map.html",
-                           processors=processors, agreements=agreements,
+                           processors=processors, agreements=agr_safe,
                            mappings=mappings)
 
 
