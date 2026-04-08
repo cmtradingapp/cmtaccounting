@@ -605,8 +605,21 @@ def client_list(date_from=None, date_to=None) -> list:
         return cached
 
     # 1. MT4 aggregate per login
+    # Use explicit date range (enables TimescaleDB chunk exclusion).
+    # SET statement_timeout = 30s so the replica doesn't kill us mid-scan.
     def _fetch_mt4():
-        with dealio() as cur:
+        import psycopg2
+        raw_conn = psycopg2.connect(
+            host=__import__('os').environ["DEALIO_HOST"],
+            port=int(__import__('os').environ.get("DEALIO_PORT", 5106)),
+            dbname=__import__('os').environ["DEALIO_DB"],
+            user=__import__('os').environ["DEALIO_USER"],
+            password=__import__('os').environ["DEALIO_PASS"],
+            connect_timeout=15,
+            options="-c statement_timeout=30000",
+        )
+        try:
+            cur = psycopg2.extras.RealDictCursor(raw_conn)
             cur.execute("""
                 SELECT
                     login,
@@ -619,6 +632,8 @@ def client_list(date_from=None, date_to=None) -> list:
                 GROUP BY login
             """, (date_from, date_to))
             return {r["login"]: dict(r) for r in cur.fetchall()}
+        finally:
+            raw_conn.close()
     mt4 = _db_retry(_fetch_mt4)
 
     # 2. CID mapping login → cid
