@@ -240,6 +240,9 @@ function setFilter(f, btn) {
   _filter = f;
   document.querySelectorAll('[data-filter]').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');
+  // Reset sort to show most extreme values first for each filter mode
+  _sortCol = 3;  // company_total
+  _sortAsc = (f === 'loss');  // loss: ascending (most negative first); profit/all: descending
   applyView();
 }
 function filterClients(q) {
