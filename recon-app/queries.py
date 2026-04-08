@@ -631,10 +631,10 @@ def client_list(date_from=None, date_to=None) -> list:
             if login not in login_to_cid:
                 login_to_cid[login] = cid_str
 
-    # 3. Praxis customer names (one name per cid, loaded once)
+    # 3. Names: Praxis (preferred) then dealio_users fallback
     try:
         from db import praxis as praxis_ctx
-        def _fetch_names():
+        def _fetch_praxis_names():
             with praxis_ctx() as cur:
                 cur.execute("""
                     SELECT DISTINCT ON (session_cid)
@@ -648,9 +648,20 @@ def client_list(date_from=None, date_to=None) -> list:
                 return {r["session_cid"]: {"name": (r["name"] or "").strip(),
                                             "email": r["email"] or ""}
                         for r in cur.fetchall()}
-        praxis_names = _db_retry(_fetch_names)
+        praxis_names = _db_retry(_fetch_praxis_names)
     except Exception:
         praxis_names = {}
+
+    # Fallback: dealio_users.name keyed by login (covers clients with no Praxis activity)
+    def _fetch_dealio_names():
+        with backoffice() as cur:
+            cur.execute("SELECT login, name, email FROM dealio_users WHERE name IS NOT NULL AND name != ''")
+            return {r["login"]: {"name": (r["name"] or "").strip(), "email": r["email"] or ""}
+                    for r in cur.fetchall()}
+    try:
+        dealio_names = _db_retry(_fetch_dealio_names)
+    except Exception:
+        dealio_names = {}
 
     # 4. Build result rows
     rows = []
@@ -660,14 +671,18 @@ def client_list(date_from=None, date_to=None) -> list:
         co_trading= round(-client_pnl, 2)
         co_total  = round(co_trading + net_dep, 2)
 
-        cid  = login_to_cid.get(login, "")
-        info = praxis_names.get(cid, {})
+        cid        = login_to_cid.get(login, "")
+        praxis_info= praxis_names.get(cid, {})
+        dealio_info= dealio_names.get(login, {})
+        # Prefer Praxis name (has first+last), fall back to dealio_users
+        name  = praxis_info.get("name") or dealio_info.get("name") or ""
+        email = praxis_info.get("email") or dealio_info.get("email") or ""
 
         rows.append({
             "login":               login,
             "cid":                 cid,
-            "name":                info.get("name", ""),
-            "email":               info.get("email", ""),
+            "name":                name,
+            "email":               email,
             "net_deposit":         round(net_dep, 2),
             "client_realised_pnl": round(client_pnl, 2),
             "company_trading_pnl": co_trading,
