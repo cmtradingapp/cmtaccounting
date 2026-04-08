@@ -127,38 +127,36 @@ def recon(month):
     )
 
 
-@app.route("/clients")
+@app.route("/clients/data")
 @require_recon_auth
-def clients():
+def clients_data():
+    """JSON endpoint for client list — used by the JS virtual table."""
     import datetime as _dt
     span = request.args.get("span", "1y")
     span_map = {"3m":92,"6m":183,"1y":365,"2y":730,"all":0}
-    span_labels = {"3m":"3 Months","6m":"6 Months","1y":"1 Year","2y":"2 Years","all":"All Time"}
     today = _dt.date.today()
     if span == "all":
         date_from = _dt.date(2021,1,1)
     else:
         date_from = today - _dt.timedelta(days=span_map.get(span,365))
     date_to = today + _dt.timedelta(days=1)
-
     try:
         rows = queries.client_list(date_from, date_to)
         cache_age = queries.cache_age_key(f"client_list:{date_from}:{date_to}")
-    except Exception as e:
+    except Exception:
         rows = []
         cache_age = None
+    return jsonify({"rows": rows, "cache_age": cache_age,
+                    "date_from": str(date_from), "date_to": str(date_to)})
 
-    # Summary stats
-    total = len(rows)
-    profitable = sum(1 for r in rows if r["company_total"] > 1)
-    losing     = sum(1 for r in rows if r["company_total"] < -1)
-    total_value = sum(r["company_total"] for r in rows)
 
-    return render_template("clients.html",
-        rows=rows, span=span, span_label=span_labels.get(span,span),
-        date_from=str(date_from), date_to=str(date_to),
-        total=total, profitable=profitable, losing=losing,
-        total_value=round(total_value,2), cache_age=cache_age)
+@app.route("/clients")
+@require_recon_auth
+def clients():
+    span = request.args.get("span", "1y")
+    span_labels = {"3m":"3 Months","6m":"6 Months","1y":"1 Year","2y":"2 Years","all":"All Time"}
+    return render_template("clients.html", span=span,
+                           span_label=span_labels.get(span, span))
 
 
 @app.route("/cid/<cid>")
