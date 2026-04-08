@@ -80,7 +80,7 @@
 
 <div id="tab-processors">
 <!-- Summary counts -->
-{% set n_mapped   = mappings|length %}
+{% set n_mapped   = proc_mappings|length %}
 {% set n_total    = processors|length %}
 {% set n_unmapped = n_total - n_mapped %}
 <div style="display:flex;gap:10px;margin-bottom:var(--sp-3);">
@@ -101,7 +101,7 @@
 
   {% for p in processors %}
   {% set proc = p.payment_processor or 'unknown' %}
-  {% set saved = mappings.get(proc) %}
+  {% set saved = proc_mappings.get(proc) %}
   {% set saved_id = saved.get('agreement_id') if saved else none %}
   {% set is_confirmed = saved.get('confirmed', False) if saved else False %}
   <div class="pm-row" id="row-{{ loop.index }}" data-processor="{{ proc }}">
@@ -138,7 +138,7 @@
 </div><!-- end tab-processors -->
 
 <div id="tab-methods" style="display:none;">
-{% set n_mm = method_mappings|length %}
+{% set n_mm = method_proc_mappings|length %}
 <div style="display:flex;gap:10px;margin-bottom:var(--sp-3);">
   <span class="pm-badge confirmed">{{ n_mm }} mapped</span>
   <span class="pm-badge unmapped">{{ methods|length - n_mm }} unmapped</span>
