@@ -246,7 +246,8 @@ def praxis_summary(year: int, month: int) -> dict:
                                  THEN usd_amount ELSE 0 END)                    AS praxis_withdrawals,
                         COUNT(*)                                                 AS praxis_tx_count
                     FROM praxis_transactions
-                    WHERE inserted_at >= %s AND inserted_at < %s
+                    WHERE created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
+                      AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
                       AND session_cid IS NOT NULL AND session_cid != ''
                     GROUP BY session_cid
                 """, (month_start, month_end))
@@ -638,11 +639,12 @@ def praxis_transaction_list(year: int, month: int) -> list:
                         wallet_data_email   AS email,
                         customer_first_name,
                         customer_last_name,
-                        inserted_at
+                        TO_TIMESTAMP(created_timestamp) AS inserted_at
                     FROM praxis_transactions
-                    WHERE inserted_at >= %s AND inserted_at < %s
+                    WHERE created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
+                      AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
                       AND session_cid IS NOT NULL AND session_cid != ''
-                    ORDER BY session_cid, inserted_at
+                    ORDER BY session_cid, created_timestamp
                 """, (month_start, month_end))
                 rows = []
                 for r in cur.fetchall():
@@ -718,7 +720,7 @@ def psp_balance_at_month_end(year: int, month: int) -> list:
                         SUM(fee / 100.0)                                         AS actual_fees_usd,
                         COUNT(*)                                                  AS tx_count
                     FROM praxis_transactions
-                    WHERE inserted_at < %s
+                    WHERE created_timestamp < EXTRACT(EPOCH FROM %s::timestamp)
                     GROUP BY payment_processor, currency
                     ORDER BY payment_processor, currency
                 """, (month_end,))
