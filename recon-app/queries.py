@@ -655,12 +655,37 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
     except Exception:
         rows = []
 
+    # Praxis payment_method → canonical rule payment_method
+    _PM_MAP = {
+        "mobileafrica":       "Mobile Money",
+        "mobilemoney":        "Mobile Money",
+        "mobilemoney_checkout":"Mobile Money",
+        "altmobilemoney":     "Mobile Money",
+        "tingg":              "Mobile Money",
+        "payunit":            "Mobile Money",
+        "altbankonline":      "Electronic Payment",
+        "altcrypto":          "Crypto",
+        "crypto":             "Crypto",
+        "ozow":               "Electronic Payment",
+        "zpay":               "Electronic Payment",
+        "dusupay":            "Mobile Money",
+        "credit card":        "Credit Cards",
+        "creditcard":         "Credit Cards",
+        "virtualpay":         "Electronic Payment",
+        "paywall":            "Electronic Payment",
+        "bank transfer":      "Bank Wire",
+        "wire":               "Bank Wire",
+    }
+
     # Helper — look up expected fee using saved mappings first, fuzzy fallback
     def _calc_expected(usd_amount, payment_method, direction, processor):
         if not usd_amount:
             return 0.0, False
         fee_type = "Deposit" if direction == "payment" else "Withdrawal"
-        pm_norm  = (payment_method or "").lower()
+        # Translate Praxis method name to canonical form used in rules
+        pm_raw   = (payment_method or "").lower().strip()
+        pm_canon = _PM_MAP.get(pm_raw, payment_method or "")
+        pm_norm  = pm_canon.lower()
         proc_key = (processor or "")
 
         # 1. Check saved manual/AI mapping first (highest priority)
@@ -680,15 +705,16 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
         if not matched_psp:
             return 0.0, False
 
+        # Match rules: try exact canonical match first, then "any method" (null) rules
         best = None
         for rule in matched_psp["rules"]:
             if rule.get("fee_type") != fee_type:
                 continue
             rule_pm = (rule.get("payment_method") or "").lower()
             if rule_pm and rule_pm not in pm_norm and pm_norm not in rule_pm:
-                continue
-            best = rule
-            break
+                continue   # method specified but doesn't match
+            if best is None or rule_pm:  # prefer more specific match
+                best = rule
 
         if not best:
             return 0.0, False
