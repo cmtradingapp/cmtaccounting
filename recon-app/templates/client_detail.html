@@ -257,38 +257,7 @@
 </div>
 
 <script>
-(function () {
-  document.querySelectorAll('th[data-col]').forEach(function (th) {
-    th.addEventListener('click', function () {
-      var col     = parseInt(th.getAttribute('data-col'));
-      var tbody   = th.closest('table').querySelector('tbody');
-      var headers = th.closest('tr').querySelectorAll('th[data-col]');
-      var asc     = !th.classList.contains('asc');
-
-      headers.forEach(function (h) { h.classList.remove('asc','desc'); });
-      th.classList.add(asc ? 'asc' : 'desc');
-
-      var rows = Array.from(tbody.querySelectorAll('tr')).filter(function (r) {
-        return !r.querySelector('td[colspan]');
-      });
-
-      rows.sort(function (a, b) {
-        var ca = a.querySelectorAll('td')[col];
-        var cb = b.querySelectorAll('td')[col];
-        var va = ((ca ? (ca.getAttribute('data-val') || ca.textContent) : '')).trim();
-        var vb = ((cb ? (cb.getAttribute('data-val') || cb.textContent) : '')).trim();
-        var na = parseFloat(va.replace(/[$,+\s]/g,'')), nb = parseFloat(vb.replace(/[$,+\s]/g,''));
-        if (!isNaN(na) && !isNaN(nb)) return asc ? na - nb : nb - na;
-        return asc ? va.localeCompare(vb) : vb.localeCompare(va);
-      });
-
-      var totalRows = Array.from(tbody.querySelectorAll('tr')).filter(function (r) {
-        return !!r.querySelector('td[colspan]');
-      });
-      rows.forEach(function (r) { tbody.insertBefore(r, totalRows[0] || null); });
-    });
-  });
-})();
+/* sort handled by base.html */
 </script>
 
 {% endblock %}

@@ -441,5 +441,59 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+<script>
+/* ── Shared table sort ───────────────────────────────────────────────────────
+   Attach to every th[data-col] on the page.
+   On click: sort the tbody rows of that table asc/desc.
+   On DOMContentLoaded: fire a synthetic click on every th that already has
+   class 'asc' or 'desc' so the initial server-rendered sort order is correct
+   and the arrow shows from the start.
+*/
+(function () {
+  function sortTable(th, asc) {
+    var col   = parseInt(th.getAttribute('data-col'));
+    var tbody = th.closest('table').querySelector('tbody');
+    if (!tbody) return;
+
+    th.closest('tr').querySelectorAll('th[data-col]').forEach(function (h) {
+      h.classList.remove('asc', 'desc');
+    });
+    th.classList.add(asc ? 'asc' : 'desc');
+
+    var rows = Array.from(tbody.querySelectorAll('tr')).filter(function (r) {
+      return !r.querySelector('td[colspan]');
+    });
+
+    rows.sort(function (a, b) {
+      var ca = a.querySelectorAll('td')[col];
+      var cb = b.querySelectorAll('td')[col];
+      var va = ((ca ? (ca.getAttribute('data-val') || ca.textContent) : '')).trim();
+      var vb = ((cb ? (cb.getAttribute('data-val') || cb.textContent) : '')).trim();
+      var na = parseFloat(va.replace(/[$,+\s]/g, ''));
+      var nb = parseFloat(vb.replace(/[$,+\s]/g, ''));
+      if (!isNaN(na) && !isNaN(nb)) return asc ? na - nb : nb - na;
+      return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+
+    var pins = Array.from(tbody.querySelectorAll('tr')).filter(function (r) {
+      return !!r.querySelector('td[colspan]');
+    });
+    rows.forEach(function (r) { tbody.insertBefore(r, pins[0] || null); });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('th[data-col]').forEach(function (th) {
+      th.addEventListener('click', function () {
+        sortTable(th, !th.classList.contains('asc'));
+      });
+    });
+
+    // Apply initial sort for any th that already has asc/desc class
+    document.querySelectorAll('th[data-col].asc, th[data-col].desc').forEach(function (th) {
+      sortTable(th, th.classList.contains('asc'));
+    });
+  });
+})();
+</script>
 </body>
 </html>

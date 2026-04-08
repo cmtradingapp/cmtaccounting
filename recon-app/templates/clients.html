@@ -180,26 +180,7 @@ function filterClients(q) {
   applyView();
 }
 
-// Column sort
-document.querySelectorAll('th[data-col]').forEach(function(th){
-  th.addEventListener('click', function(){
-    var col = parseInt(th.getAttribute('data-col'));
-    var tbody = document.querySelector('#clTable tbody');
-    var asc = !th.classList.contains('asc');
-    document.querySelectorAll('th[data-col]').forEach(function(h){h.classList.remove('asc','desc');});
-    th.classList.add(asc?'asc':'desc');
-    var rows = Array.from(tbody.querySelectorAll('tr'));
-    rows.sort(function(a,b){
-      var ca=a.querySelectorAll('td')[col], cb=b.querySelectorAll('td')[col];
-      var va=((ca?(ca.getAttribute('data-val')||ca.textContent):'')).trim();
-      var vb=((cb?(cb.getAttribute('data-val')||cb.textContent):'')).trim();
-      var na=parseFloat(va.replace(/[$,+\s]/g,'')), nb=parseFloat(vb.replace(/[$,+\s]/g,''));
-      if(!isNaN(na)&&!isNaN(nb)) return asc?na-nb:nb-na;
-      return asc?va.localeCompare(vb):vb.localeCompare(va);
-    });
-    rows.forEach(function(r){tbody.appendChild(r);});
-  });
-});
+// Sort handled by base.html
 
 document.addEventListener('DOMContentLoaded', applyView);
 </script>
