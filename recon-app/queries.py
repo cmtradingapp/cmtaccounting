@@ -613,7 +613,7 @@ def client_list(date_from=None, date_to=None) -> list:
                 SELECT
                     login,
                     SUM(convertednetdeposit)  AS net_deposit,
-                    SUM(closedpnl)            AS client_realised_pnl,
+                    SUM(convertedclosedpnl)   AS client_realised_pnl,
                     MAX(groupcurrency)        AS currency,
                     MAX(date)                 AS last_active
                 FROM dealio.daily_profits
@@ -1194,8 +1194,9 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
     client_unrealised_eod = 0.0
     pnl_by_login = {}
     for login, rows in mt4_by_login.items():
-        l_realised = sum(float(r.get("closedpnl") or 0) for r in rows)
-        l_unrealised = float(rows[-1].get("floatingpnl") or 0) if rows else 0.0
+        # Use converted (USD) fields throughout — closedpnl is in native currency
+        l_realised = sum(float(r.get("convertedclosedpnl") or r.get("closedpnl") or 0) for r in rows)
+        l_unrealised = float(rows[-1].get("convertedfloatingpnl") or rows[-1].get("floatingpnl") or 0) if rows else 0.0
         l_net_dep = sum(float(r.get("convertednetdeposit") or 0) for r in rows)
         pnl_by_login[login] = {
             "client_realised":    round(l_realised, 2),
@@ -1272,7 +1273,9 @@ def client_mt4_detail(login: int, date_from, date_to) -> list:
         with dealio() as cur:
             cur.execute("""
                 SELECT date, netdeposit, convertednetdeposit, balance, equity,
-                       closedpnl, floatingpnl, groupcurrency, conversionratio
+                       closedpnl, convertedclosedpnl,
+                       floatingpnl, convertedfloatingpnl,
+                       groupcurrency, conversionratio
                 FROM dealio.daily_profits
                 WHERE login = %s
                   AND date >= %s AND date < %s
