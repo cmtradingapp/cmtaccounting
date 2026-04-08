@@ -78,6 +78,17 @@
   </button>
 </div>
 
+<script>
+function switchTab(tab, btn) {
+  document.querySelectorAll('.pm-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  document.getElementById('tab-processors').style.display = tab==='processors' ? '' : 'none';
+  document.getElementById('tab-methods').style.display    = tab==='methods'    ? '' : 'none';
+  document.getElementById('aiBtn').textContent =
+    tab==='processors' ? '✨ AI Auto-Match All' : '✨ AI Auto-Map All';
+}
+</script>
+
 <div id="tab-processors">
 <!-- Summary counts -->
 {% set n_mapped   = proc_mappings|length %}
