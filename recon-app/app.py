@@ -169,16 +169,25 @@ def cid_detail(cid):
     ref  = request.args.get("ref", "")
 
     today = _dt.date.today()
+    last = request.args.get("last", "")   # YYYY-MM anchor from client list
+
+    # Determine range_end: ref > last > today
     if ref:
         try:
             ry, rm = int(ref[:4]), int(ref[5:7])
             range_end = _dt.date(ry+1,1,1) if rm==12 else _dt.date(ry,rm+1,1)
         except Exception:
-            d = _dt.date(today.year, today.month, 1) + _dt.timedelta(days=32)
-            range_end = _dt.date(d.year, d.month, 1)
+            range_end = _dt.date(today.year, today.month, 1) + _dt.timedelta(days=32)
+            range_end = _dt.date(range_end.year, range_end.month, 1)
+    elif last:
+        try:
+            ly, lm = int(last[:4]), int(last[5:7])
+            # Set range_end to end of that month + 1 so the month itself is included
+            range_end = _dt.date(ly+1,1,1) if lm==12 else _dt.date(ly,lm+1,1)
+        except Exception:
+            range_end = today + _dt.timedelta(days=1)
     else:
-        d = _dt.date(today.year, today.month, 1) + _dt.timedelta(days=32)
-        range_end = _dt.date(d.year, d.month, 1)
+        range_end = today + _dt.timedelta(days=1)
 
     span_map = {"1m":31,"3m":92,"6m":183,"1y":365}
     span_labels = {"1m":"1 Month","3m":"3 Months","6m":"6 Months","1y":"1 Year","all":"All Time"}

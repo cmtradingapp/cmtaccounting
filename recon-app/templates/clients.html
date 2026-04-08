@@ -116,17 +116,19 @@
     </thead>
     <tbody>
       {% for r in rows %}
+      {% set last_ym = r.last_active[:7] if r.last_active else '' %}
+      {% set cid_url = '/cid/' ~ r.cid ~ '?span=' ~ span ~ ('&last=' ~ last_ym if last_ym else '') if r.cid
+                  else '/client/' ~ r.login ~ '?span=' ~ span ~ ('&last=' ~ last_ym if last_ym else '') %}
       <tr class="clickable {% if r.company_total > 1 %}profit-row{% elif r.company_total < -1 %}loss-row{% endif %}"
           data-val="{{ r.login }} {{ r.name|lower }} {{ r.email|lower }} {{ r.cid }}"
           data-profit="{{ '1' if r.company_total > 1 else ('0' if r.company_total < -1 else 'n') }}"
-          onclick="window.location='/{% if r.cid %}cid/{{ r.cid }}{% else %}client/{{ r.login }}{% endif %}'">
+          onclick="window.location='{{ cid_url }}'">
         <td data-val="{{ r.login }}">
-          <a href="/{% if r.cid %}cid/{{ r.cid }}{% else %}client/{{ r.login }}{% endif %}"
-             style="color:var(--accent);" onclick="event.stopPropagation()">{{ r.login }}</a>
+          <a href="{{ cid_url }}" style="color:var(--accent);" onclick="event.stopPropagation()">{{ r.login }}</a>
         </td>
         <td data-val="{{ r.name|lower }}">{{ r.name or '—' }}</td>
         <td data-val="{{ r.cid }}" style="font-family:monospace;font-size:11px;color:var(--muted);">
-          {% if r.cid %}<a href="/cid/{{ r.cid }}" style="color:var(--muted);" onclick="event.stopPropagation()">{{ r.cid }}</a>{% else %}—{% endif %}
+          {% if r.cid %}<a href="{{ cid_url }}" style="color:var(--muted);" onclick="event.stopPropagation()">{{ r.cid }}</a>{% else %}—{% endif %}
         </td>
         <td class="num fw {% if r.company_total > 1 %}pos{% elif r.company_total < -1 %}neg{% endif %}"
             data-val="{{ r.company_total }}">
