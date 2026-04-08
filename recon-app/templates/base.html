@@ -434,6 +434,7 @@
     <nav>
       <a href="/" class="{{ 'active' if request.path == '/' or request.path.startswith('/recon') }}">Dashboard</a>
       <a href="/fees" class="{{ 'active' if request.path.startswith('/fees') }}">Fees</a>
+      <a href="/clients" class="{{ 'active' if request.path.startswith('/clients') or request.path.startswith('/cid') or request.path.startswith('/client') }}">Clients</a>
       <a href="/fx"   class="{{ 'active' if request.path.startswith('/fx') }}">FX Rates</a>
     </nav>
   </header>

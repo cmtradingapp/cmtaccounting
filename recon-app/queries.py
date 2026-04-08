@@ -579,6 +579,106 @@ def get_monthly_fx_rate(symbol: str, year: int, month: int) -> float | None:
     return result
 
 
+_TTL_CLIENT_LIST = 3600   # 1 hour — expensive cross-DB aggregate
+
+
+def client_list(date_from=None, date_to=None) -> list:
+    """
+    Full client list with Company P&L from MT4 trading data.
+    Aggregates across all logins in daily_profits for the date range.
+
+    Returns list of dicts sorted by company_total descending (most valuable first):
+      login, net_deposit_usd, client_realised_pnl, company_trading_pnl,
+      company_total, currency, cid (if mapped), name (from Praxis if available)
+
+    Cached 1 hour — this is an expensive query (~4s on full dataset).
+    """
+    import datetime as _dt
+    if date_from is None:
+        date_from = _dt.date(2021, 1, 1)
+    if date_to is None:
+        date_to = _dt.date.today() + _dt.timedelta(days=1)
+
+    key = f"client_list:{date_from}:{date_to}"
+    cached = _cache_get(key, _TTL_CLIENT_LIST)
+    if cached is not None:
+        return cached
+
+    # 1. MT4 aggregate per login
+    def _fetch_mt4():
+        with dealio() as cur:
+            cur.execute("""
+                SELECT
+                    login,
+                    SUM(convertednetdeposit)  AS net_deposit,
+                    SUM(closedpnl)            AS client_realised_pnl,
+                    AVG(groupcurrency)        AS currency,
+                    MAX(date)                 AS last_active
+                FROM dealio.daily_profits
+                WHERE date >= %s AND date < %s
+                GROUP BY login
+            """, (date_from, date_to))
+            return {r["login"]: dict(r) for r in cur.fetchall()}
+    mt4 = _db_retry(_fetch_mt4)
+
+    # 2. CID mapping login → cid
+    account_map = _load_praxis_account_map()   # {cid: [login, ...]}
+    login_to_cid = {}
+    for cid_str, logins in account_map.items():
+        for login in logins:
+            if login not in login_to_cid:
+                login_to_cid[login] = cid_str
+
+    # 3. Praxis customer names (one name per cid, loaded once)
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch_names():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ON (session_cid)
+                        session_cid,
+                        customer_first_name || ' ' || customer_last_name AS name,
+                        wallet_data_email AS email
+                    FROM praxis_transactions
+                    WHERE customer_first_name IS NOT NULL
+                    ORDER BY session_cid, created_timestamp DESC
+                """)
+                return {r["session_cid"]: {"name": (r["name"] or "").strip(),
+                                            "email": r["email"] or ""}
+                        for r in cur.fetchall()}
+        praxis_names = _db_retry(_fetch_names)
+    except Exception:
+        praxis_names = {}
+
+    # 4. Build result rows
+    rows = []
+    for login, m in mt4.items():
+        net_dep   = float(m["net_deposit"] or 0)
+        client_pnl= float(m["client_realised_pnl"] or 0)
+        co_trading= round(-client_pnl, 2)
+        co_total  = round(co_trading + net_dep, 2)
+
+        cid  = login_to_cid.get(login, "")
+        info = praxis_names.get(cid, {})
+
+        rows.append({
+            "login":               login,
+            "cid":                 cid,
+            "name":                info.get("name", ""),
+            "email":               info.get("email", ""),
+            "net_deposit":         round(net_dep, 2),
+            "client_realised_pnl": round(client_pnl, 2),
+            "company_trading_pnl": co_trading,
+            "company_total":       co_total,
+            "currency":            m.get("currency") or "USD",
+            "last_active":         str(m.get("last_active") or ""),
+        })
+
+    rows.sort(key=lambda r: r["company_total"], reverse=True)
+    _cache_set(key, rows)
+    return rows
+
+
 def summary_stats(rows):
     matched     = sum(1 for r in rows if r["status"] == "matched")
     discrepancy = sum(1 for r in rows if r["status"] == "discrepancy")

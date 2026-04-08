@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %} — Clients{% endblock %}
+{% block content %}
+<style>
+  .cl-span-btn {
+    font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px;
+    border:1px solid var(--border); background:transparent; color:var(--muted);
+    cursor:pointer; text-decoration:none; display:inline-flex; align-items:center;
+    transition:border-color .15s,color .15s,background .15s;
+  }
+  .cl-span-btn:hover { border-color:rgba(255,255,255,.2); color:var(--text); }
+  .cl-span-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.08); }
+
+  .cl-stats { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:var(--sp-4); }
+  .cl-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 18px; }
+  .cl-stat .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:5px; }
+  .cl-stat .value { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .cl-search {
+    display:flex; align-items:center; gap:6px;
+    background:var(--surface-alt); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:0 10px; height:32px; width:260px;
+    transition:border-color .15s;
+  }
+  .cl-search:focus-within { border-color:var(--accent); }
+  .cl-search input { background:none; border:none; outline:none; color:var(--text); font-size:13px; flex:1; }
+  .cl-search svg { color:var(--muted); flex-shrink:0; }
+
+  /* Table sort arrows */
+  th[data-col] { cursor:pointer; user-select:none; white-space:nowrap; transition:color .15s; }
+  th[data-col]:hover { color:var(--text); }
+  th[data-col]::after { content:''; display:inline-block; margin-left:4px; opacity:.3; font-size:9px; }
+  th[data-col].asc::after  { content:'▲'; opacity:1; color:var(--accent); }
+  th[data-col].desc::after { content:'▼'; opacity:1; color:var(--accent); }
+
+  tbody tr.profit-row:hover td { background:rgba(34,197,94,.04); }
+  tbody tr.loss-row td { background:rgba(239,68,68,.03); }
+  tbody tr.loss-row:hover td { background:rgba(239,68,68,.07); }
+</style>
+
+<div class="page-header" style="margin-bottom:var(--sp-3);">
+  <div>
+    <div class="page-title">Client P&amp;L</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:3px;">
+      {{ date_from }} → {{ date_to }} &middot; {{ span_label }}
+      {% if cache_age is not none %}
+      &middot; <span style="color:var(--muted);">cached {{ cache_age }}s ago</span>
+      {% endif %}
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;">
+    {% for s,lbl in [('3m','3M'),('6m','6M'),('1y','1Y'),('2y','2Y'),('all','All')] %}
+    <a class="cl-span-btn {% if span==s %}active{% endif %}" href="/clients?span={{ s }}">{{ lbl }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Summary -->
+<div class="cl-stats">
+  <div class="cl-stat">
+    <div class="label">Total Clients</div>
+    <div class="value">{{ "{:,}".format(total) }}</div>
+  </div>
+  <div class="cl-stat">
+    <div class="label">Profitable for Co.</div>
+    <div class="value pos">{{ "{:,}".format(profitable) }}</div>
+  </div>
+  <div class="cl-stat">
+    <div class="label">Losing for Co.</div>
+    <div class="value neg">{{ "{:,}".format(losing) }}</div>
+  </div>
+  <div class="cl-stat">
+    <div class="label">Win Rate</div>
+    <div class="value {% if profitable > losing %}pos{% else %}neg{% endif %}">
+      {{ "{:.1f}".format(profitable / total * 100 if total else 0) }}%
+    </div>
+  </div>
+  <div class="cl-stat">
+    <div class="label">Total Company Value</div>
+    <div class="value {% if total_value > 0 %}pos{% elif total_value < 0 %}neg{% endif %}"
+         style="font-size:17px;">
+      ${{ "{:+,.0f}".format(total_value) }}
+    </div>
+  </div>
+</div>
+
+<!-- Controls -->
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+  <div class="cl-search">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="clSearch" placeholder="Login, name, email, CID…" oninput="filterClients(this.value)" autocomplete="off">
+  </div>
+  <div style="display:flex;gap:6px;">
+    <button class="cl-span-btn active" data-filter="all"    onclick="setFilter('all',this)">All</button>
+    <button class="cl-span-btn" data-filter="profit" onclick="setFilter('profit',this)" style="color:var(--green);">↑ Profit</button>
+    <button class="cl-span-btn" data-filter="loss"   onclick="setFilter('loss',this)"   style="color:var(--red);">↓ Loss</button>
+  </div>
+  <span id="clCount" style="font-size:12px;color:var(--muted);margin-left:4px;"></span>
+</div>
+
+<!-- Table -->
+<div class="table-wrap">
+  <table id="clTable">
+    <thead>
+      <tr>
+        <th data-col="0">Login</th>
+        <th data-col="1">Name</th>
+        <th data-col="2">CID</th>
+        <th data-col="3" class="num desc">Company Total</th>
+        <th data-col="4" class="num">Co. Trading P&amp;L</th>
+        <th data-col="5" class="num">Net Deposit</th>
+        <th data-col="6" class="num">Client P&amp;L</th>
+        <th data-col="7">Ccy</th>
+        <th data-col="8">Last Active</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr class="clickable {% if r.company_total > 1 %}profit-row{% elif r.company_total < -1 %}loss-row{% endif %}"
+          data-val="{{ r.login }} {{ r.name|lower }} {{ r.email|lower }} {{ r.cid }}"
+          data-profit="{{ '1' if r.company_total > 1 else ('0' if r.company_total < -1 else 'n') }}"
+          onclick="window.location='/{% if r.cid %}cid/{{ r.cid }}{% else %}client/{{ r.login }}{% endif %}'">
+        <td data-val="{{ r.login }}">
+          <a href="/{% if r.cid %}cid/{{ r.cid }}{% else %}client/{{ r.login }}{% endif %}"
+             style="color:var(--accent);" onclick="event.stopPropagation()">{{ r.login }}</a>
+        </td>
+        <td data-val="{{ r.name|lower }}">{{ r.name or '—' }}</td>
+        <td data-val="{{ r.cid }}" style="font-family:monospace;font-size:11px;color:var(--muted);">
+          {% if r.cid %}<a href="/cid/{{ r.cid }}" style="color:var(--muted);" onclick="event.stopPropagation()">{{ r.cid }}</a>{% else %}—{% endif %}
+        </td>
+        <td class="num fw {% if r.company_total > 1 %}pos{% elif r.company_total < -1 %}neg{% endif %}"
+            data-val="{{ r.company_total }}">
+          {{ "{:+,.0f}".format(r.company_total) }}
+        </td>
+        <td class="num {% if r.company_trading_pnl > 1 %}pos{% elif r.company_trading_pnl < -1 %}neg{% endif %}"
+            data-val="{{ r.company_trading_pnl }}">
+          {{ "{:+,.0f}".format(r.company_trading_pnl) }}
+        </td>
+        <td class="num" data-val="{{ r.net_deposit }}">{{ "{:+,.0f}".format(r.net_deposit) }}</td>
+        <td class="num {% if r.client_realised_pnl > 1 %}pos{% elif r.client_realised_pnl < -1 %}neg{% endif %}"
+            data-val="{{ r.client_realised_pnl }}">
+          {{ "{:+,.0f}".format(r.client_realised_pnl) }}
+        </td>
+        <td data-val="{{ r.currency }}">{{ r.currency }}</td>
+        <td style="color:var(--muted);" data-val="{{ r.last_active }}">{{ r.last_active }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+var _filter = 'all', _search = '';
+
+function applyView() {
+  var rows = Array.from(document.querySelectorAll('#clTable tbody tr'));
+  var vis = 0;
+  rows.forEach(function(r) {
+    var p  = r.dataset.profit;
+    var fok = _filter==='all' || (_filter==='profit'&&p==='1') || (_filter==='loss'&&p==='0');
+    var sok = !_search || (r.dataset.val||'').includes(_search);
+    r.style.display = (fok&&sok) ? '' : 'none';
+    if(fok&&sok) vis++;
+  });
+  var tot = rows.length;
+  document.getElementById('clCount').textContent = vis===tot ? tot+' clients' : vis+' of '+tot+' clients';
+}
+
+function setFilter(f, btn) {
+  _filter = f;
+  document.querySelectorAll('[data-filter]').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  applyView();
+}
+
+function filterClients(q) {
+  _search = q.toLowerCase().trim();
+  applyView();
+}
+
+// Column sort
+document.querySelectorAll('th[data-col]').forEach(function(th){
+  th.addEventListener('click', function(){
+    var col = parseInt(th.getAttribute('data-col'));
+    var tbody = document.querySelector('#clTable tbody');
+    var asc = !th.classList.contains('asc');
+    document.querySelectorAll('th[data-col]').forEach(function(h){h.classList.remove('asc','desc');});
+    th.classList.add(asc?'asc':'desc');
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort(function(a,b){
+      var ca=a.querySelectorAll('td')[col], cb=b.querySelectorAll('td')[col];
+      var va=((ca?(ca.getAttribute('data-val')||ca.textContent):'')).trim();
+      var vb=((cb?(cb.getAttribute('data-val')||cb.textContent):'')).trim();
+      var na=parseFloat(va.replace(/[$,+\s]/g,'')), nb=parseFloat(vb.replace(/[$,+\s]/g,''));
+      if(!isNaN(na)&&!isNaN(nb)) return asc?na-nb:nb-na;
+      return asc?va.localeCompare(vb):vb.localeCompare(va);
+    });
+    rows.forEach(function(r){tbody.appendChild(r);});
+  });
+});
+
+document.addEventListener('DOMContentLoaded', applyView);
+</script>
+{% endblock %}
