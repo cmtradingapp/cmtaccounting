@@ -13,7 +13,18 @@
   .pt-search input { background:none; border:none; outline:none; color:var(--text); font-size:13px; flex:1; }
   .pt-search svg  { color:var(--muted); flex-shrink:0; }
 
-  .pt-stats { display:flex; gap:10px; margin-bottom:var(--sp-3); flex-wrap:wrap; }
+  .pt-controls { display:flex; gap:8px; margin-bottom:var(--sp-3); flex-wrap:wrap; align-items:center; }
+  .pt-filter-btn {
+    font-size:11px; font-weight:700; padding:4px 12px; border-radius:999px;
+    border:1px solid var(--border); background:transparent; color:var(--muted);
+    cursor:pointer; transition:border-color .15s,color .15s,background .15s;
+  }
+  .pt-filter-btn:hover { border-color:rgba(255,255,255,.2); color:var(--text); }
+  .pt-filter-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.08); }
+  .pt-filter-btn.profit.active  { border-color:var(--green); color:var(--green); background:rgba(34,197,94,.08); }
+  .pt-filter-btn.loss.active    { border-color:var(--red);   color:var(--red);   background:rgba(239,68,68,.08); }
+  .pt-sep { width:1px; height:20px; background:var(--border); margin:0 4px; }
+  .pt-stats { display:flex; gap:10px; flex-wrap:wrap; }
   .pt-stat  {
     display:inline-flex; align-items:center; gap:6px; padding:4px 12px;
     border-radius:999px; font-size:12px; font-weight:600;
@@ -114,17 +125,37 @@
 {% set n_ambiguous   = tree | selectattr('ambiguous') | list | length %}
 {% set n_discrepancy = tree | rejectattr('ambiguous') | selectattr('has_issue') | list | length %}
 {% set n_clean       = tree | rejectattr('has_issue') | list | length %}
-<div class="pt-stats">
-  <span class="pt-stat"><span class="dot" style="background:#a78bfa;"></span>{{ n_ambiguous }} ambiguous</span>
-  <span class="pt-stat"><span class="dot" style="background:var(--yellow);"></span>{{ n_discrepancy }} discrepancy</span>
-  <span class="pt-stat"><span class="dot" style="background:var(--green);"></span>{{ n_clean }} matched</span>
+
+<div class="pt-controls">
+  <div class="pt-stats">
+    <span class="pt-stat"><span class="dot" style="background:#a78bfa;"></span>{{ n_ambiguous }} ambiguous</span>
+    <span class="pt-stat"><span class="dot" style="background:var(--yellow);"></span>{{ n_discrepancy }} discrepancy</span>
+    <span class="pt-stat"><span class="dot" style="background:var(--green);"></span>{{ n_clean }} matched</span>
+  </div>
+  <div class="pt-sep"></div>
+  <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Filter</span>
+  <button class="pt-filter-btn active" data-group="filter" onclick="setFilter('all',this)">All</button>
+  <button class="pt-filter-btn profit" data-group="filter" onclick="setFilter('profit',this)" title="Praxis > CRM — company kept the difference">↑ Profit</button>
+  <button class="pt-filter-btn loss"   data-group="filter" onclick="setFilter('loss',this)"   title="Praxis < CRM — company paid out more than received">↓ Loss</button>
+  <div class="pt-sep"></div>
+  <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Sort</span>
+  <button class="pt-filter-btn active" data-group="sort" onclick="sortCards('default',this)">Default</button>
+  <button class="pt-filter-btn profit" data-group="sort" onclick="sortCards('profit',this)">Most Profit</button>
+  <button class="pt-filter-btn loss"   data-group="sort" onclick="sortCards('loss',this)">Most Loss</button>
+  <button class="pt-filter-btn"        data-group="sort" onclick="sortCards('latest',this)">Latest Activity</button>
 </div>
 
 <div id="ptTree">
 {% for client in tree %}
 {% set card_class = 'ambiguous' if client.ambiguous else ('discrepancy' if client.has_issue else 'clean') %}
 {% set open_default = client.has_issue %}
+{# Compute card-level diff: CRM - Praxis. Positive = company paid out more (loss). Negative = kept more (profit). #}
+{# We define profit as Praxis > CRM i.e. diff < 0 from company perspective #}
+{% set card_diff = client.mt4_accounts | sum(attribute='diff') %}
+{% set latest_ts = client.mt4_accounts[0].transactions[-1].ts if client.mt4_accounts[0].transactions else '' %}
 <div class="client-card {{ card_class }} {% if open_default %}open{% endif %}" id="cc-{{ loop.index }}"
+     data-diff="{{ card_diff }}"
+     data-latest="{{ latest_ts }}"
      data-search="{{ [client.name, client.email, client.session_cid] | join(' ') | lower }}
        {%- for a in client.mt4_accounts %} {{ a.login }}{% endfor %}">
   <div class="client-head" onclick="toggleCard('cc-{{ loop.index }}')">
@@ -252,23 +283,66 @@
 {% endif %}
 
 <script>
+var _activeFilter = 'all';
+var _activeSort   = 'default';
+var _searchQ      = '';
+
 function toggleCard(id) {
-  var el = document.getElementById(id);
-  el.classList.toggle('open');
+  document.getElementById(id).classList.toggle('open');
+}
+
+function applyView() {
+  var tree  = document.getElementById('ptTree');
+  var cards = Array.from(tree.querySelectorAll('.client-card'));
+
+  // Filter
+  var visible = 0;
+  cards.forEach(function(c) {
+    var diff     = parseFloat(c.dataset.diff || '0');
+    var qMatch   = !_searchQ || (c.dataset.search || '').indexOf(_searchQ) !== -1;
+    // profit = Praxis > CRM = company kept difference = diff < 0 (since diff = Praxis - CRM)
+    var fMatch   = _activeFilter === 'all'
+                || (_activeFilter === 'profit' && diff < -1)
+                || (_activeFilter === 'loss'   && diff >  1);
+    var show = qMatch && fMatch;
+    c.style.display = show ? '' : 'none';
+    if (show) visible++;
+    if (_searchQ && show) c.classList.add('open');
+  });
+  document.getElementById('ptNoResults').style.display = visible === 0 ? 'block' : 'none';
+
+  // Sort visible cards
+  var sortable = cards.filter(function(c) { return c.style.display !== 'none'; });
+  sortable.sort(function(a, b) {
+    var da = parseFloat(a.dataset.diff || '0');
+    var db = parseFloat(b.dataset.diff || '0');
+    var ta = a.dataset.latest || '';
+    var tb = b.dataset.latest || '';
+    if (_activeSort === 'profit') return da - db;       // most negative diff first (company kept most)
+    if (_activeSort === 'loss')   return db - da;       // most positive diff first (company paid most)
+    if (_activeSort === 'latest') return tb > ta ? 1 : tb < ta ? -1 : 0; // newest first
+    return 0; // default: keep original DOM order
+  });
+  sortable.forEach(function(c) { tree.appendChild(c); });
+}
+
+function setFilter(f, btn) {
+  _activeFilter = f;
+  document.querySelectorAll('[data-group="filter"]').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  applyView();
+}
+
+function sortCards(s, btn) {
+  _activeSort = s;
+  document.querySelectorAll('[data-group="sort"]').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  applyView();
 }
 
 function filterTree(q) {
-  q = q.toLowerCase().trim();
-  var cards = document.querySelectorAll('#ptTree .client-card');
-  var visible = 0;
-  cards.forEach(function(c) {
-    var match = !q || (c.dataset.search || '').indexOf(q) !== -1;
-    c.style.display = match ? '' : 'none';
-    if (match) visible++;
-    // Auto-open matching cards when searching
-    if (q && match) c.classList.add('open');
-  });
-  document.getElementById('ptNoResults').style.display = visible === 0 ? 'block' : 'none';
+  _searchQ = q.toLowerCase().trim();
+  applyView();
 }
 </script>
 
