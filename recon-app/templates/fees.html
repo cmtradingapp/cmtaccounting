@@ -51,12 +51,56 @@
 </style>
 
 <div class="page-header">
-  <div style="display:flex;align-items:center;gap:14px;">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <div class="page-title">PSP Fee Agreements</div>
     <a class="btn btn-ghost" href="/fees/upload" style="border:1px solid rgba(79,142,247,.3);">⬆ Upload Agreement</a>
     <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
+    <a class="btn" href="/fees/db-backup" title="Download fees.db backup">↓ Backup DB</a>
+    {# DEMO / LIVE mode toggle #}
+    <span id="feesModeBadge"
+          style="display:inline-flex;align-items:center;gap:7px;padding:4px 12px;
+                 border-radius:999px;font-size:11px;font-weight:700;cursor:pointer;
+                 border:1px solid {% if fees_mode=='live' %}rgba(34,197,94,.4){% else %}rgba(245,158,11,.35){% endif %};
+                 background:{% if fees_mode=='live' %}rgba(34,197,94,.08){% else %}rgba(245,158,11,.07){% endif %};
+                 color:{% if fees_mode=='live' %}var(--green){% else %}var(--yellow){% endif %};"
+          onclick="switchFeesMode()"
+          title="{% if fees_mode=='live' %}Currently using Live PostgreSQL — click to switch to Demo (SQLite){% else %}Currently using Demo SQLite — click to switch to Live PostgreSQL{% endif %}">
+      <span style="width:7px;height:7px;border-radius:50%;
+                   background:{% if fees_mode=='live' %}var(--green){% else %}var(--yellow){% endif %};
+                   {% if fees_mode=='live' %}box-shadow:0 0 0 0 rgba(34,197,94,.4);animation:pulse-dot 2s infinite;{% endif %}">
+      </span>
+      {{ 'LIVE DB' if fees_mode=='live' else 'DEMO DB' }}
+    </span>
   </div>
 </div>
+
+<script>
+function switchFeesMode() {
+  var current = '{{ fees_mode }}';
+  var next    = current === 'live' ? 'demo' : 'live';
+  var badge   = document.getElementById('feesModeBadge');
+  if (!confirm('Switch fees database from ' + current.toUpperCase() + ' to ' + next.toUpperCase() + '?\n\n' +
+               (next === 'live' ? 'This will connect to the PostgreSQL fees_postgres container.' :
+                                  'This will switch back to the local SQLite fees.db file.') +
+               '\n\nThe page will reload after the switch.')) return;
+  badge.textContent = 'Switching…';
+  badge.style.pointerEvents = 'none';
+  fetch('/fees/mode', {method:'POST', body: new URLSearchParams({mode: next}),
+                       headers:{'Content-Type':'application/x-www-form-urlencoded'}})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.ok) {
+        setTimeout(function(){ window.location.reload(); }, 2000);
+        badge.textContent = 'Restarting…';
+      } else {
+        alert('Failed: ' + (d.msg || 'unknown error'));
+        badge.style.pointerEvents = '';
+        badge.textContent = current.toUpperCase() + ' DB';
+      }
+    })
+    .catch(function(){ window.location.reload(); });
+}
+</script>
 
 <!-- Tab bar -->
 <div class="tab-bar" style="justify-content:space-between;align-items:center;">

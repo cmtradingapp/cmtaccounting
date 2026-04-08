@@ -646,13 +646,59 @@ CURRENCIES = [
     "RWF", "XOF", "XAF", "AED", "BRL", "CLP", "COP", "MXN", "PEN",
 ]
 
+@app.route("/fees/db-backup")
+@require_fees_auth
+def fees_db_backup():
+    """Download the current fees.db SQLite file."""
+    import os as _os
+    db_path = _os.path.join(_os.path.dirname(__file__), "fees.db")
+    if not _os.path.exists(db_path):
+        abort(404, "fees.db not found")
+    from datetime import date as _date
+    filename = f"fees_backup_{_date.today()}.db"
+    return send_file(db_path, as_attachment=True, download_name=filename,
+                     mimetype="application/octet-stream")
+
+
+@app.route("/fees/mode", methods=["POST"])
+@require_fees_auth
+def fees_switch_mode():
+    """Switch FEES_MODE between demo and live by updating docker-compose.yml
+    and restarting the container. Server-only — no-op in local dev."""
+    import os as _os, subprocess as _sp
+    new_mode = request.form.get("mode", "demo").lower()
+    if new_mode not in ("demo", "live"):
+        abort(400, "mode must be demo or live")
+
+    compose_path = "/root/recon-app/docker-compose.yml"
+    if not _os.path.exists(compose_path):
+        # Local dev — just show a message
+        return jsonify({"ok": False, "msg": "compose file not found (local dev?)"}), 400
+
+    try:
+        with open(compose_path) as f:
+            content = f.read()
+        import re as _re
+        content = _re.sub(r'FEES_MODE=\w+', f'FEES_MODE={new_mode}', content)
+        with open(compose_path, "w") as f:
+            f.write(content)
+        # Restart the container to pick up the new env var
+        _sp.run(["docker", "restart", "recon-app-recon-1"],
+                capture_output=True, timeout=30)
+        return jsonify({"ok": True, "mode": new_mode})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
+
 @app.route("/fees")
 @require_fees_auth
 def fees_list():
     agreements = queries.get_all_agreements()
     terminated = queries.get_terminated_agreements()
     entities = queries.get_entities()
-    return render_template("fees.html", agreements=agreements, terminated=terminated, entities=entities)
+    from db import FEES_MODE
+    return render_template("fees.html", agreements=agreements, terminated=terminated,
+                           entities=entities, fees_mode=FEES_MODE)
 
 
 @app.route("/fees/entities/add", methods=["POST"])
