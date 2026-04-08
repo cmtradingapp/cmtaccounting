@@ -45,7 +45,7 @@ jobs:
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/recon-app && docker compose up -d --build && docker compose ps"
           else
-            echo "Code-only change — compose restart (picks up volume-mounted files)"
+            echo "Code-only change — up -d (applies compose config + volume, no rebuild)"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-              "cd /root/recon-app && docker compose restart recon && docker compose ps"
+              "cd /root/recon-app && docker compose up -d && docker compose ps"
           fi
