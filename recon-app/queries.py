@@ -222,6 +222,51 @@ def mt4_summary(year: int, month: int):
     return _db_retry(_fetch_mt4)
 
 
+def praxis_summary(year: int, month: int) -> dict:
+    """Per-login Praxis deposit/withdrawal totals for a month. Cached 5 min."""
+    import datetime
+    key = f"praxis:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT
+                        session_cid AS login,
+                        SUM(CASE WHEN session_intent = 'payment'
+                                 THEN usd_amount ELSE 0 END)                    AS praxis_deposits,
+                        SUM(CASE WHEN session_intent IN ('withdrawal','payout')
+                                 THEN usd_amount ELSE 0 END)                    AS praxis_withdrawals,
+                        COUNT(*)                                                 AS praxis_tx_count
+                    FROM praxis_transactions
+                    WHERE inserted_at >= %s AND inserted_at < %s
+                      AND session_cid IS NOT NULL AND session_cid != ''
+                    GROUP BY session_cid
+                """, (month_start, month_end))
+                return {
+                    int(r["login"]): {
+                        "praxis_deposits":     float(r["praxis_deposits"] or 0),
+                        "praxis_withdrawals":  float(r["praxis_withdrawals"] or 0),
+                        "praxis_tx_count":     int(r["praxis_tx_count"] or 0),
+                    }
+                    for r in cur.fetchall()
+                    if r["login"] and str(r["login"]).isdigit()
+                }
+        result = _db_retry(_fetch)
+    except Exception:
+        result = {}   # Praxis unavailable — degrade gracefully
+
+    _cache_set(key, result)
+    return result
+
+
 def reconcile(year: int, month: int):
     """Join MT4 netdeposit vs CRM cash transactions per login (cached 5 min)."""
     key = f"reconcile:{year}:{month}"
@@ -229,8 +274,9 @@ def reconcile(year: int, month: int):
     if cached is not None:
         return cached
 
-    crm = crm_summary(year, month)
-    mt4 = mt4_summary(year, month)
+    crm    = crm_summary(year, month)
+    mt4    = mt4_summary(year, month)
+    praxis = praxis_summary(year, month)
 
     rows = []
     for login in set(crm) | set(mt4):
@@ -250,20 +296,28 @@ def reconcile(year: int, month: int):
         else:
             status = "discrepancy"
 
+        p = praxis.get(login, {})
+        praxis_net = round(
+            p.get("praxis_deposits", 0) - p.get("praxis_withdrawals", 0), 2
+        )
         rows.append({
-            "login":            login,
-            "mt4_net":          mt4_net,
-            "crm_cash_net":     crm_cash,
-            "crm_cash_dep":     round(c.get("cash_deposits", 0), 2),
-            "crm_cash_with":    round(c.get("cash_withdrawals", 0), 2),
-            "crm_noncash_in":   round(c.get("noncash_in", 0), 2),
-            "crm_noncash_out":  round(c.get("noncash_out", 0), 2),
-            "difference":       diff,
-            "abs_diff":         abs(diff),
-            "status":           status,
-            "payment_methods":  c.get("payment_methods", ""),
-            "tx_count":         c.get("tx_count", 0),
-            "currency":         m.get("groupcurrency", "USD"),
+            "login":              login,
+            "mt4_net":            mt4_net,
+            "crm_cash_net":       crm_cash,
+            "crm_cash_dep":       round(c.get("cash_deposits", 0), 2),
+            "crm_cash_with":      round(c.get("cash_withdrawals", 0), 2),
+            "crm_noncash_in":     round(c.get("noncash_in", 0), 2),
+            "crm_noncash_out":    round(c.get("noncash_out", 0), 2),
+            "difference":         diff,
+            "abs_diff":           abs(diff),
+            "status":             status,
+            "payment_methods":    c.get("payment_methods", ""),
+            "tx_count":           c.get("tx_count", 0),
+            "currency":           m.get("groupcurrency", "USD"),
+            "praxis_net":         praxis_net,
+            "praxis_deposits":    round(p.get("praxis_deposits", 0), 2),
+            "praxis_withdrawals": round(p.get("praxis_withdrawals", 0), 2),
+            "praxis_tx_count":    p.get("praxis_tx_count", 0),
         })
 
     rows.sort(key=lambda r: r["abs_diff"], reverse=True)
@@ -492,6 +546,189 @@ def summary_stats(rows):
         "total_diff":  round(total_diff, 2),
         "match_rate":  round(matched / len(rows) * 100, 1) if rows else 0,
     }
+
+
+def equity_by_client(year: int, month: int) -> list:
+    """Last balance & equity per login for the month (MRS Export #1). Cached 5 min."""
+    import datetime
+    key = f"equity:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    def _fetch():
+        with dealio() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (login)
+                    login, groupcurrency AS currency,
+                    balance, equity, date
+                FROM dealio.daily_profits
+                WHERE date >= %s AND date < %s
+                ORDER BY login, date DESC
+            """, (month_start, month_end))
+            return [dict(r) for r in cur.fetchall()]
+
+    result = _db_retry(_fetch)
+    _cache_set(key, result)
+    return result
+
+
+def crm_transaction_list(year: int, month: int) -> list:
+    """Individual CRM transactions for the month (MRS Export #2, CRM side). Cached 5 min."""
+    import datetime
+    key = f"crm_txlist:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    def _fetch():
+        with backoffice() as cur:
+            cur.execute("""
+                SELECT
+                    login, transactiontype, transactionapproval,
+                    payment_method, usdamount,
+                    confirmation_time, transactionid
+                FROM vtiger_mttransactions
+                WHERE confirmation_time >= %s
+                  AND confirmation_time <  %s
+                ORDER BY login, confirmation_time
+            """, (month_start, month_end))
+            return [dict(r) for r in cur.fetchall()]
+
+    result = _db_retry(_fetch)
+    _cache_set(key, result)
+    return result
+
+
+def praxis_transaction_list(year: int, month: int) -> list:
+    """Individual Praxis transactions for the month (MRS Export #2, Praxis side). Cached 5 min."""
+    import datetime
+    key = f"praxis_txlist:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT
+                        session_cid         AS login,
+                        tid,
+                        transaction_id,
+                        session_order_id,
+                        session_intent      AS direction,
+                        amount / 100.0      AS amount_local,
+                        currency,
+                        usd_amount,
+                        payment_method,
+                        payment_processor,
+                        conversion_rate,
+                        fee / 100.0         AS fee_actual,
+                        wallet_data_email   AS email,
+                        customer_first_name,
+                        customer_last_name,
+                        inserted_at
+                    FROM praxis_transactions
+                    WHERE inserted_at >= %s AND inserted_at < %s
+                      AND session_cid IS NOT NULL AND session_cid != ''
+                    ORDER BY session_cid, inserted_at
+                """, (month_start, month_end))
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(r)
+                    row["usd_amount"] = float(row["usd_amount"] or 0)
+                    row["fee_actual"] = float(row["fee_actual"] or 0)
+                    rows.append(row)
+                return rows
+        result = _db_retry(_fetch)
+    except Exception:
+        result = []
+
+    _cache_set(key, result)
+    return result
+
+
+def profitability_by_day(year: int, month: int) -> list:
+    """Daily realised + unrealised P&L per login (MRS Export #3). Cached 5 min."""
+    import datetime
+    key = f"pnl:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    def _fetch():
+        with dealio() as cur:
+            cur.execute("""
+                SELECT
+                    login, date,
+                    groupcurrency       AS currency,
+                    closedpnl           AS realised_pnl,
+                    floatingpnl         AS unrealised_pnl_eod,
+                    balance, equity
+                FROM dealio.daily_profits
+                WHERE date >= %s AND date < %s
+                ORDER BY login, date
+            """, (month_start, month_end))
+            return [dict(r) for r in cur.fetchall()]
+
+    result = _db_retry(_fetch)
+    _cache_set(key, result)
+    return result
+
+
+def psp_balance_at_month_end(year: int, month: int) -> list:
+    """Net position + fee summary per PSP up to month-end (MRS Export #4). Cached 5 min."""
+    import datetime
+    key = f"pspbal:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    month_end = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT
+                        payment_processor                                         AS psp,
+                        currency,
+                        SUM(usd_amount)                                           AS gross_volume_usd,
+                        SUM(CASE WHEN session_intent = 'payment'
+                                 THEN usd_amount ELSE 0 END)                     AS deposits_usd,
+                        SUM(CASE WHEN session_intent IN ('withdrawal','payout')
+                                 THEN usd_amount ELSE 0 END)                     AS withdrawals_usd,
+                        SUM(CASE WHEN session_intent = 'payment'
+                                 THEN usd_amount ELSE -usd_amount END)           AS net_usd,
+                        SUM(fee / 100.0)                                         AS actual_fees_usd,
+                        COUNT(*)                                                  AS tx_count
+                    FROM praxis_transactions
+                    WHERE inserted_at < %s
+                    GROUP BY payment_processor, currency
+                    ORDER BY payment_processor, currency
+                """, (month_end,))
+                return [dict(r) for r in cur.fetchall()]
+        result = _db_retry(_fetch)
+    except Exception:
+        result = []
+
+    _cache_set(key, result)
+    return result
 
 
 def login_detail(year: int, month: int, login: int):

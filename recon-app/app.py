@@ -200,6 +200,57 @@ def fx_api_history(symbol):
         return jsonify({"error": str(e)}), 500
 
 
+def _expected_fee(usd_amount: float, payment_method: str, direction: str,
+                  fee_rules_by_psp: dict, payment_processor: str) -> float:
+    """
+    Calculate the expected fee from psp_fee_rules for a single Praxis transaction.
+    fee_rules_by_psp: {psp_name_lower: [rule, ...]} — loaded once per export run.
+    Returns expected fee in USD, or 0.0 if no matching rule found.
+    """
+    if not usd_amount:
+        return 0.0
+    fee_type = "Deposit" if direction == "payment" else "Withdrawal"
+    pm_norm  = (payment_method or "").lower()
+
+    # Find matching PSP rules (fuzzy match on payment_processor)
+    rules = []
+    for psp_key, psp_rules in fee_rules_by_psp.items():
+        if psp_key in (payment_processor or "").lower() or \
+           (payment_processor or "").lower() in psp_key:
+            rules = psp_rules
+            break
+
+    best_rule = None
+    for rule in rules:
+        if rule.get("fee_type") != fee_type:
+            continue
+        rule_pm = (rule.get("payment_method") or "").lower()
+        if rule_pm and rule_pm not in pm_norm and pm_norm not in rule_pm:
+            continue
+        best_rule = rule
+        break   # first match wins
+
+    if not best_rule:
+        return 0.0
+
+    kind = best_rule.get("fee_kind", "percentage")
+    pct  = float(best_rule.get("pct_rate") or 0)
+    fix  = float(best_rule.get("fixed_amount") or 0)
+
+    if kind == "percentage":
+        return round(usd_amount * pct, 4)
+    if kind == "fixed":
+        return round(fix, 4)
+    if kind == "fixed_plus_pct":
+        return round(fix + usd_amount * pct, 4)
+    if kind == "tiered":
+        tiers = sorted(best_rule.get("tiers", []), key=lambda t: t.get("volume_from", 0))
+        for tier in reversed(tiers):
+            if usd_amount >= tier.get("volume_from", 0):
+                return round(usd_amount * float(tier.get("pct_rate", 0)), 4)
+    return 0.0
+
+
 @app.route("/recon/<month>/export")
 @require_recon_auth
 def export(month):
@@ -208,23 +259,130 @@ def export(month):
     except (ValueError, IndexError):
         abort(400)
 
-    rows = queries.reconcile(year, mon)
-    stats = queries.summary_stats(rows)
+    # ── Load all data (parallel benefit from cache) ──────────────────────
+    recon_rows   = queries.reconcile(year, mon)
+    equity_rows  = queries.equity_by_client(year, mon)
+    crm_txs      = queries.crm_transaction_list(year, mon)
+    praxis_txs   = queries.praxis_transaction_list(year, mon)
+    pnl_rows     = queries.profitability_by_day(year, mon)
+    psp_balances = queries.psp_balance_at_month_end(year, mon)
+
+    # Load fee rules for expected fee calculation (keyed by psp_name lower)
+    all_agreements = queries.get_all_agreements()
+    fee_rules_by_psp = {}
+    for agr in all_agreements:
+        rules = queries.get_fee_rules(agr["id"])
+        fee_rules_by_psp[agr["psp_name"].lower()] = rules
 
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = f"Recon {month}"
 
-    headers = ["Login", "MT4 Net (USD)", "CRM Net (USD)", "CRM Deposits",
-               "CRM Withdrawals", "Difference", "Status", "Payment Methods", "Tx Count", "Currency"]
-    ws.append(headers)
-
-    for r in rows:
-        ws.append([
-            r["login"], r["mt4_net"], r["crm_net"],
-            r["crm_deposits"], r["crm_withdrawals"],
+    # ── Sheet 1: Summary (fixed keys) ────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = "Summary"
+    ws1.append(["Login", "MT4 Net (USD)", "CRM Cash Net (USD)", "CRM Deposits (USD)",
+                 "CRM Withdrawals (USD)", "Praxis Net (USD)", "Praxis Deposits (USD)",
+                 "Praxis Withdrawals (USD)", "Difference (MT4 vs CRM)",
+                 "Status", "Payment Methods", "CRM Tx Count", "Praxis Tx Count", "Currency"])
+    for r in recon_rows:
+        ws1.append([
+            r["login"], r["mt4_net"], r["crm_cash_net"],
+            r["crm_cash_dep"], r["crm_cash_with"],
+            r["praxis_net"], r["praxis_deposits"], r["praxis_withdrawals"],
             r["difference"], r["status"],
-            r["payment_methods"], r["tx_count"], r["currency"],
+            r["payment_methods"], r["tx_count"], r["praxis_tx_count"], r["currency"],
+        ])
+
+    # ── Sheet 2: Equity at Month End ─────────────────────────────────────
+    ws2 = wb.create_sheet("Equity at Month End")
+    ws2.append(["Login", "Currency", "Balance", "Equity", "Date"])
+    for r in equity_rows:
+        ws2.append([r["login"], r["currency"],
+                    float(r["balance"] or 0), float(r["equity"] or 0),
+                    str(r["date"])])
+
+    # ── Sheet 3: Transactions ─────────────────────────────────────────────
+    ws3 = wb.create_sheet("Transactions")
+    ws3.append([
+        "Login", "Date", "Source", "Type / Direction",
+        "Payment Method", "PSP / Processor",
+        "Amount (Local)", "Currency", "Amount (USD)",
+        "Actual Fee (USD)", "Expected Fee (USD)", "Fee Variance (USD)",
+        "Email", "Customer Name",
+        "CRM Reference", "Praxis TID", "Order ID", "Approval / Status"
+    ])
+    for r in crm_txs:
+        ws3.append([
+            r["login"],
+            str(r["confirmation_time"])[:16] if r["confirmation_time"] else "",
+            "CRM", r["transactiontype"],
+            r["payment_method"], "",
+            float(r["usdamount"] or 0), "USD", float(r["usdamount"] or 0),
+            "", "", "",
+            "", "",
+            r["transactionid"], "", "", r["transactionapproval"],
+        ])
+    for r in praxis_txs:
+        usd_amt = float(r["usd_amount"] or 0)
+        actual  = float(r["fee_actual"] or 0)
+        proc    = r.get("payment_processor") or ""
+        pm      = r.get("payment_method") or ""
+        dirn    = r.get("direction") or ""
+        expected = _expected_fee(usd_amt, pm, dirn, fee_rules_by_psp, proc)
+        login = r.get("login")
+        try:
+            login = int(login) if login else None
+        except (ValueError, TypeError):
+            login = None
+        ws3.append([
+            login,
+            str(r["inserted_at"])[:16] if r["inserted_at"] else "",
+            "Praxis", dirn,
+            pm, proc,
+            float(r["amount_local"] or 0), r["currency"], usd_amt,
+            round(actual, 2), round(expected, 2), round(actual - expected, 2),
+            r.get("email") or "",
+            f"{r.get('customer_first_name','')} {r.get('customer_last_name','')}".strip(),
+            "", r.get("tid"), r.get("session_order_id"), "",
+        ])
+
+    # ── Sheet 4: Profitability by Day ────────────────────────────────────
+    ws4 = wb.create_sheet("Profitability by Day")
+    ws4.append(["Login", "Date", "Currency", "Realised P&L", "Unrealised P&L (EOD)",
+                 "Balance", "Equity"])
+    for r in pnl_rows:
+        ws4.append([
+            r["login"], str(r["date"]), r["currency"],
+            float(r["realised_pnl"] or 0), float(r["unrealised_pnl_eod"] or 0),
+            float(r["balance"] or 0), float(r["equity"] or 0),
+        ])
+
+    # ── Sheet 5: PSP Balances ─────────────────────────────────────────────
+    ws5 = wb.create_sheet("PSP Balances")
+    ws5.append(["PSP", "Currency", "Gross Volume (USD)", "Deposits (USD)",
+                 "Withdrawals (USD)", "Net (USD)",
+                 "Actual Fees (USD)", "Expected Fees (USD)", "Fee Variance (USD)",
+                 "Transaction Count"])
+    psp_expected: dict = {}
+    for r in praxis_txs:
+        proc = (r.get("payment_processor") or "unknown")
+        usd_amt = float(r["usd_amount"] or 0)
+        dirn    = r.get("direction") or ""
+        pm      = r.get("payment_method") or ""
+        exp     = _expected_fee(usd_amt, pm, dirn, fee_rules_by_psp, proc)
+        psp_expected[proc] = psp_expected.get(proc, 0) + exp
+
+    for r in psp_balances:
+        psp     = r["psp"] or "unknown"
+        actual  = float(r["actual_fees_usd"] or 0)
+        expected = round(psp_expected.get(psp, 0), 2)
+        ws5.append([
+            psp, r["currency"],
+            float(r["gross_volume_usd"] or 0),
+            float(r["deposits_usd"] or 0),
+            float(r["withdrawals_usd"] or 0),
+            float(r["net_usd"] or 0),
+            round(actual, 2), expected, round(actual - expected, 2),
+            int(r["tx_count"] or 0),
         ])
 
     buf = io.BytesIO()
@@ -234,7 +392,7 @@ def export(month):
         buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"recon_{month}.xlsx",
+        download_name=f"recon_{month}_MRS.xlsx",
     )
 
 

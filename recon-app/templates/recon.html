@@ -106,6 +106,7 @@
         <th class="num th-noncash">Non-Cash In</th>
         <th class="num th-noncash">Non-Cash Out</th>
         <th class="num">Difference</th>
+        <th class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Praxis net deposits (USD)">Praxis Net</th>
         <th>Status</th>
         <th>Methods</th>
         <th class="num">Txns</th>
@@ -132,6 +133,9 @@
           <td class="num {% if r.difference > 1 %}pos{% elif r.difference < -1 %}neg{% endif %}">
             {% if r.abs_diff >= 0.01 %}{{ "{:+,.2f}".format(r.difference) }}{% else %}—{% endif %}
           </td>
+          <td class="num" style="color:{% if r.praxis_net > 0 %}var(--text){% else %}var(--muted){% endif %};">
+            {% if r.praxis_net %}{{ "{:,.2f}".format(r.praxis_net) }}{% else %}—{% endif %}
+          </td>
           <td><span class="badge {{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
           <td class="methods" title="{{ r.payment_methods }}">{{ r.cash_methods or '—' }}</td>
           <td class="num">{{ r.tx_count or '—' }}</td>
@@ -139,7 +143,7 @@
         </tr>
         {% endfor %}
       {% else %}
-        <tr><td colspan="12" class="empty">No results for this filter.</td></tr>
+        <tr><td colspan="13" class="empty">No results for this filter.</td></tr>
       {% endif %}
     </tbody>
   </table>
