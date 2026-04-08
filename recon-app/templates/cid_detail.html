@@ -202,7 +202,71 @@
 </div>
 {% endif %}
 
-<!-- MT4 Accounts — one collapsible per login -->
+<!-- CRM Transactions — all accounts merged, Login column added -->
+{% set all_crm = [] %}
+{% for login in profile.mt4_accounts %}
+  {% for r in profile.crm_by_login.get(login, []) %}
+    {% set _ = all_crm.append(r.update({'_login': login}) or r) %}
+  {% endfor %}
+{% endfor %}
+<div class="cd-section">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+    <span class="cd-section-title">CRM Transactions</span>
+    <span class="cd-badge" style="background:rgba(79,142,247,.12);color:var(--accent);">{{ all_crm|length }}</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th data-col="0">MT4 Login</th>
+        <th data-col="1">Type</th>
+        <th data-col="2">Payment Method</th>
+        <th data-col="3">Approval</th>
+        <th data-col="4" class="num">Count</th>
+        <th data-col="5" class="num">USD Total</th>
+        <th data-col="6">First Date</th>
+        <th data-col="7">Last Date</th>
+        <th data-col="8">Kind</th>
+      </tr></thead>
+      <tbody>
+        {% set any_crm = [] %}
+        {% for login in profile.mt4_accounts %}
+          {% for r in profile.crm_by_login.get(login, []) %}
+          {% set _ = any_crm.append(1) %}
+          <tr>
+            <td data-val="{{ login }}">
+              <a href="/client/{{ login }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ span }}"
+                 style="color:var(--accent);font-size:12px;font-family:monospace;">{{ login }}</a>
+            </td>
+            <td data-val="{{ r.transactiontype or '' }}">{{ r.transactiontype or '—' }}</td>
+            <td data-val="{{ r.payment_method or '' }}">{{ r.payment_method or '—' }}</td>
+            <td data-val="{{ r.transactionapproval or '' }}">
+              <span class="badge {% if r.transactionapproval=='Approved' %}matched{% elif r.transactionapproval=='Failure' %}discrepancy{% else %}mt4_only{% endif %}">
+                {{ r.transactionapproval }}
+              </span>
+            </td>
+            <td class="num" data-val="{{ r.tx_count }}">{{ r.tx_count }}</td>
+            <td class="num {% if r.transactiontype in ('Deposit','TransferIn','Credit in') %}pos{% else %}neg{% endif %}"
+                data-val="{{ r.total_usd }}">
+              {{ "{:+,.2f}".format(r.total_usd if r.transactiontype in ('Deposit','TransferIn','Credit in') else -r.total_usd) }}
+            </td>
+            <td style="color:var(--muted);" data-val="{{ r.first_date or '' }}">{{ r.first_date or '—' }}</td>
+            <td style="color:var(--muted);" data-val="{{ r.last_date or '' }}">{{ r.last_date or '—' }}</td>
+            <td data-val="{{ '1' if r.is_cash else '0' }}">
+              {% if r.is_cash %}<span class="legend-item cash" style="font-size:11px;">cash</span>
+              {% else %}<span class="legend-item noncash" style="font-size:11px;">non-cash</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% endfor %}
+        {% if not any_crm %}
+          <tr><td colspan="9" class="empty">No CRM records in this period.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MT4 Accounts — one collapsible per login (MT4 data only, CRM moved above) -->
 {% if profile.mt4_accounts %}
 <div class="cd-section">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
@@ -224,9 +288,7 @@
       <a href="/client/{{ login }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ span }}"
          style="font-weight:700;font-size:14px;color:var(--accent);text-decoration:none;"
          onclick="event.stopPropagation()">{{ login }}</a>
-      <span style="font-size:12px;color:var(--muted);">
-        {{ crm|length }} CRM rows &nbsp;·&nbsp; {{ mt4|length }} MT4 days
-      </span>
+      <span style="font-size:12px;color:var(--muted);">{{ mt4|length }} MT4 days</span>
       {% if pnl %}
       <div style="margin-left:auto;display:flex;gap:16px;font-size:12px;font-variant-numeric:tabular-nums;">
         <span title="Client's realised trading P&L">
@@ -248,53 +310,6 @@
       {% endif %}
     </div>
     <div class="acct-body">
-
-      <!-- CRM for this login -->
-      <div style="margin-bottom:14px;">
-        <div class="cd-section-title" style="margin-bottom:8px;">CRM Transactions</div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th data-col="0">Type</th>
-              <th data-col="1">Payment Method</th>
-              <th data-col="2">Approval</th>
-              <th data-col="3" class="num">Count</th>
-              <th data-col="4" class="num">USD Total</th>
-              <th data-col="5">First Date</th>
-              <th data-col="6">Last Date</th>
-              <th data-col="7">Kind</th>
-            </tr></thead>
-            <tbody>
-              {% if crm %}
-                {% for r in crm %}
-                <tr>
-                  <td data-val="{{ r.transactiontype or '' }}">{{ r.transactiontype or '—' }}</td>
-                  <td data-val="{{ r.payment_method or '' }}">{{ r.payment_method or '—' }}</td>
-                  <td data-val="{{ r.transactionapproval or '' }}">
-                    <span class="badge {% if r.transactionapproval=='Approved' %}matched{% elif r.transactionapproval=='Failure' %}discrepancy{% else %}mt4_only{% endif %}">
-                      {{ r.transactionapproval }}
-                    </span>
-                  </td>
-                  <td class="num" data-val="{{ r.tx_count }}">{{ r.tx_count }}</td>
-                  <td class="num {% if r.transactiontype in ('Deposit','TransferIn','Credit in') %}pos{% else %}neg{% endif %}"
-                      data-val="{{ r.total_usd }}">
-                    {{ "{:+,.2f}".format(r.total_usd if r.transactiontype in ('Deposit','TransferIn','Credit in') else -r.total_usd) }}
-                  </td>
-                  <td style="color:var(--muted);" data-val="{{ r.first_date or '' }}">{{ r.first_date or '—' }}</td>
-                  <td style="color:var(--muted);" data-val="{{ r.last_date or '' }}">{{ r.last_date or '—' }}</td>
-                  <td data-val="{{ '1' if r.is_cash else '0' }}">
-                    {% if r.is_cash %}<span class="legend-item cash" style="font-size:11px;">cash</span>
-                    {% else %}<span class="legend-item noncash" style="font-size:11px;">non-cash</span>{% endif %}
-                  </td>
-                </tr>
-                {% endfor %}
-              {% else %}
-                <tr><td colspan="8" class="empty">No CRM records in this period.</td></tr>
-              {% endif %}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
       <!-- MT4 for this login -->
       <div>
