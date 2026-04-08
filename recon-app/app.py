@@ -169,19 +169,11 @@ def cid_detail(cid):
     today = _dt.date.today()
     last = request.args.get("last", "")   # YYYY-MM anchor from client list
 
-    # Determine range_end: ref > last > today
+    # range_end: use ref month end if coming from recon page, else today+1
     if ref:
         try:
             ry, rm = int(ref[:4]), int(ref[5:7])
             range_end = _dt.date(ry+1,1,1) if rm==12 else _dt.date(ry,rm+1,1)
-        except Exception:
-            range_end = _dt.date(today.year, today.month, 1) + _dt.timedelta(days=32)
-            range_end = _dt.date(range_end.year, range_end.month, 1)
-    elif last:
-        try:
-            ly, lm = int(last[:4]), int(last[5:7])
-            # Set range_end to end of that month + 1 so the month itself is included
-            range_end = _dt.date(ly+1,1,1) if lm==12 else _dt.date(ly,lm+1,1)
         except Exception:
             range_end = today + _dt.timedelta(days=1)
     else:
