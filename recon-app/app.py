@@ -743,7 +743,9 @@ def fees_method_map_auto():
     try:
         import ai_parse as _ai
         raw = _ai._call_claude("You are a payment method name mapping assistant.", prompt)
-        suggestions = _json.loads(raw)
+        suggestions = _ai._safe_json_loads(raw)
+        if not isinstance(suggestions, list):
+            suggestions = suggestions.get("suggestions", suggestions) if isinstance(suggestions, dict) else []
         return jsonify({"suggestions": suggestions})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -776,7 +778,7 @@ def fees_processor_map_auto():
     processors  = data.get("processors", [])   # list of {name, volume}
     agreements  = queries.get_all_agreements()
     agr_list    = [{"id": a["id"], "psp_name": a["psp_name"],
-                    "provider_name": a.get("provider_name","")} for a in agreements]
+                    "provider_name": a.get("provider_name") or ""} for a in agreements]
 
     prompt = (
         "You are matching Praxis payment processor names to PSP fee agreement names.\n\n"
@@ -784,13 +786,15 @@ def fees_processor_map_auto():
         "PRAXIS PROCESSORS TO MATCH:\n" +
         _json.dumps(processors, indent=2) + "\n\n"
         "Return ONLY a JSON array of objects: "
-        "[{\"processor\": \"...\", \"agreement_id\": <int or null>, \"confidence\": \"high|medium|low\", \"reason\": \"...\"}]\n"
+        '[{"processor": "...", "agreement_id": <int or null>, "confidence": "high|medium|low", "reason": "..."}]\n'
         "Match by name similarity. Use null agreement_id if no reasonable match exists."
     )
     try:
         import ai_parse as _ai
         raw = _ai._call_claude("You are a payment processor name matching assistant.", prompt)
-        suggestions = _json.loads(raw)
+        suggestions = _ai._safe_json_loads(raw)
+        if not isinstance(suggestions, list):
+            suggestions = suggestions.get("suggestions", suggestions) if isinstance(suggestions, dict) else []
         return jsonify({"suggestions": suggestions})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
