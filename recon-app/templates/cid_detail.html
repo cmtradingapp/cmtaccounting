@@ -73,14 +73,14 @@
             border-radius:var(--radius-md);font-size:13px;">
   <span style="font-size:16px;flex-shrink:0;">⚠</span>
   <div>
-    <strong style="color:var(--yellow);">{{ profile.related_cids|length }} additional Praxis CID{{ 's' if profile.related_cids|length != 1 }} found for "{{ profile.name }}"</strong>
-    — this person registered multiple times in Praxis. Data shown here is for CID {{ cid }} only.
+    <strong style="color:var(--yellow);">{{ profile.related_cids|length + 1 }} Praxis CIDs merged</strong>
+    — this person registered multiple times in Praxis. All transactions from all CIDs are shown together.
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+      <span class="badge" style="background:rgba(79,142,247,.12);color:var(--accent);">CID {{ cid }} (this page)</span>
       {% for r in profile.related_cids %}
-      <a href="/cid/{{ r.cid }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ span }}"
-         class="badge" style="background:rgba(245,158,11,.12);color:var(--yellow);text-decoration:none;">
+      <span class="badge" style="background:rgba(255,255,255,.06);color:var(--muted);">
         CID {{ r.cid }} ({{ r.tx_count }} tx)
-      </a>
+      </span>
       {% endfor %}
     </div>
   </div>
@@ -149,6 +149,11 @@
 <!-- Praxis transactions -->
 {% if profile.praxis_txs %}
 <div class="cd-section">
+  <div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding:8px 12px;
+              background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);">
+    ℹ Wire transfers and bank deposits do not appear in Praxis — they are recorded only in CRM.
+    Praxis shows card, mobile money, and electronic payment transactions only.
+  </div>
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
     <span class="cd-section-title">Praxis Transactions</span>
     <span class="cd-badge" style="background:rgba(167,139,250,.12);color:#a78bfa;">{{ profile.praxis_txs|length }}</span>

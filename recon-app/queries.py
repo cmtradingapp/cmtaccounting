@@ -967,15 +967,19 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
     account_map = _load_praxis_account_map()
     logins = account_map.get(str(cid).strip(), [])
 
-    # 1. Praxis transactions for this CID
+    # 1. Praxis transactions — fetch for ALL CIDs with same name (merged view)
     praxis_txs = []
     name = "—"
     email = "—"
+
+    # First get related CIDs by fetching all CIDs for this name (requires knowing name first)
+    # We do a two-pass: primary CID first, then detect name, then fetch all related
     try:
         from db import praxis as praxis_ctx
-        def _fetch_praxis():
+        def _fetch_praxis_for_cids(cids):
             with praxis_ctx() as cur:
-                cur.execute("""
+                placeholders = ",".join(["%s"] * len(cids))
+                cur.execute(f"""
                     SELECT tid, session_cid, session_intent AS direction,
                            usd_amount, amount/100.0 AS amount_local, currency,
                            payment_method, payment_processor,
@@ -985,11 +989,11 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
                            customer_last_name  AS last_name,
                            TO_TIMESTAMP(created_timestamp) AS ts
                     FROM praxis_transactions
-                    WHERE session_cid = %s
+                    WHERE session_cid IN ({placeholders})
                       AND created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
                       AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
                     ORDER BY created_timestamp
-                """, (cid, date_from, date_to))
+                """, list(cids) + [date_from, date_to])
                 rows = []
                 for r in cur.fetchall():
                     row = dict(r)
@@ -998,16 +1002,41 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
                     row["ts"] = str(row["ts"])[:16] if row["ts"] else ""
                     rows.append(row)
                 return rows
-        praxis_txs = _db_retry(_fetch_praxis)
-    except Exception:
-        pass
 
-    # Extract name/email from Praxis transactions
-    if praxis_txs:
-        s = praxis_txs[0]
-        parts = [s.get("first_name") or "", s.get("last_name") or ""]
-        name  = " ".join(p for p in parts if p).strip() or "—"
-        email = s.get("email") or "—"
+        # Pass 1: fetch primary CID to get the name
+        primary_txs = _db_retry(lambda: _fetch_praxis_for_cids([cid]))
+        if primary_txs:
+            s = primary_txs[0]
+            parts = [(s.get("first_name") or "").strip(), (s.get("last_name") or "").strip()]
+            name  = " ".join(p for p in parts if p) or "—"
+            email = s.get("email") or "—"
+    except Exception:
+        primary_txs = []
+
+    # Pass 2: find all related CIDs by name, then fetch all their txs together
+    all_cids = [cid]
+    first_name = (primary_txs[0].get("first_name") or "").strip() if primary_txs else ""
+    last_name  = (primary_txs[0].get("last_name")  or "").strip() if primary_txs else ""
+    if first_name and last_name and first_name.lower() not in ("test",""):
+        try:
+            from db import praxis as praxis_ctx
+            def _fetch_all_cids():
+                with praxis_ctx() as cur:
+                    cur.execute("""
+                        SELECT DISTINCT session_cid FROM praxis_transactions
+                        WHERE customer_first_name = %s AND customer_last_name = %s
+                    """, (first_name, last_name))
+                    return [r["session_cid"] for r in cur.fetchall()]
+            all_cids = _db_retry(_fetch_all_cids) or [cid]
+        except Exception:
+            all_cids = [cid]
+
+    # Fetch Praxis txs for ALL cids (primary + related merged)
+    try:
+        from db import praxis as praxis_ctx
+        praxis_txs = _db_retry(lambda: _fetch_praxis_for_cids(all_cids))
+    except Exception:
+        praxis_txs = primary_txs
 
     # 2. CRM + MT4 per login
     crm_by_login = {}
@@ -1030,30 +1059,18 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
         and r.get("transactiontype") in ("Withdrawal","Withdraw","TransferOut")
     )
 
-    # 3b. Find related CIDs (same person, different Praxis registrations)
-    related_cids = []
-    if praxis_txs:
-        first_name = (praxis_txs[0].get("first_name") or "").strip()
-        last_name  = (praxis_txs[0].get("last_name")  or "").strip()
-        if first_name and last_name and first_name.lower() not in ("test",""):
-            try:
-                from db import praxis as praxis_ctx
-                def _fetch_related():
-                    with praxis_ctx() as cur:
-                        cur.execute("""
-                            SELECT DISTINCT session_cid, COUNT(*) AS cnt
-                            FROM praxis_transactions
-                            WHERE customer_first_name = %s
-                              AND customer_last_name  = %s
-                              AND session_cid != %s
-                            GROUP BY session_cid
-                            ORDER BY cnt DESC
-                        """, (first_name, last_name, cid))
-                        return [{"cid": r["session_cid"], "tx_count": int(r["cnt"])}
-                                for r in cur.fetchall()]
-                related_cids = _db_retry(_fetch_related)
-            except Exception:
-                pass
+    # 3b. Related CIDs = all_cids minus the primary one (already found above)
+    related_cids = [c for c in all_cids if c != cid]
+    # Get tx counts per related CID
+    if related_cids:
+        counts = {}
+        for t in praxis_txs:
+            sc = t.get("session_cid")
+            if sc and sc != cid:
+                counts[sc] = counts.get(sc, 0) + 1
+        related_cids = [{"cid": c, "tx_count": counts.get(c, 0)} for c in related_cids]
+    else:
+        related_cids = []
 
     # 4. Trading P&L from MT4 (converted to USD), also compute per-login
     client_realised_pnl = 0.0
