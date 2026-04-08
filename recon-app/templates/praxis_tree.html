@@ -143,14 +143,15 @@
   <button class="pt-filter-btn profit" data-group="sort" onclick="sortCards('profit',this)">Most Profit</button>
   <button class="pt-filter-btn loss"   data-group="sort" onclick="sortCards('loss',this)">Most Loss</button>
   <button class="pt-filter-btn"        data-group="sort" onclick="sortCards('latest',this)">Latest Activity</button>
+  <div class="pt-sep"></div>
+  <span id="ptCount" style="font-size:12px;color:var(--muted);white-space:nowrap;"></span>
 </div>
 
 <div id="ptTree">
 {% for client in tree %}
 {% set card_class = 'ambiguous' if client.ambiguous else ('discrepancy' if client.has_issue else 'clean') %}
 {% set open_default = client.has_issue %}
-{# Compute card-level diff: CRM - Praxis. Positive = company paid out more (loss). Negative = kept more (profit). #}
-{# We define profit as Praxis > CRM i.e. diff < 0 from company perspective #}
+{# diff = Praxis - CRM. Positive = Praxis > CRM = company kept the difference (profit). Negative = loss. #}
 {% set card_diff = client.mt4_accounts | sum(attribute='diff') %}
 {% set latest_ts = client.mt4_accounts[0].transactions[-1].ts if client.mt4_accounts[0].transactions else '' %}
 <div class="client-card {{ card_class }} {% if open_default %}open{% endif %}" id="cc-{{ loop.index }}"
@@ -300,16 +301,19 @@ function applyView() {
   cards.forEach(function(c) {
     var diff     = parseFloat(c.dataset.diff || '0');
     var qMatch   = !_searchQ || (c.dataset.search || '').indexOf(_searchQ) !== -1;
-    // profit = Praxis > CRM = company kept difference = diff < 0 (since diff = Praxis - CRM)
+    // diff = Praxis - CRM. profit = diff > 0 (Praxis > CRM). loss = diff < 0.
     var fMatch   = _activeFilter === 'all'
-                || (_activeFilter === 'profit' && diff < -1)
-                || (_activeFilter === 'loss'   && diff >  1);
+                || (_activeFilter === 'profit' && diff >  1)
+                || (_activeFilter === 'loss'   && diff < -1);
     var show = qMatch && fMatch;
     c.style.display = show ? '' : 'none';
     if (show) visible++;
     if (_searchQ && show) c.classList.add('open');
   });
   document.getElementById('ptNoResults').style.display = visible === 0 ? 'block' : 'none';
+  var total = cards.length;
+  var countEl = document.getElementById('ptCount');
+  if (countEl) countEl.textContent = visible === total ? total + ' clients' : visible + ' of ' + total + ' clients';
 
   // Sort visible cards
   var sortable = cards.filter(function(c) { return c.style.display !== 'none'; });
@@ -318,8 +322,8 @@ function applyView() {
     var db = parseFloat(b.dataset.diff || '0');
     var ta = a.dataset.latest || '';
     var tb = b.dataset.latest || '';
-    if (_activeSort === 'profit') return da - db;       // most negative diff first (company kept most)
-    if (_activeSort === 'loss')   return db - da;       // most positive diff first (company paid most)
+    if (_activeSort === 'profit') return db - da;   // most positive diff first (Praxis >> CRM)
+    if (_activeSort === 'loss')   return da - db;   // most negative diff first (CRM >> Praxis)
     if (_activeSort === 'latest') return tb > ta ? 1 : tb < ta ? -1 : 0; // newest first
     return 0; // default: keep original DOM order
   });
@@ -344,6 +348,9 @@ function filterTree(q) {
   _searchQ = q.toLowerCase().trim();
   applyView();
 }
+
+// Init count on load
+document.addEventListener('DOMContentLoaded', function() { applyView(); });
 </script>
 
 {% endblock %}
