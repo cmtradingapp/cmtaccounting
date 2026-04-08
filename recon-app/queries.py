@@ -222,8 +222,43 @@ def mt4_summary(year: int, month: int):
     return _db_retry(_fetch_mt4)
 
 
+def _load_praxis_account_map() -> dict:
+    """
+    Build {session_cid (str) -> [mt4_login (int), ...]} lookup from backoffice.
+    vtiger_trading_accounts.vtigeraccountid == praxis_transactions.session_cid.
+    Cached 30 minutes — the mapping rarely changes.
+    """
+    key = "praxis_account_map"
+    cached = _cache_get(key, 1800)
+    if cached is not None:
+        return cached
+
+    try:
+        mapping: dict = {}
+        def _fetch():
+            with backoffice() as cur:
+                cur.execute("SELECT login, vtigeraccountid FROM vtiger_trading_accounts")
+                m: dict = {}
+                for r in cur.fetchall():
+                    cid = str(r["vtigeraccountid"]).strip()
+                    if cid:
+                        m.setdefault(cid, []).append(int(r["login"]))
+                return m
+        mapping = _db_retry(_fetch)
+    except Exception:
+        mapping = {}
+
+    _cache_set(key, mapping)
+    return mapping
+
+
 def praxis_summary(year: int, month: int) -> dict:
-    """Per-login Praxis deposit/withdrawal totals for a month. Cached 5 min."""
+    """
+    Per-MT4-login Praxis deposit/withdrawal totals for a month. Cached 5 min.
+
+    Join: praxis_transactions.session_cid = vtiger_trading_accounts.vtigeraccountid
+          vtiger_trading_accounts.login = MT4 login
+    """
     import datetime
     key = f"praxis:{year}:{month}"
     cached = _cache_get(key, _TTL_RECONCILE)
@@ -233,36 +268,50 @@ def praxis_summary(year: int, month: int) -> dict:
     month_start = datetime.date(year, month, 1)
     month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
 
+    # Load CRM account mapping (session_cid -> [login, ...])
+    account_map = _load_praxis_account_map()
+
     try:
         from db import praxis as praxis_ctx
         def _fetch():
             with praxis_ctx() as cur:
                 cur.execute("""
                     SELECT
-                        session_cid AS login,
+                        session_cid,
                         SUM(CASE WHEN session_intent = 'payment'
-                                 THEN usd_amount ELSE 0 END)                    AS praxis_deposits,
+                                 THEN usd_amount ELSE 0 END)       AS praxis_deposits,
                         SUM(CASE WHEN session_intent IN ('withdrawal','payout')
-                                 THEN usd_amount ELSE 0 END)                    AS praxis_withdrawals,
-                        COUNT(*)                                                 AS praxis_tx_count
+                                 THEN usd_amount ELSE 0 END)       AS praxis_withdrawals,
+                        COUNT(*)                                    AS praxis_tx_count
                     FROM praxis_transactions
                     WHERE created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
                       AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
                       AND session_cid IS NOT NULL AND session_cid != ''
                     GROUP BY session_cid
                 """, (month_start, month_end))
-                return {
-                    int(r["login"]): {
-                        "praxis_deposits":     float(r["praxis_deposits"] or 0),
-                        "praxis_withdrawals":  float(r["praxis_withdrawals"] or 0),
-                        "praxis_tx_count":     int(r["praxis_tx_count"] or 0),
-                    }
-                    for r in cur.fetchall()
-                    if r["login"] and str(r["login"]).isdigit()
-                }
-        result = _db_retry(_fetch)
+                return cur.fetchall()
+        rows = _db_retry(_fetch)
     except Exception:
-        result = {}   # Praxis unavailable — degrade gracefully
+        rows = []
+
+    # Map each session_cid to MT4 login(s); when one Praxis customer has multiple
+    # MT4 accounts, split deposits equally across them.
+    result: dict = {}
+    for r in rows:
+        cid    = str(r["session_cid"]).strip()
+        logins = account_map.get(cid, [])
+        if not logins:
+            continue
+        dep   = float(r["praxis_deposits"] or 0)
+        with_ = float(r["praxis_withdrawals"] or 0)
+        cnt   = int(r["praxis_tx_count"] or 0)
+        share = len(logins)
+        for login in logins:
+            if login not in result:
+                result[login] = {"praxis_deposits": 0.0, "praxis_withdrawals": 0.0, "praxis_tx_count": 0}
+            result[login]["praxis_deposits"]    += dep   / share
+            result[login]["praxis_withdrawals"] += with_ / share
+            result[login]["praxis_tx_count"]    += cnt   // share or 1
 
     _cache_set(key, result)
     return result
@@ -646,11 +695,15 @@ def praxis_transaction_list(year: int, month: int) -> list:
                       AND session_cid IS NOT NULL AND session_cid != ''
                     ORDER BY session_cid, created_timestamp
                 """, (month_start, month_end))
+                account_map = _load_praxis_account_map()
                 rows = []
                 for r in cur.fetchall():
                     row = dict(r)
                     row["usd_amount"] = float(row["usd_amount"] or 0)
                     row["fee_actual"] = float(row["fee_actual"] or 0)
+                    cid = str(row.get("login") or "").strip()
+                    logins = account_map.get(cid, [])
+                    row["mt4_login"] = logins[0] if logins else None
                     rows.append(row)
                 return rows
         result = _db_retry(_fetch)
