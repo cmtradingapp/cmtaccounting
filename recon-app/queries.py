@@ -1030,20 +1030,48 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
         and r.get("transactiontype") in ("Withdrawal","Withdraw","TransferOut")
     )
 
-    # 4. Trading P&L from MT4 (converted to USD)
-    # client_realised  = sum of convertedclosedpnl across all accounts/days
-    # company_pnl      = -client_realised  (B-Book: client loss = company gain)
-    # net_flow         = deposits - withdrawals (money the client put in net)
-    # client_net_worth = net_flow + client_realised  (what they'd have if they closed everything)
+    # 3b. Find related CIDs (same person, different Praxis registrations)
+    related_cids = []
+    if praxis_txs:
+        first_name = (praxis_txs[0].get("first_name") or "").strip()
+        last_name  = (praxis_txs[0].get("last_name")  or "").strip()
+        if first_name and last_name and first_name.lower() not in ("test",""):
+            try:
+                from db import praxis as praxis_ctx
+                def _fetch_related():
+                    with praxis_ctx() as cur:
+                        cur.execute("""
+                            SELECT DISTINCT session_cid, COUNT(*) AS cnt
+                            FROM praxis_transactions
+                            WHERE customer_first_name = %s
+                              AND customer_last_name  = %s
+                              AND session_cid != %s
+                            GROUP BY session_cid
+                            ORDER BY cnt DESC
+                        """, (first_name, last_name, cid))
+                        return [{"cid": r["session_cid"], "tx_count": int(r["cnt"])}
+                                for r in cur.fetchall()]
+                related_cids = _db_retry(_fetch_related)
+            except Exception:
+                pass
+
+    # 4. Trading P&L from MT4 (converted to USD), also compute per-login
     client_realised_pnl = 0.0
-    client_unrealised_eod = 0.0   # last known floating P&L
-    for rows in mt4_by_login.values():
-        for r in rows:
-            client_realised_pnl   += float(r.get("convertedclosedpnl")   or r.get("closedpnl")   or 0)
-            # Keep the last (most recent) floating P&L as end-of-period snapshot
-        if rows:
-            last = rows[-1]
-            client_unrealised_eod = float(last.get("convertedfloatingpnl") or last.get("floatingpnl") or 0)
+    client_unrealised_eod = 0.0
+    pnl_by_login = {}
+    for login, rows in mt4_by_login.items():
+        l_realised = sum(float(r.get("closedpnl") or 0) for r in rows)
+        l_unrealised = float(rows[-1].get("floatingpnl") or 0) if rows else 0.0
+        l_net_dep = sum(float(r.get("convertednetdeposit") or 0) for r in rows)
+        pnl_by_login[login] = {
+            "client_realised":    round(l_realised, 2),
+            "client_unrealised":  round(l_unrealised, 2),
+            "company_trading":    round(-l_realised, 2),
+            "net_deposit":        round(l_net_dep, 2),
+            "company_total":      round(-l_realised + l_net_dep, 2),
+        }
+        client_realised_pnl   += l_realised
+        client_unrealised_eod  = l_unrealised  # use last account's EOD
 
     company_trading_pnl = round(-client_realised_pnl, 2)   # positive = company profit
     net_deposit         = round(crm_dep - crm_with, 2)
@@ -1056,6 +1084,8 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
         "praxis_txs":   praxis_txs,
         "crm_by_login": crm_by_login,
         "mt4_by_login": mt4_by_login,
+        "pnl_by_login": pnl_by_login,
+        "related_cids": related_cids,
         "summary": {
             "praxis_deposits":      round(praxis_dep, 2),
             "praxis_withdrawals":   round(praxis_with, 2),

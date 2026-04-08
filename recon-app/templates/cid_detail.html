@@ -66,6 +66,27 @@
   </div>
 </div>
 
+<!-- Related CIDs warning -->
+{% if profile.related_cids %}
+<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 16px;margin-bottom:16px;
+            background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.25);
+            border-radius:var(--radius-md);font-size:13px;">
+  <span style="font-size:16px;flex-shrink:0;">⚠</span>
+  <div>
+    <strong style="color:var(--yellow);">{{ profile.related_cids|length }} additional Praxis CID{{ 's' if profile.related_cids|length != 1 }} found for "{{ profile.name }}"</strong>
+    — this person registered multiple times in Praxis. Data shown here is for CID {{ cid }} only.
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+      {% for r in profile.related_cids %}
+      <a href="/cid/{{ r.cid }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ span }}"
+         class="badge" style="background:rgba(245,158,11,.12);color:var(--yellow);text-decoration:none;">
+        CID {{ r.cid }} ({{ r.tx_count }} tx)
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- Summary cards -->
 <div class="cd-summary-grid">
   <div class="cd-stat">
@@ -187,8 +208,12 @@
   {% for login in profile.mt4_accounts %}
   {% set crm = profile.crm_by_login.get(login, []) %}
   {% set mt4 = profile.mt4_by_login.get(login, []) %}
-  {% set crm_dep_total = crm | selectattr('is_cash') | selectattr('transactionapproval','equalto','Approved') | selectattr('transactiontype','in',['Deposit','TransferIn']) | sum(attribute='total_usd') %}
-  <div class="acct-panel {% if crm or mt4 %}open{% endif %}" id="ap-{{ login }}">
+  {% set pnl = profile.pnl_by_login.get(login, {}) %}
+  {% set company_total = pnl.get('company_total', 0) %}
+  {% set is_losing = company_total < -1 %}
+  <div class="acct-panel {% if crm or mt4 %}open{% endif %}"
+       id="ap-{{ login }}"
+       style="{% if is_losing %}border-left:3px solid var(--red);{% elif company_total > 1 %}border-left:3px solid var(--green);{% endif %}">
     <div class="acct-head" onclick="document.getElementById('ap-{{ login }}').classList.toggle('open')">
       <span class="acct-chev">▶</span>
       <a href="/client/{{ login }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ span }}"
@@ -197,10 +222,24 @@
       <span style="font-size:12px;color:var(--muted);">
         {{ crm|length }} CRM rows &nbsp;·&nbsp; {{ mt4|length }} MT4 days
       </span>
-      {% if crm_dep_total %}
-      <span style="margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums;color:var(--green);">
-        CRM dep: ${{ "{:,.2f}".format(crm_dep_total) }}
-      </span>
+      {% if pnl %}
+      <div style="margin-left:auto;display:flex;gap:16px;font-size:12px;font-variant-numeric:tabular-nums;">
+        <span title="Client's realised trading P&L">
+          <span style="color:var(--muted);">Client P&L </span>
+          <span class="{% if pnl.client_realised > 0 %}pos{% elif pnl.client_realised < 0 %}neg{% endif %} fw">
+            {{ "{:+,.0f}".format(pnl.client_realised) }}
+          </span>
+        </span>
+        <span title="Company profit from this account (−client P&L + net deposit)">
+          <span style="color:var(--muted);">Co. value </span>
+          <span style="font-weight:700;color:{% if company_total > 1 %}var(--green){% elif company_total < -1 %}var(--red){% else %}var(--muted){% endif %};">
+            {{ "{:+,.0f}".format(company_total) }}
+          </span>
+        </span>
+        {% if is_losing %}
+        <span class="badge" style="background:rgba(239,68,68,.15);color:var(--red);">⚠ Losing</span>
+        {% endif %}
+      </div>
       {% endif %}
     </div>
     <div class="acct-body">
