@@ -26,7 +26,7 @@ services:
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       # Praxis operations database (direct connection from server)
       - PRAXIS_HOST=161.97.162.143
-      - PRAXIS_PORT=5432
+      - PRAXIS_PORT=5433
       - PRAXIS_DB=operations
       - PRAXIS_USER=praxis_reader
       - PRAXIS_PASS=gc6Z8vd92JOa
