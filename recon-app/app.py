@@ -133,7 +133,7 @@ def clients_data():
     """JSON endpoint for client list — used by the JS virtual table."""
     import datetime as _dt
     span = request.args.get("span", "1y")
-    span_map = {"3m":92,"6m":183,"1y":365,"2y":730,"all":0}
+    span_map = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365,"2y":730,"all":0}
     today = _dt.date.today()
     if span == "all":
         date_from = _dt.date(2021,1,1)
@@ -154,7 +154,7 @@ def clients_data():
 @require_recon_auth
 def clients():
     span = request.args.get("span", "1y")
-    span_labels = {"3m":"3 Months","6m":"6 Months","1y":"1 Year","2y":"2 Years","all":"All Time"}
+    span_labels = {"1w":"1 Week","1m":"1 Month","3m":"3 Months","6m":"6 Months","1y":"1 Year","2y":"2 Years","all":"All Time"}
     return render_template("clients.html", span=span,
                            span_label=span_labels.get(span, span))
 

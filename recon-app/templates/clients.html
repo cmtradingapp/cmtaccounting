@@ -46,7 +46,7 @@
     </div>
   </div>
   <div style="display:flex;gap:6px;align-items:center;">
-    {% for s,lbl in [('3m','3M'),('6m','6M'),('1y','1Y'),('2y','2Y'),('all','All')] %}
+    {% for s,lbl in [('1w','1W'),('1m','1M'),('3m','3M'),('6m','6M'),('1y','1Y'),('2y','2Y'),('all','All')] %}
     <a class="cl-span-btn {% if span==s %}active{% endif %}"
        href="/clients?span={{ s }}" onclick="event.preventDefault();switchSpan('{{ s }}',this)">{{ lbl }}</a>
     {% endfor %}
@@ -98,9 +98,9 @@
   <div style="font-size:13px;" id="clLoadMsg">Loading…</div>
 </div>
 
-<!-- Table (headers only; tbody filled by JS) -->
-<div class="table-wrap" id="clTableWrap">
-  <table id="clTable">
+<!-- Virtual scroll container: only visible rows are in the DOM -->
+<div id="clScroller" style="overflow-y:auto;max-height:calc(100vh - 260px);border-radius:14px;border:1px solid var(--border);">
+<table id="clTable" style="width:100%;border-collapse:collapse;">
     <thead>
       <tr>
         <th data-col="0">Login</th>
@@ -114,20 +114,28 @@
         <th data-col="8">Last Active</th>
       </tr>
     </thead>
-    <tbody id="clTbody"></tbody>
+    <!-- spacer rows for virtual scroll -->
+    <tbody id="clTbody">
+      <tr id="clPadTop"   style="height:0"><td colspan="9"></td></tr>
+      <tr id="clPadBot"   style="height:0"><td colspan="9"></td></tr>
+    </tbody>
   </table>
 </div>
 
 <script>
-var _allRows   = [];   // full dataset from server
-var _viewRows  = [];   // after filter/sort
-var _filter    = 'all';
-var _search    = '';
-var _sortCol   = 3;    // company_total
-var _sortAsc   = false;
-var _span      = '{{ span }}';
-var _rendered  = 0;
-var BATCH      = 200;  // rows per render batch
+var _allRows  = [];
+var _viewRows = [];
+var _filter   = 'all';
+var _search   = '';
+var _sortCol  = 3;
+var _sortAsc  = false;
+var _span     = '{{ span }}';
+
+// ── Virtual scroll state ────────────────────────────────────────────────────
+var ROW_H   = 48;    // estimated row height px — recalibrated after first render
+var OVERSCAN = 5;    // extra rows above/below viewport
+var _vsStart = 0;    // first rendered data-row index
+var _vsEnd   = 0;    // last rendered data-row index (exclusive)
 
 // ── Format helpers ─────────────────────────────────────────────────────────
 function fmt(n) {
@@ -164,20 +172,48 @@ function makeRow(r) {
   return tr;
 }
 
-// ── Render next BATCH rows (incremental, never freeze the browser) ──────────
-function renderBatch() {
-  var tbody = document.getElementById('clTbody');
-  var end   = Math.min(_rendered + BATCH, _viewRows.length);
-  var frag  = document.createDocumentFragment();
-  for (var i = _rendered; i < end; i++) frag.appendChild(makeRow(_viewRows[i]));
-  tbody.appendChild(frag);
-  _rendered = end;
-  if (_rendered < _viewRows.length) {
-    requestAnimationFrame(renderBatch);
+// ── Virtual scroll render — only rows visible in scroller are in DOM ─────────
+function vsRender(force) {
+  var scroller = document.getElementById('clScroller');
+  var n        = _viewRows.length;
+  if (!n) {
+    document.getElementById('clPadTop').style.height = '0';
+    document.getElementById('clPadBot').style.height = '0';
+    // Remove any data rows
+    var tbody = document.getElementById('clTbody');
+    Array.from(tbody.querySelectorAll('tr.clickable')).forEach(function(r){r.remove();});
+    return;
   }
+
+  var scrollTop  = scroller.scrollTop;
+  var viewH      = scroller.clientHeight || 600;
+  var newStart   = Math.max(0,     Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  var newEnd     = Math.min(n, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN);
+
+  if (!force && newStart === _vsStart && newEnd === _vsEnd) return;
+  _vsStart = newStart; _vsEnd = newEnd;
+
+  var tbody   = document.getElementById('clTbody');
+  var padTop  = document.getElementById('clPadTop');
+  var padBot  = document.getElementById('clPadBot');
+
+  padTop.style.height = (newStart * ROW_H) + 'px';
+  padBot.style.height = Math.max(0, (n - newEnd) * ROW_H) + 'px';
+
+  // Remove old data rows
+  Array.from(tbody.querySelectorAll('tr.clickable')).forEach(function(r){r.remove();});
+
+  // Insert new visible rows before padBot
+  var frag = document.createDocumentFragment();
+  for (var i = newStart; i < newEnd; i++) frag.appendChild(makeRow(_viewRows[i]));
+  tbody.insertBefore(frag, padBot);
+
+  // Calibrate ROW_H from first real row
+  var first = tbody.querySelector('tr.clickable');
+  if (first && first.offsetHeight > 0) ROW_H = first.offsetHeight;
 }
 
-// ── Apply filter + sort, then re-render ────────────────────────────────────
+// ── Apply filter + sort, then reset virtual scroll ────────────────────────
 function applyView() {
   var q = _search;
   _viewRows = _allRows.filter(function(r) {
@@ -190,7 +226,6 @@ function applyView() {
             (r.email||'').toLowerCase() + ' ' + (r.cid||'')).indexOf(q) !== -1;
   });
 
-  // Sort
   var col = _sortCol, asc = _sortAsc;
   var keys = ['login','name','cid','company_total','company_trading_pnl',
               'net_deposit','client_realised_pnl','currency','last_active'];
@@ -203,18 +238,17 @@ function applyView() {
     return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
   });
 
-  // Update header arrows
   document.querySelectorAll('#clTable th[data-col]').forEach(function(th) {
     th.classList.remove('asc','desc');
     if (parseInt(th.getAttribute('data-col')) === col)
       th.classList.add(asc ? 'asc' : 'desc');
   });
 
-  // Re-render tbody
-  var tbody = document.getElementById('clTbody');
-  tbody.innerHTML = '';
-  _rendered = 0;
-  renderBatch();
+  // Reset scroll to top and re-render
+  var scroller = document.getElementById('clScroller');
+  scroller.scrollTop = 0;
+  _vsStart = 0; _vsEnd = 0;
+  vsRender(true);
 
   var tot = _allRows.length;
   document.getElementById('clCount').textContent =
@@ -264,7 +298,7 @@ document.querySelectorAll('#clTable th[data-col]').forEach(function(th) {
 function loadData(span) {
   _span = span;
   document.getElementById('clLoading').style.display = 'block';
-  document.getElementById('clTableWrap').style.display = 'none';
+  document.getElementById('clScroller').style.display = 'none';
   document.getElementById('clLoadMsg').textContent = 'Loading' + (span==='all' ? ' all-time data (may take ~10s)…' : '…');
 
   fetch('/clients/data?span=' + span)
@@ -272,7 +306,7 @@ function loadData(span) {
     .then(function(data) {
       _allRows = data.rows || [];
       document.getElementById('clLoading').style.display = 'none';
-      document.getElementById('clTableWrap').style.display = '';
+      document.getElementById('clScroller').style.display = '';
 
       var age = data.cache_age;
       var ageEl = document.getElementById('clCacheAge');
@@ -292,6 +326,23 @@ function switchSpan(s, btn) {
   loadData(s);
 }
 
-document.addEventListener('DOMContentLoaded', function() { loadData(_span); });
+document.addEventListener('DOMContentLoaded', function() {
+  // Virtual scroll: re-render on scroll
+  document.getElementById('clScroller').addEventListener('scroll', function() {
+    vsRender(false);
+  }, {passive: true});
+
+  // Column sort via virtual scroll (override base.html handler for this table)
+  document.querySelectorAll('#clTable th[data-col]').forEach(function(th) {
+    th.addEventListener('click', function() {
+      var c = parseInt(th.getAttribute('data-col'));
+      _sortAsc = (c === _sortCol) ? !_sortAsc : false;
+      _sortCol = c;
+      applyView();
+    });
+  });
+
+  loadData(_span);
+});
 </script>
 {% endblock %}
