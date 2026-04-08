@@ -89,6 +89,8 @@
     <button class="cl-span-btn" data-filter="loss"   onclick="setFilter('loss',this)"   style="color:var(--red);">↓ Loss</button>
   </div>
   <span id="clCount" style="font-size:12px;color:var(--muted);margin-left:4px;"></span>
+  <a id="clEquityBtn" href="#" onclick="event.preventDefault();downloadEquityReport()"
+     class="btn" style="margin-left:auto;white-space:nowrap;">↓ Equity Report</a>
 </div>
 
 <!-- Loading overlay -->
@@ -317,6 +319,17 @@ function loadData(span) {
     .catch(function(e) {
       document.getElementById('clLoadMsg').textContent = 'Error loading data. Try refreshing.';
     });
+}
+
+function downloadEquityReport() {
+  var btn = document.getElementById('clEquityBtn');
+  btn.textContent = '⏳ Generating…';
+  btn.style.pointerEvents = 'none';
+  window.location = '/clients/equity-report?span=' + _span;
+  setTimeout(function() {
+    btn.textContent = '↓ Equity Report';
+    btn.style.pointerEvents = '';
+  }, 3000);
 }
 
 function switchSpan(s, btn) {

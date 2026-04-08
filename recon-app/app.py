@@ -127,6 +127,45 @@ def recon(month):
     )
 
 
+@app.route("/clients/equity-report")
+@require_recon_auth
+def clients_equity_report():
+    import datetime as _dt
+    span = request.args.get("span", "1y")
+    span_map = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365,"2y":730,"all":0}
+    today = _dt.date.today()
+    if span == "all":
+        date_from = _dt.date(2021,1,1)
+    else:
+        date_from = today - _dt.timedelta(days=span_map.get(span,365))
+    date_to = today + _dt.timedelta(days=1)
+    try:
+        rows = queries.equity_report(date_from, date_to)
+    except Exception as e:
+        abort(500, str(e))
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Equity Report"
+    ws.append(["Login","Name","CID","Currency",
+               "Open Balance","Open Equity",
+               "Deposits (USD)","Withdrawals (USD)","Realised P&L (USD)",
+               "Close Balance","Close Equity","Last Active"])
+    for r in rows:
+        ws.append([r["login"],r["name"] or "",r["cid"] or "",r["currency"],
+                   r["open_balance"],r["open_equity"],
+                   r["deposits"],r["withdrawals"],r["realised_pnl"],
+                   r["close_balance"],r["close_equity"],r["last_active"]])
+    for col in ws.columns:
+        w = max((len(str(c.value or "")) for c in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = min(w+4, 40)
+    buf = __import__("io").BytesIO()
+    wb.save(buf); buf.seek(0)
+    return send_file(buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"equity_report_{span}_{date_to}.xlsx")
+
+
 @app.route("/clients/data")
 @require_recon_auth
 def clients_data():

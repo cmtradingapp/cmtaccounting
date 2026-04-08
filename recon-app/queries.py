@@ -582,6 +582,133 @@ def get_monthly_fx_rate(symbol: str, year: int, month: int) -> float | None:
 _TTL_CLIENT_LIST = 3600   # 1 hour — expensive cross-DB aggregate
 
 
+def equity_report(date_from=None, date_to=None) -> list:
+    """
+    Per-CID equity statement for a date range. Cached 1 hour.
+    Returns one row per CID (or login) with:
+      open_balance, open_equity, deposits, withdrawals,
+      realised_pnl, close_balance, close_equity — all USD.
+    """
+    import datetime as _dt
+    if date_from is None: date_from = _dt.date(2021, 1, 1)
+    if date_to   is None: date_to   = _dt.date.today() + _dt.timedelta(days=1)
+
+    key = f"equity_report:{date_from}:{date_to}"
+    cached = _cache_get(key, _TTL_CLIENT_LIST)
+    if cached is not None:
+        return cached
+
+    # Opening snapshot (first day per login in range)
+    def _fetch_open():
+        with dealio() as cur:
+            cur.execute("SET statement_timeout = 30000")
+            cur.execute("""
+                SELECT DISTINCT ON (login)
+                    login,
+                    balance   AS open_balance,
+                    equity    AS open_equity,
+                    MAX(groupcurrency) OVER (PARTITION BY login) AS currency
+                FROM dealio.daily_profits
+                WHERE date >= %s AND date < %s
+                ORDER BY login, date ASC
+            """, (date_from, date_to))
+            return {r["login"]: dict(r) for r in cur.fetchall()}
+
+    # Closing snapshot (last day per login in range)
+    def _fetch_close():
+        with dealio() as cur:
+            cur.execute("SET statement_timeout = 30000")
+            cur.execute("""
+                SELECT DISTINCT ON (login)
+                    login,
+                    balance   AS close_balance,
+                    equity    AS close_equity,
+                    groupcurrency AS currency,
+                    date      AS last_date
+                FROM dealio.daily_profits
+                WHERE date >= %s AND date < %s
+                ORDER BY login, date DESC
+            """, (date_from, date_to))
+            return {r["login"]: dict(r) for r in cur.fetchall()}
+
+    # Aggregate deposits / withdrawals / P&L
+    def _fetch_agg():
+        with dealio() as cur:
+            cur.execute("SET statement_timeout = 30000")
+            cur.execute("""
+                SELECT
+                    login,
+                    SUM(CASE WHEN convertednetdeposit > 0 THEN convertednetdeposit ELSE 0 END) AS deposits,
+                    SUM(CASE WHEN convertednetdeposit < 0 THEN -convertednetdeposit ELSE 0 END) AS withdrawals,
+                    SUM(convertedclosedpnl) AS realised_pnl,
+                    MAX(groupcurrency) AS currency,
+                    MAX(date) AS last_active
+                FROM dealio.daily_profits
+                WHERE date >= %s AND date < %s
+                GROUP BY login
+            """, (date_from, date_to))
+            return {r["login"]: dict(r) for r in cur.fetchall()}
+
+    open_snap  = _db_retry(_fetch_open)
+    close_snap = _db_retry(_fetch_close)
+    agg        = _db_retry(_fetch_agg)
+
+    # CID + name mapping
+    account_map = _load_praxis_account_map()  # {cid: [login, ...]}
+    login_to_cid = {login: cid for cid, logins in account_map.items() for login in logins}
+
+    # Praxis names
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch_names():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ON (session_cid)
+                        session_cid, customer_first_name || ' ' || customer_last_name AS name
+                    FROM praxis_transactions WHERE customer_first_name IS NOT NULL
+                    ORDER BY session_cid, created_timestamp DESC
+                """)
+                return {r["session_cid"]: (r["name"] or "").strip() for r in cur.fetchall()}
+        praxis_names = _db_retry(_fetch_names)
+    except Exception:
+        praxis_names = {}
+
+    # dealio_users fallback
+    try:
+        def _fetch_du():
+            with backoffice() as cur:
+                cur.execute("SELECT login, name FROM dealio_users WHERE name IS NOT NULL AND name != ''")
+                return {r["login"]: (r["name"] or "").strip() for r in cur.fetchall()}
+        dealio_names = _db_retry(_fetch_du)
+    except Exception:
+        dealio_names = {}
+
+    rows = []
+    for login, a in agg.items():
+        cid   = login_to_cid.get(login, "")
+        name  = praxis_names.get(cid) or dealio_names.get(login) or ""
+        o     = open_snap.get(login,  {})
+        c     = close_snap.get(login, {})
+        rows.append({
+            "login":         login,
+            "cid":           cid,
+            "name":          name,
+            "currency":      a.get("currency") or "USD",
+            "last_active":   str(a.get("last_active") or ""),
+            "open_balance":  round(float(o.get("open_balance")  or 0), 2),
+            "open_equity":   round(float(o.get("open_equity")   or 0), 2),
+            "deposits":      round(float(a.get("deposits")      or 0), 2),
+            "withdrawals":   round(float(a.get("withdrawals")   or 0), 2),
+            "realised_pnl":  round(float(a.get("realised_pnl") or 0), 2),
+            "close_balance": round(float(c.get("close_balance") or 0), 2),
+            "close_equity":  round(float(c.get("close_equity")  or 0), 2),
+        })
+
+    rows.sort(key=lambda r: r["close_equity"], reverse=True)
+    _cache_set(key, rows)
+    return rows
+
+
 def client_list(date_from=None, date_to=None) -> list:
     """
     Full client list with Company P&L from MT4 trading data.
