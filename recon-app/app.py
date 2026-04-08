@@ -127,6 +127,48 @@ def recon(month):
     )
 
 
+@app.route("/cid/<cid>")
+@require_recon_auth
+def cid_detail(cid):
+    import datetime as _dt
+    span = request.args.get("span", "1m")
+    ref  = request.args.get("ref", "")
+
+    today = _dt.date.today()
+    if ref:
+        try:
+            ry, rm = int(ref[:4]), int(ref[5:7])
+            range_end = _dt.date(ry+1,1,1) if rm==12 else _dt.date(ry,rm+1,1)
+        except Exception:
+            d = _dt.date(today.year, today.month, 1) + _dt.timedelta(days=32)
+            range_end = _dt.date(d.year, d.month, 1)
+    else:
+        d = _dt.date(today.year, today.month, 1) + _dt.timedelta(days=32)
+        range_end = _dt.date(d.year, d.month, 1)
+
+    span_map = {"1m":31,"3m":92,"6m":183,"1y":365}
+    span_labels = {"1m":"1 Month","3m":"3 Months","6m":"6 Months","1y":"1 Year","all":"All Time"}
+
+    if span == "all":
+        range_start = _dt.date(2021, 1, 1)
+    else:
+        d = range_end - _dt.timedelta(days=span_map.get(span, 31))
+        range_start = _dt.date(d.year, d.month, 1)
+
+    try:
+        profile = queries.cid_full_profile(cid, range_start, range_end)
+    except Exception:
+        profile = {"cid": cid, "name":"—","email":"—","mt4_accounts":[],
+                   "praxis_txs":[],"crm_by_login":{},"mt4_by_login":{},
+                   "summary":{"praxis_deposits":0,"praxis_withdrawals":0,
+                               "crm_cash_dep":0,"crm_cash_with":0,"diff":0}}
+
+    return render_template("cid_detail.html",
+        cid=cid, profile=profile, span=span,
+        span_label=span_labels.get(span, span),
+        range_start=str(range_start), range_end=str(range_end), ref=ref)
+
+
 @app.route("/client/<int:login>")
 @require_recon_auth
 def client_detail(login):

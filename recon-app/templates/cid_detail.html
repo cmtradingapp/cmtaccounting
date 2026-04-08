@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %} — {{ profile.name }} · CID {{ cid }}{% endblock %}
+{% block content %}
+<style>
+  .cd-span-btn {
+    font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px;
+    border:1px solid var(--border); background:transparent; color:var(--muted);
+    cursor:pointer; text-decoration:none; display:inline-flex; align-items:center;
+    transition:border-color .15s,color .15s,background .15s;
+  }
+  .cd-span-btn:hover { border-color:rgba(255,255,255,.2); color:var(--text); }
+  .cd-span-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.08); }
+
+  .cd-summary-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:var(--sp-4); }
+  .cd-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 18px; }
+  .cd-stat .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px; }
+  .cd-stat .value { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .cd-section { margin-bottom:var(--sp-4); }
+  .cd-section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  .cd-badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:10px; font-weight:700; }
+
+  /* Per-account collapsible */
+  .acct-panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); margin-bottom:10px; overflow:hidden; }
+  .acct-head { display:flex; align-items:center; gap:12px; padding:12px 18px; cursor:pointer; user-select:none; }
+  .acct-head:hover { background:rgba(255,255,255,.02); }
+  .acct-chev { font-size:10px; color:var(--muted); transition:transform .2s; }
+  .acct-panel.open .acct-chev { transform:rotate(90deg); }
+  .acct-body { display:none; padding:0 18px 16px; }
+  .acct-panel.open .acct-body { display:block; }
+
+  th[data-col] { cursor:pointer; user-select:none; white-space:nowrap; transition:color .15s; }
+  th[data-col]:hover { color:var(--text); }
+  th[data-col]::after { content:''; display:inline-block; margin-left:5px; opacity:.3; font-size:10px; vertical-align:middle; }
+  th[data-col].asc::after  { content:'▲'; opacity:1; color:var(--accent); }
+  th[data-col].desc::after { content:'▼'; opacity:1; color:var(--accent); }
+</style>
+
+{% set spans = [('1m','1M'),('3m','3M'),('6m','6M'),('1y','1Y'),('all','All')] %}
+{% set s = profile.summary %}
+
+<div class="page-header" style="margin-bottom:var(--sp-3);">
+  <div>
+    {% if ref %}<a href="/recon/{{ ref }}/praxis" class="back-link">← Praxis Tree {{ ref }}</a>
+    {% else %}<a href="/" class="back-link">← Dashboard</a>{% endif %}
+    <div class="page-title" style="margin-top:4px;">
+      {{ profile.name }}
+      <span style="font-size:13px;font-weight:400;color:var(--muted);margin-left:8px;">CID {{ cid }}</span>
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-top:3px;">
+      {{ profile.email }}
+      &nbsp;·&nbsp; {{ profile.mt4_accounts|length }} MT4 account{{ 's' if profile.mt4_accounts|length != 1 }}
+      &nbsp;·&nbsp; {{ range_start }} → {{ range_end }} ({{ span_label }})
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;">
+    {% for sv, lbl in spans %}
+    <a class="cd-span-btn {% if span == sv %}active{% endif %}"
+       href="/cid/{{ cid }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ sv }}">{{ lbl }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Summary cards -->
+<div class="cd-summary-grid">
+  <div class="cd-stat">
+    <div class="label">MT4 Accounts</div>
+    <div class="value" style="color:var(--accent);">{{ profile.mt4_accounts|length }}</div>
+  </div>
+  <div class="cd-stat">
+    <div class="label">CRM Cash Deposits</div>
+    <div class="value pos">${{ "{:,.2f}".format(s.crm_cash_dep) }}</div>
+  </div>
+  <div class="cd-stat">
+    <div class="label">CRM Cash Withdrawals</div>
+    <div class="value neg">${{ "{:,.2f}".format(s.crm_cash_with) }}</div>
+  </div>
+  <div class="cd-stat">
+    <div class="label">Praxis Deposits</div>
+    <div class="value" style="color:rgba(167,139,250,.9);">${{ "{:,.2f}".format(s.praxis_deposits) }}</div>
+  </div>
+  <div class="cd-stat">
+    <div class="label">Praxis vs CRM</div>
+    <div class="value {% if s.diff > 1 %}pos{% elif s.diff < -1 %}neg{% endif %}">
+      {{ "{:+,.2f}".format(s.diff) if s.diff != 0 else '—' }}
+    </div>
+  </div>
+</div>
+
+<!-- Praxis transactions -->
+{% if profile.praxis_txs %}
+<div class="cd-section">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+    <span class="cd-section-title">Praxis Transactions</span>
+    <span class="cd-badge" style="background:rgba(167,139,250,.12);color:#a78bfa;">{{ profile.praxis_txs|length }}</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th data-col="0">TID</th>
+        <th data-col="1">Direction</th>
+        <th data-col="2">Method</th>
+        <th data-col="3">PSP</th>
+        <th data-col="4" class="num">USD</th>
+        <th data-col="5" class="num">Local</th>
+        <th data-col="6">Ccy</th>
+        <th data-col="7" class="num">Fee</th>
+        <th data-col="8" class="desc">Date</th>
+      </tr></thead>
+      <tbody>
+        {% for r in profile.praxis_txs %}
+        <tr>
+          <td style="font-family:monospace;font-size:11px;color:var(--muted);" data-val="{{ r.tid }}">{{ r.tid }}</td>
+          <td data-val="{{ r.direction }}">
+            <span class="badge {% if r.direction == 'payment' %}matched{% else %}discrepancy{% endif %}">
+              {% if r.direction == 'payment' %}↓ Dep{% else %}↑ With{% endif %}
+            </span>
+          </td>
+          <td data-val="{{ r.payment_method or '' }}">{{ r.payment_method or '—' }}</td>
+          <td style="color:var(--muted);font-size:11px;" data-val="{{ r.payment_processor or '' }}">{{ r.payment_processor or '—' }}</td>
+          <td class="num {% if r.direction=='payment' %}pos{% else %}neg{% endif %}" data-val="{{ r.usd_amount }}">${{ "{:,.2f}".format(r.usd_amount) }}</td>
+          <td class="num" style="color:var(--muted);" data-val="{{ r.amount_local }}">{{ "{:,.2f}".format(r.amount_local) }}</td>
+          <td data-val="{{ r.currency or '' }}">{{ r.currency or '—' }}</td>
+          <td class="num" style="color:var(--muted);" data-val="{{ r.fee_actual }}">${{ "{:.2f}".format(r.fee_actual) }}</td>
+          <td style="color:var(--muted);" data-val="{{ r.ts }}">{{ r.ts }}</td>
+        </tr>
+        {% endfor %}
+        <tr style="border-top:1px solid var(--border);">
+          <td colspan="4" style="padding:6px 16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(212,175,55,.6);">Total</td>
+          <td class="num" style="font-weight:700;color:rgba(212,175,55,.9);padding:6px 16px;">
+            ${{ "{:,.2f}".format(profile.praxis_txs | sum(attribute='usd_amount')) }}
+          </td>
+          <td colspan="4"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- MT4 Accounts — one collapsible per login -->
+{% if profile.mt4_accounts %}
+<div class="cd-section">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+    <span class="cd-section-title">MT4 Accounts</span>
+    <span class="cd-badge" style="background:rgba(79,142,247,.12);color:var(--accent);">{{ profile.mt4_accounts|length }}</span>
+  </div>
+
+  {% for login in profile.mt4_accounts %}
+  {% set crm = profile.crm_by_login.get(login, []) %}
+  {% set mt4 = profile.mt4_by_login.get(login, []) %}
+  {% set crm_dep_total = crm | selectattr('is_cash') | selectattr('transactionapproval','equalto','Approved') | selectattr('transactiontype','in',['Deposit','TransferIn']) | sum(attribute='total_usd') %}
+  <div class="acct-panel {% if crm or mt4 %}open{% endif %}" id="ap-{{ login }}">
+    <div class="acct-head" onclick="document.getElementById('ap-{{ login }}').classList.toggle('open')">
+      <span class="acct-chev">▶</span>
+      <a href="/client/{{ login }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ span }}"
+         style="font-weight:700;font-size:14px;color:var(--accent);text-decoration:none;"
+         onclick="event.stopPropagation()">{{ login }}</a>
+      <span style="font-size:12px;color:var(--muted);">
+        {{ crm|length }} CRM rows &nbsp;·&nbsp; {{ mt4|length }} MT4 days
+      </span>
+      {% if crm_dep_total %}
+      <span style="margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums;color:var(--green);">
+        CRM dep: ${{ "{:,.2f}".format(crm_dep_total) }}
+      </span>
+      {% endif %}
+    </div>
+    <div class="acct-body">
+
+      <!-- CRM for this login -->
+      <div style="margin-bottom:14px;">
+        <div class="cd-section-title" style="margin-bottom:8px;">CRM Transactions</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th data-col="0">Type</th>
+              <th data-col="1">Payment Method</th>
+              <th data-col="2">Approval</th>
+              <th data-col="3" class="num">Count</th>
+              <th data-col="4" class="num">USD Total</th>
+              <th data-col="5">First Date</th>
+              <th data-col="6">Last Date</th>
+              <th data-col="7">Kind</th>
+            </tr></thead>
+            <tbody>
+              {% if crm %}
+                {% for r in crm %}
+                <tr>
+                  <td data-val="{{ r.transactiontype or '' }}">{{ r.transactiontype or '—' }}</td>
+                  <td data-val="{{ r.payment_method or '' }}">{{ r.payment_method or '—' }}</td>
+                  <td data-val="{{ r.transactionapproval or '' }}">
+                    <span class="badge {% if r.transactionapproval=='Approved' %}matched{% elif r.transactionapproval=='Failure' %}discrepancy{% else %}mt4_only{% endif %}">
+                      {{ r.transactionapproval }}
+                    </span>
+                  </td>
+                  <td class="num" data-val="{{ r.tx_count }}">{{ r.tx_count }}</td>
+                  <td class="num {% if r.transactiontype in ('Deposit','TransferIn','Credit in') %}pos{% else %}neg{% endif %}"
+                      data-val="{{ r.total_usd }}">
+                    {{ "{:+,.2f}".format(r.total_usd if r.transactiontype in ('Deposit','TransferIn','Credit in') else -r.total_usd) }}
+                  </td>
+                  <td style="color:var(--muted);" data-val="{{ r.first_date or '' }}">{{ r.first_date or '—' }}</td>
+                  <td style="color:var(--muted);" data-val="{{ r.last_date or '' }}">{{ r.last_date or '—' }}</td>
+                  <td data-val="{{ '1' if r.is_cash else '0' }}">
+                    {% if r.is_cash %}<span class="legend-item cash" style="font-size:11px;">cash</span>
+                    {% else %}<span class="legend-item noncash" style="font-size:11px;">non-cash</span>{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="8" class="empty">No CRM records in this period.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- MT4 for this login -->
+      <div>
+        <div class="cd-section-title" style="margin-bottom:8px;">MT4 Daily Net Deposits</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th data-col="0" class="desc">Date</th>
+              <th data-col="1" class="num">Net Deposit</th>
+              <th data-col="2" class="num">Net (USD)</th>
+              <th data-col="3" class="num">Balance</th>
+              <th data-col="4" class="num">Equity</th>
+              <th data-col="5" class="num">Realised P&amp;L</th>
+              <th data-col="6">Ccy</th>
+            </tr></thead>
+            <tbody>
+              {% if mt4 %}
+                {% set tot = namespace(net=0) %}
+                {% for r in mt4 %}
+                {% set _ = tot.__setattr__('net', tot.net + (r.convertednetdeposit or 0)) %}
+                <tr>
+                  <td data-val="{{ r.date }}">{{ r.date }}</td>
+                  <td class="num {% if r.netdeposit > 0 %}pos{% else %}neg{% endif %}" data-val="{{ r.netdeposit }}">{{ "{:+,.2f}".format(r.netdeposit) }}</td>
+                  <td class="num {% if r.convertednetdeposit > 0 %}pos{% else %}neg{% endif %}" data-val="{{ r.convertednetdeposit }}">{{ "{:+,.2f}".format(r.convertednetdeposit) }}</td>
+                  <td class="num" data-val="{{ r.balance }}">{{ "{:,.2f}".format(r.balance) }}</td>
+                  <td class="num" data-val="{{ r.equity }}">{{ "{:,.2f}".format(r.equity) }}</td>
+                  <td class="num {% if (r.closedpnl or 0) > 0 %}pos{% elif (r.closedpnl or 0) < 0 %}neg{% endif %}" data-val="{{ r.closedpnl or 0 }}">
+                    {% if r.closedpnl %}{{ "{:+,.2f}".format(r.closedpnl) }}{% else %}—{% endif %}
+                  </td>
+                  <td data-val="{{ r.groupcurrency }}">{{ r.groupcurrency }}</td>
+                </tr>
+                {% endfor %}
+                <tr style="border-top:2px solid var(--border);font-weight:700;">
+                  <td>Total</td><td></td>
+                  <td class="num {% if tot.net>0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(tot.net) }}</td>
+                  <td colspan="4"></td>
+                </tr>
+              {% else %}
+                <tr><td colspan="7" class="empty">No MT4 activity in this period.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not profile.mt4_accounts and not profile.praxis_txs %}
+<div style="text-align:center;padding:64px;color:var(--muted);">
+  <div style="font-size:32px;margin-bottom:12px;opacity:.3;">👤</div>
+  <div style="font-size:15px;font-weight:600;margin-bottom:6px;">No data found for CID {{ cid }}</div>
+  <div style="font-size:13px;">This CID has no Praxis transactions or linked MT4 accounts in the selected period.</div>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  document.querySelectorAll('th[data-col]').forEach(function (th) {
+    th.addEventListener('click', function () {
+      var col   = parseInt(th.getAttribute('data-col'));
+      var tbody = th.closest('table').querySelector('tbody');
+      var asc   = !th.classList.contains('asc');
+      th.closest('tr').querySelectorAll('th[data-col]').forEach(function (h) { h.classList.remove('asc','desc'); });
+      th.classList.add(asc ? 'asc' : 'desc');
+      var rows = Array.from(tbody.querySelectorAll('tr')).filter(function (r) { return !r.querySelector('td[colspan]'); });
+      rows.sort(function (a, b) {
+        var ca = a.querySelectorAll('td')[col], cb = b.querySelectorAll('td')[col];
+        var va = ((ca ? (ca.getAttribute('data-val') || ca.textContent) : '')).trim();
+        var vb = ((cb ? (cb.getAttribute('data-val') || cb.textContent) : '')).trim();
+        var na = parseFloat(va.replace(/[$,+\s]/g,'')), nb = parseFloat(vb.replace(/[$,+\s]/g,''));
+        if (!isNaN(na) && !isNaN(nb)) return asc ? na - nb : nb - na;
+        return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+      });
+      var pins = Array.from(tbody.querySelectorAll('tr')).filter(function (r) { return !!r.querySelector('td[colspan]'); });
+      rows.forEach(function (r) { tbody.insertBefore(r, pins[0] || null); });
+    });
+  });
+})();
+</script>
+
+{% endblock %}

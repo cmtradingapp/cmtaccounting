@@ -953,6 +953,103 @@ def psp_balance_at_month_end(year: int, month: int) -> list:
     return result
 
 
+def cid_full_profile(cid: str, date_from, date_to) -> dict:
+    """
+    Full profile for a Praxis customer (session_cid) across all their MT4 accounts.
+    Returns a unified dict with name, email, all logins, Praxis txs, CRM + MT4 per login.
+    Cached 5 minutes.
+    """
+    key = f"cid_profile:{cid}:{date_from}:{date_to}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    account_map = _load_praxis_account_map()
+    logins = account_map.get(str(cid).strip(), [])
+
+    # 1. Praxis transactions for this CID
+    praxis_txs = []
+    name = "—"
+    email = "—"
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch_praxis():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT tid, session_cid, session_intent AS direction,
+                           usd_amount, amount/100.0 AS amount_local, currency,
+                           payment_method, payment_processor,
+                           fee/100.0 AS fee_actual,
+                           wallet_data_email AS email,
+                           customer_first_name AS first_name,
+                           customer_last_name  AS last_name,
+                           TO_TIMESTAMP(created_timestamp) AS ts
+                    FROM praxis_transactions
+                    WHERE session_cid = %s
+                      AND created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
+                      AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
+                    ORDER BY created_timestamp
+                """, (cid, date_from, date_to))
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(r)
+                    row["usd_amount"] = float(row["usd_amount"] or 0)
+                    row["fee_actual"] = float(row["fee_actual"] or 0)
+                    row["ts"] = str(row["ts"])[:16] if row["ts"] else ""
+                    rows.append(row)
+                return rows
+        praxis_txs = _db_retry(_fetch_praxis)
+    except Exception:
+        pass
+
+    # Extract name/email from Praxis transactions
+    if praxis_txs:
+        s = praxis_txs[0]
+        parts = [s.get("first_name") or "", s.get("last_name") or ""]
+        name  = " ".join(p for p in parts if p).strip() or "—"
+        email = s.get("email") or "—"
+
+    # 2. CRM + MT4 per login
+    crm_by_login = {}
+    mt4_by_login = {}
+    for login in logins:
+        crm_by_login[login] = client_crm_detail(login, date_from, date_to)
+        mt4_by_login[login] = client_mt4_detail(login, date_from, date_to)
+
+    # 3. Summary totals
+    praxis_dep  = sum(t["usd_amount"] for t in praxis_txs if t["direction"] == "payment")
+    praxis_with = sum(t["usd_amount"] for t in praxis_txs if t["direction"] in ("withdrawal","payout"))
+    crm_dep     = sum(
+        r["total_usd"] for rows in crm_by_login.values() for r in rows
+        if r["is_cash"] and r.get("transactionapproval") == "Approved"
+        and r.get("transactiontype") in ("Deposit","TransferIn")
+    )
+    crm_with    = sum(
+        r["total_usd"] for rows in crm_by_login.values() for r in rows
+        if r["is_cash"] and r.get("transactionapproval") == "Approved"
+        and r.get("transactiontype") in ("Withdrawal","Withdraw","TransferOut")
+    )
+
+    result = {
+        "cid":          cid,
+        "name":         name,
+        "email":        email,
+        "mt4_accounts": logins,
+        "praxis_txs":   praxis_txs,
+        "crm_by_login": crm_by_login,
+        "mt4_by_login": mt4_by_login,
+        "summary": {
+            "praxis_deposits":    round(praxis_dep, 2),
+            "praxis_withdrawals": round(praxis_with, 2),
+            "crm_cash_dep":       round(crm_dep, 2),
+            "crm_cash_with":      round(crm_with, 2),
+            "diff":               round(praxis_dep - crm_dep, 2),
+        }
+    }
+    _cache_set(key, result)
+    return result
+
+
 def client_crm_detail(login: int, date_from, date_to) -> list:
     """CRM transactions for a login over an arbitrary date range."""
     def _fetch():

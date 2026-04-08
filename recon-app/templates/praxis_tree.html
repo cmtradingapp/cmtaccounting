@@ -162,7 +162,8 @@
   <div class="client-head" onclick="toggleCard('cc-{{ loop.index }}')">
     <span class="client-chevron">▶</span>
     <div>
-      <div class="client-name">{{ client.name }}</div>
+      <a class="client-name" href="/cid/{{ client.session_cid }}?ref={{ month }}"
+       style="color:var(--text);text-decoration:none;" onclick="event.stopPropagation()">{{ client.name }}</a>
       <div style="display:flex;gap:10px;margin-top:2px;">
         <span class="client-cid">cid: {{ client.session_cid }}</span>
         {% if client.email != '—' %}<span class="client-email">{{ client.email }}</span>{% endif %}
@@ -195,7 +196,7 @@
     <div class="acct-row {{ acct.match }}">
       <span>
         {% if acct.login %}
-        <a class="acct-login" href="/client/{{ acct.login }}?ref={{ month }}">{{ acct.login }}</a>
+        <a class="acct-login" href="/cid/{{ client.session_cid }}?ref={{ month }}">{{ acct.login }}</a>
         {% else %}
         <span style="color:var(--muted);font-size:12px;">No MT4 account</span>
         {% endif %}
