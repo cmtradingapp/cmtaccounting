@@ -655,27 +655,34 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
     except Exception:
         rows = []
 
-    # Praxis payment_method → canonical rule payment_method
-    _PM_MAP = {
-        "mobileafrica":       "Mobile Money",
-        "mobilemoney":        "Mobile Money",
+    # Load method mappings from DB (user-managed), with sensible defaults as fallback
+    _method_mappings_db = get_method_mappings()   # {praxis_method: {canonical, confirmed}}
+    _PM_DEFAULTS = {
+        "mobileafrica":        "Mobile Money",
+        "mobilemoney":         "Mobile Money",
         "mobilemoney_checkout":"Mobile Money",
-        "altmobilemoney":     "Mobile Money",
-        "tingg":              "Mobile Money",
-        "payunit":            "Mobile Money",
-        "altbankonline":      "Electronic Payment",
-        "altcrypto":          "Crypto",
-        "crypto":             "Crypto",
-        "ozow":               "Electronic Payment",
-        "zpay":               "Electronic Payment",
-        "dusupay":            "Mobile Money",
-        "credit card":        "Credit Cards",
-        "creditcard":         "Credit Cards",
-        "virtualpay":         "Electronic Payment",
-        "paywall":            "Electronic Payment",
-        "bank transfer":      "Bank Wire",
-        "wire":               "Bank Wire",
+        "altmobilemoney":      "Mobile Money",
+        "tingg":               "Mobile Money",
+        "payunit":             "Mobile Money",
+        "altbankonline":       "Electronic Payment",
+        "altcrypto":           "Crypto",
+        "crypto":              "Crypto",
+        "ozow":                "Electronic Payment",
+        "zpay":                "Electronic Payment",
+        "dusupay":             "Mobile Money",
+        "credit card":         "Credit Cards",
+        "creditcard":          "Credit Cards",
+        "virtualpay":          "Electronic Payment",
+        "paywall":             "Electronic Payment",
+        "bank transfer":       "Bank Wire",
+        "wire":                "Bank Wire",
     }
+    def _translate_method(pm_raw):
+        # DB mapping takes priority over defaults
+        saved = _method_mappings_db.get(pm_raw)
+        if saved:
+            return saved["canonical"]
+        return _PM_DEFAULTS.get(pm_raw, pm_raw)   # fall back to raw name
 
     # Helper — look up expected fee using saved mappings first, fuzzy fallback
     def _calc_expected(usd_amount, payment_method, direction, processor):
@@ -684,7 +691,7 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
         fee_type = "Deposit" if direction == "payment" else "Withdrawal"
         # Translate Praxis method name to canonical form used in rules
         pm_raw   = (payment_method or "").lower().strip()
-        pm_canon = _PM_MAP.get(pm_raw, payment_method or "")
+        pm_canon = _translate_method(pm_raw)
         pm_norm  = pm_canon.lower()
         proc_key = (processor or "")
 
@@ -1790,12 +1797,72 @@ def delete_processor_mapping(processor_name: str):
                      (processor_name,))
 
 
+def _ensure_method_mappings_table():
+    """Maps Praxis payment_method strings to canonical rule payment_method names."""
+    if _PG:
+        ddl = """
+            CREATE TABLE IF NOT EXISTS method_mappings (
+                praxis_method  TEXT PRIMARY KEY,
+                canonical      TEXT NOT NULL,
+                confirmed      INTEGER DEFAULT 0,
+                created_at     TIMESTAMPTZ DEFAULT NOW(),
+                updated_at     TIMESTAMPTZ DEFAULT NOW()
+            );
+        """
+    else:
+        ddl = """
+            CREATE TABLE IF NOT EXISTS method_mappings (
+                praxis_method  TEXT PRIMARY KEY,
+                canonical      TEXT NOT NULL,
+                confirmed      INTEGER DEFAULT 0,
+                created_at     TEXT DEFAULT (datetime('now')),
+                updated_at     TEXT DEFAULT (datetime('now'))
+            );
+        """
+    with fees_db() as conn:
+        conn.executescript(ddl)
+
+
+def get_method_mappings() -> dict:
+    """Return {praxis_method: canonical} for all saved method mappings."""
+    with fees_db() as conn:
+        rows = conn.execute(
+            "SELECT praxis_method, canonical, confirmed FROM method_mappings"
+        ).fetchall()
+        return {r["praxis_method"]: {"canonical": r["canonical"],
+                                      "confirmed": bool(r["confirmed"])}
+                for r in rows}
+
+
+def save_method_mapping(praxis_method: str, canonical: str, confirmed: bool = True):
+    with fees_db() as conn:
+        if _PG:
+            conn.execute("""
+                INSERT INTO method_mappings (praxis_method, canonical, confirmed, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (praxis_method) DO UPDATE
+                  SET canonical=EXCLUDED.canonical, confirmed=EXCLUDED.confirmed, updated_at=NOW()
+            """, (praxis_method, canonical, 1 if confirmed else 0))
+        else:
+            conn.execute("""
+                INSERT OR REPLACE INTO method_mappings
+                  (praxis_method, canonical, confirmed, updated_at)
+                VALUES (?, ?, ?, datetime('now'))
+            """, (praxis_method, canonical, 1 if confirmed else 0))
+
+
+def delete_method_mapping(praxis_method: str):
+    with fees_db() as conn:
+        conn.execute("DELETE FROM method_mappings WHERE praxis_method=?", (praxis_method,))
+
+
 def ensure_fee_tables():
     _ensure_fee_tables_core()
     _ensure_prompt_tables()
     _ensure_context_notes_table()
     _ensure_amendment_tables()
     _ensure_processor_mappings_table()
+    _ensure_method_mappings_table()
 
 
 def _ensure_prompt_tables():

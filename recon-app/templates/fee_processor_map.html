@@ -29,6 +29,14 @@
   .pm-badge.unmapped  { background:rgba(239,68,68,.1);   color:var(--red); }
   .pm-badge.ai        { background:rgba(167,139,250,.12); color:#a78bfa; }
 
+
+  .pm-tabs { display:flex; gap:2px; border-bottom:1px solid var(--border); margin-bottom:var(--sp-3); }
+  .pm-tab { height:36px; padding:0 16px; background:transparent; border:none; color:var(--muted);
+            font-size:13px; font-weight:500; cursor:pointer; position:relative;
+            border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s; }
+  .pm-tab:hover { color:var(--text); }
+  .pm-tab.active { color:var(--text); border-bottom-color:var(--accent); }
+
   /* AI suggestion highlight */
   .pm-row.ai-suggested .pm-select { border-color:rgba(167,139,250,.5); }
 
@@ -58,6 +66,19 @@
   Click <strong>AI Auto-Match</strong> to let Claude suggest matches for all unmapped processors.
 </div>
 
+
+<div class="pm-tabs">
+  <button class="pm-tab active" onclick="switchTab('processors',this)">
+    Processor → Agreement
+    <span style="margin-left:6px;font-size:10px;background:rgba(255,255,255,.07);padding:1px 6px;border-radius:999px;">{{ processors|length }}</span>
+  </button>
+  <button class="pm-tab" onclick="switchTab('methods',this)">
+    Payment Method → Canonical
+    <span style="margin-left:6px;font-size:10px;background:rgba(255,255,255,.07);padding:1px 6px;border-radius:999px;">{{ methods|length }}</span>
+  </button>
+</div>
+
+<div id="tab-processors">
 <!-- Summary counts -->
 {% set n_mapped   = mappings|length %}
 {% set n_total    = processors|length %}
@@ -114,8 +135,86 @@
   {% endfor %}
 </div>
 
+</div><!-- end tab-processors -->
+
+<div id="tab-methods" style="display:none;">
+{% set n_mm = method_mappings|length %}
+<div style="display:flex;gap:10px;margin-bottom:var(--sp-3);">
+  <span class="pm-badge confirmed">{{ n_mm }} mapped</span>
+  <span class="pm-badge unmapped">{{ methods|length - n_mm }} unmapped</span>
+  <span style="font-size:12px;color:var(--muted);margin-left:4px;">{{ methods|length }} Praxis methods detected (last 1 year)</span>
+</div>
+<div class="card">
+  <div class="pm-row" style="background:var(--surface);font-size:10px;font-weight:700;
+       text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:1px solid var(--border);
+       grid-template-columns:220px 1fr 220px 90px;">
+    <span>Praxis Method</span>
+    <span>Volume / Transactions</span>
+    <span>Canonical Name</span>
+    <span>Status</span>
+  </div>
+  {% for m in methods %}
+  {% set mkey = m.payment_method %}
+  {% set saved = method_mappings.get(mkey) %}
+  <div class="pm-row" id="mrow-{{ loop.index }}" data-method="{{ mkey }}"
+       style="grid-template-columns:220px 1fr 220px 90px;">
+    <div class="pm-processor">{{ mkey }}</div>
+    <div class="pm-stats">
+      ${{ "{:,.0f}".format(m.volume or 0) }} vol &nbsp;·&nbsp;
+      {{ "{:,}".format(m.tx_count or 0) }} txns
+    </div>
+    <select class="pm-select" data-meth="{{ mkey }}"
+            onchange="saveMethodMapping('{{ mkey }}', this.value, this)">
+      <option value="">— No mapping —</option>
+      {% for c in canonical_methods %}
+      <option value="{{ c }}" {% if saved and saved.canonical == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <div id="mbadge-{{ loop.index }}">
+      {% if saved and saved.confirmed %}
+        <span class="pm-badge confirmed">✓ Saved</span>
+      {% elif saved %}
+        <span class="pm-badge fuzzy">~ Auto</span>
+      {% else %}
+        <span class="pm-badge unmapped">Unmapped</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+</div><!-- end tab-methods -->
+
 <script>
-var _agreements = {{ agreements | tojson }};
+var _agreements     = {{ agreements | tojson }};
+var _canonicalMethods = {{ canonical_methods | tojson }};
+var _activeTab = 'processors';
+
+function switchTab(tab, btn) {
+  _activeTab = tab;
+  document.querySelectorAll('.pm-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  document.getElementById('tab-processors').style.display = tab==='processors' ? '' : 'none';
+  document.getElementById('tab-methods').style.display    = tab==='methods'    ? '' : 'none';
+  document.getElementById('aiBtn').textContent =
+    tab==='processors' ? '✨ AI Auto-Match All' : '✨ AI Auto-Map All';
+}
+
+function saveMethodMapping(praxis_method, canonical, selectEl) {
+  var idx   = selectEl.closest('[data-method]').id.replace('mrow-','');
+  var badge = document.getElementById('mbadge-' + idx);
+  fetch('/fees/method-map/save', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({praxis_method: praxis_method, canonical: canonical || null})
+  })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if (d.ok) {
+      badge.innerHTML = canonical
+        ? '<span class="pm-badge confirmed">✓ Saved</span>'
+        : '<span class="pm-badge unmapped">Unmapped</span>';
+    } else { alert('Error: ' + (d.error||'unknown')); }
+  });
+}
 
 function saveMapping(processor, agreementId, selectEl) {
   var idx = selectEl.closest('[data-processor]').id.replace('row-','');
@@ -142,6 +241,7 @@ function saveMapping(processor, agreementId, selectEl) {
 }
 
 function autoMatch() {
+  if (_activeTab === 'methods') { autoMapMethods(); return; }
   var btn = document.getElementById('aiBtn');
   btn.classList.add('loading');
   btn.textContent = '⏳ Asking AI…';
@@ -216,6 +316,71 @@ function autoMatch() {
     btn.textContent = '✨ AI Auto-Match All';
     alert('Request failed: ' + e);
   });
+}
+
+function autoMapMethods() {
+  var btn = document.getElementById('aiBtn');
+  btn.classList.add('loading'); btn.textContent = '⏳ Asking AI…';
+  var unmapped = [];
+  document.querySelectorAll('.pm-select[data-meth]').forEach(function(sel) {
+    if (!sel.value) unmapped.push({name: sel.getAttribute('data-meth')});
+  });
+  if (!unmapped.length) {
+    alert('All methods are already mapped!');
+    btn.classList.remove('loading'); btn.textContent = '✨ AI Auto-Map All'; return;
+  }
+  fetch('/fees/method-map/auto-match', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({methods: unmapped})
+  })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    btn.classList.remove('loading'); btn.textContent = '✨ AI Auto-Map All';
+    if (d.error) { alert('AI error: ' + d.error); return; }
+    var applied = 0;
+    (d.suggestions||[]).forEach(function(s){
+      if (!s.canonical) return;
+      var sel = document.querySelector('.pm-select[data-meth="'+s.praxis_method+'"]');
+      if (!sel || sel.value) return;
+      sel.value = s.canonical;
+      var row = sel.closest('[data-method]');
+      var idx = row.id.replace('mrow-','');
+      document.getElementById('mbadge-'+idx).innerHTML =
+        '<span class="pm-badge ai" title="'+( s.confidence||'')+': '+(s.reason||'')+'">✨ AI ('+( s.confidence||'?')+')</span>';
+      row.classList.add('ai-suggested');
+      applied++;
+    });
+    if (applied) {
+      var banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:100;padding:14px 18px;border-radius:var(--radius-md);background:rgba(22,25,32,.95);border:1px solid rgba(167,139,250,.3);font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+      banner.innerHTML = '<strong style="color:#a78bfa;">✨ AI mapped '+applied+' method'+(applied>1?'s':'')+'</strong><br>'
+        + '<span style="font-size:12px;color:var(--text-2);">Review then confirm:</span><br>'
+        + '<div style="margin-top:8px;display:flex;gap:8px;">'
+        + '<button onclick="confirmAllMethodAI(this)" class="btn btn-primary" style="height:30px;font-size:12px;">Save All</button>'
+        + '<button onclick="this.closest('div[style]').remove()" class="btn" style="height:30px;font-size:12px;">Dismiss</button>'
+        + '</div>';
+      document.body.appendChild(banner);
+    } else { alert('AI found no new matches.'); }
+  }).catch(function(e){ btn.classList.remove('loading'); btn.textContent='✨ AI Auto-Map All'; alert('Failed: '+e); });
+}
+
+function confirmAllMethodAI() {
+  var aiRows = document.querySelectorAll('#tab-methods .ai-suggested');
+  var proms = [];
+  aiRows.forEach(function(row){
+    var pm  = row.getAttribute('data-method');
+    var sel = row.querySelector('.pm-select');
+    if (sel && sel.value) {
+      proms.push(fetch('/fees/method-map/save',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({praxis_method:pm,canonical:sel.value})})
+        .then(function(r){return r.json();}).then(function(d){
+          if(d.ok){row.classList.remove('ai-suggested');
+            var idx=row.id.replace('mrow-','');
+            document.getElementById('mbadge-'+idx).innerHTML='<span class="pm-badge confirmed">✓ Saved</span>';}
+        }));
+    }
+  });
+  Promise.all(proms).then(function(){document.querySelectorAll('div[style*="position:fixed"]').forEach(function(el){el.remove();});});
 }
 
 function confirmAllAI() {

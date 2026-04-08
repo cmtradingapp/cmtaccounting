@@ -672,14 +672,81 @@ def fees_processor_map():
         processors = []
 
     agreements = queries.get_all_agreements()
-    # Strip binary fields so tojson works in the template
     agr_safe = [{"id": a["id"], "psp_name": a["psp_name"],
                  "provider_name": a.get("provider_name") or ""}
                 for a in agreements]
-    mappings  = queries.get_processor_mappings()
+    proc_mappings   = queries.get_processor_mappings()
+    method_mappings = queries.get_method_mappings()
+
+    # Distinct Praxis methods in last 1Y
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch_methods():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT payment_method,
+                           COUNT(*) AS tx_count,
+                           SUM(usd_amount) AS volume
+                    FROM praxis_transactions
+                    WHERE created_timestamp >= EXTRACT(EPOCH FROM (NOW()-INTERVAL '1 year'))
+                      AND payment_method IS NOT NULL AND payment_method != ''
+                    GROUP BY payment_method ORDER BY volume DESC NULLS LAST
+                """)
+                return [dict(r) for r in cur.fetchall()]
+        methods = queries._db_retry(_fetch_methods)
+    except Exception:
+        methods = []
+
+    from ai_parse import PAYMENT_METHODS as _canonical
     return render_template("fee_processor_map.html",
                            processors=processors, agreements=agr_safe,
-                           mappings=mappings)
+                           proc_mappings=proc_mappings,
+                           methods=methods, method_mappings=method_mappings,
+                           canonical_methods=_canonical)
+
+
+@app.route("/fees/method-map/save", methods=["POST"])
+@require_fees_auth
+def fees_method_map_save():
+    data = request.get_json(force=True)
+    praxis_method = (data.get("praxis_method") or "").strip()
+    canonical     = (data.get("canonical") or "").strip()
+    if not praxis_method:
+        return jsonify({"error": "praxis_method required"}), 400
+    if canonical:
+        queries.save_method_mapping(praxis_method, canonical, confirmed=True)
+    else:
+        queries.delete_method_mapping(praxis_method)
+    for k in [k for k in queries._CACHE if k.startswith("fee_calc:")]:
+        del queries._CACHE[k]
+    return jsonify({"ok": True})
+
+
+@app.route("/fees/method-map/auto-match", methods=["POST"])
+@require_fees_auth
+def fees_method_map_auto():
+    """AI suggests canonical names for unmapped Praxis payment methods."""
+    import json as _json
+    data    = request.get_json(force=True)
+    methods = data.get("methods", [])
+    canonical_list = ["Credit Cards","Bank Wire","Mobile Money",
+                      "Electronic Payment","Crypto","MOMO","E-Wallet"]
+    prompt = (
+        "Map Praxis payment method names to one of these canonical names used in fee agreements:\n"
+        + _json.dumps(canonical_list) + "\n\n"
+        "PRAXIS METHODS TO MAP:\n" + _json.dumps(methods) + "\n\n"
+        "Return ONLY a JSON array: [{\"praxis_method\": \"...\", \"canonical\": \"...\", "
+        "\"confidence\": \"high|medium|low\", \"reason\": \"...\"}]\n"
+        "Use null canonical if no reasonable match. Base your judgment on what the name implies "
+        "(e.g. altbankonline→Electronic Payment, mobileafrica→Mobile Money, altcrypto→Crypto)."
+    )
+    try:
+        import ai_parse as _ai
+        raw = _ai._call_claude("You are a payment method name mapping assistant.", prompt)
+        suggestions = _json.loads(raw)
+        return jsonify({"suggestions": suggestions})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/fees/processor-map/save", methods=["POST"])
