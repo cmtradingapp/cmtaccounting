@@ -195,7 +195,7 @@
     <div class="acct-row {{ acct.match }}">
       <span>
         {% if acct.login %}
-        <a class="acct-login" href="/recon/{{ month }}/{{ acct.login }}">{{ acct.login }}</a>
+        <a class="acct-login" href="/client/{{ acct.login }}?ref={{ month }}">{{ acct.login }}</a>
         {% else %}
         <span style="color:var(--muted);font-size:12px;">No MT4 account</span>
         {% endif %}

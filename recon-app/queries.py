@@ -596,26 +596,30 @@ def summary_stats(rows):
     }
 
 
-def praxis_client_tree(year: int, month: int) -> list:
+def praxis_client_tree(year: int, month: int,
+                       date_from=None, date_to=None) -> list:
     """
-    Build a per-Praxis-customer tree for the month:
-    Each node = one Praxis customer (session_cid), with:
-      - customer name / email
-      - list of MT4 accounts they map to (via vtiger_trading_accounts)
-      - per-account: Praxis deposits vs CRM cash net, match status
-      - per-account: individual Praxis transaction rows
-      - ambiguous flag when the cid maps to >1 MT4 login
+    Build a per-Praxis-customer tree.
 
-    Cached 5 minutes.
+    By default covers the single month (year, month).
+    Pass explicit date_from / date_to (datetime.date) for wider ranges
+    such as 3-month, 6-month, 1-year, or all-time views.
+
+    Cached 5 minutes per unique date range.
     """
     import datetime
-    key = f"praxis_tree:{year}:{month}"
+    if date_from is None:
+        date_from = datetime.date(year, month, 1)
+    if date_to is None:
+        date_to = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    month_start = date_from
+    month_end   = date_to
+
+    key = f"praxis_tree:{date_from}:{date_to}"
     cached = _cache_get(key, _TTL_RECONCILE)
     if cached is not None:
         return cached
-
-    month_start = datetime.date(year, month, 1)
-    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
 
     # 1. Load Praxis transactions for the month
     try:
@@ -657,8 +661,29 @@ def praxis_client_tree(year: int, month: int) -> list:
     # 3. Account map cid → [login]
     account_map = _load_praxis_account_map()
 
-    # 4. CRM cash summary keyed by login (reuse cached crm_summary)
-    crm = crm_summary(year, month)
+    # 4. CRM cash summary keyed by login
+    # For spans >1 month, merge multiple months' summaries
+    import calendar as _cal
+    crm: dict = {}
+    d = datetime.date(month_start.year, month_start.month, 1)
+    while d < month_end:
+        month_data = crm_summary(d.year, d.month)
+        for login, s in month_data.items():
+            if login not in crm:
+                crm[login] = {"cash_deposits":0,"cash_withdrawals":0,
+                              "noncash_in":0,"noncash_out":0,"tx_count":0,"payment_methods":set()}
+            crm[login]["cash_deposits"]    += s.get("cash_deposits", 0)
+            crm[login]["cash_withdrawals"] += s.get("cash_withdrawals", 0)
+            crm[login]["noncash_in"]       += s.get("noncash_in", 0)
+            crm[login]["noncash_out"]      += s.get("noncash_out", 0)
+            crm[login]["tx_count"]         += s.get("tx_count", 0)
+        # advance to next month
+        last_day = _cal.monthrange(d.year, d.month)[1]
+        d = datetime.date(d.year, d.month, last_day) + datetime.timedelta(days=1)
+        d = datetime.date(d.year, d.month, 1)
+    # compute cash_net for each login
+    for login, s in crm.items():
+        s["cash_net"] = round(s["cash_deposits"] - s["cash_withdrawals"], 2)
 
     # 5. Build tree
     tree = []
@@ -926,6 +951,92 @@ def psp_balance_at_month_end(year: int, month: int) -> list:
 
     _cache_set(key, result)
     return result
+
+
+def client_crm_detail(login: int, date_from, date_to) -> list:
+    """CRM transactions for a login over an arbitrary date range."""
+    def _fetch():
+        with backoffice() as cur:
+            cur.execute("""
+                SELECT
+                    transactiontype, payment_method, transactionapproval,
+                    COUNT(*)       AS tx_count,
+                    SUM(usdamount) AS total_usd,
+                    MIN(confirmation_time::date) AS first_date,
+                    MAX(confirmation_time::date) AS last_date
+                FROM vtiger_mttransactions
+                WHERE login = %s
+                  AND confirmation_time >= %s
+                  AND confirmation_time <  %s
+                GROUP BY transactiontype, payment_method, transactionapproval
+                ORDER BY transactionapproval, transactiontype, payment_method
+            """, (login, date_from, date_to))
+            return cur.fetchall()
+    rows = _db_retry(_fetch)
+    result = []
+    for r in rows:
+        is_cash = _is_cash(r["payment_method"] or "", r["transactiontype"] or "")
+        result.append({**dict(r), "total_usd": round(float(r["total_usd"] or 0), 2), "is_cash": is_cash})
+    return result
+
+
+def client_mt4_detail(login: int, date_from, date_to) -> list:
+    """MT4 daily profits for a login over an arbitrary date range."""
+    def _fetch():
+        with dealio() as cur:
+            cur.execute("""
+                SELECT date, netdeposit, convertednetdeposit, balance, equity,
+                       closedpnl, floatingpnl, groupcurrency, conversionratio
+                FROM dealio.daily_profits
+                WHERE login = %s
+                  AND date >= %s AND date < %s
+                  AND netdeposit != 0
+                ORDER BY date
+            """, (login, date_from, date_to))
+            return [dict(r) for r in cur.fetchall()]
+    return _db_retry(_fetch)
+
+
+def client_praxis_detail(login: int, date_from, date_to) -> list:
+    """Individual Praxis transactions for a login over an arbitrary date range.
+    Resolves MT4 login → Praxis session_cid via vtiger_trading_accounts.
+    """
+    account_map = _load_praxis_account_map()
+    # Reverse lookup: login → [cid, ...]
+    cids = [cid for cid, logins in account_map.items() if login in logins]
+    if not cids:
+        return []
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            placeholders = ",".join(["%s"] * len(cids))
+            with praxis_ctx() as cur:
+                cur.execute(f"""
+                    SELECT tid, session_cid, session_intent AS direction,
+                           usd_amount, amount/100.0 AS amount_local, currency,
+                           payment_method, payment_processor,
+                           fee/100.0 AS fee_actual,
+                           wallet_data_email AS email,
+                           customer_first_name AS first_name,
+                           customer_last_name  AS last_name,
+                           TO_TIMESTAMP(created_timestamp) AS ts
+                    FROM praxis_transactions
+                    WHERE session_cid IN ({placeholders})
+                      AND created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
+                      AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
+                    ORDER BY created_timestamp
+                """, cids + [date_from, date_to])
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(r)
+                    row["usd_amount"] = float(row["usd_amount"] or 0)
+                    row["fee_actual"] = float(row["fee_actual"] or 0)
+                    row["ts"] = str(row["ts"])[:16] if row["ts"] else ""
+                    rows.append(row)
+                return rows
+        return _db_retry(_fetch)
+    except Exception:
+        return []
 
 
 def login_detail(year: int, month: int, login: int):

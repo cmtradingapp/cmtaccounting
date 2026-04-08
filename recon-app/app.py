@@ -127,20 +127,107 @@ def recon(month):
     )
 
 
+@app.route("/client/<int:login>")
+@require_recon_auth
+def client_detail(login):
+    import datetime as _dt
+    span = request.args.get("span", "1m")
+    ref  = request.args.get("ref", "")   # optional reference month e.g. "2026-04"
+
+    # Determine date range
+    today = _dt.date.today()
+    if ref:
+        try:
+            ry, rm = int(ref[:4]), int(ref[5:7])
+            range_end = (_dt.date(ry+1,1,1) if rm==12 else _dt.date(ry,rm+1,1))
+        except Exception:
+            range_end = _dt.date(today.year, today.month, 1) + _dt.timedelta(days=32)
+            range_end = _dt.date(range_end.year, range_end.month, 1)
+    else:
+        range_end = _dt.date(today.year, today.month, 1) + _dt.timedelta(days=32)
+        range_end = _dt.date(range_end.year, range_end.month, 1)
+
+    span_map = {
+        "1m":  _dt.timedelta(days=31),
+        "3m":  _dt.timedelta(days=92),
+        "6m":  _dt.timedelta(days=183),
+        "1y":  _dt.timedelta(days=365),
+    }
+    if span == "all":
+        range_start = _dt.date(2021, 1, 1)
+    else:
+        d = range_end - span_map.get(span, _dt.timedelta(days=31))
+        range_start = _dt.date(d.year, d.month, 1)
+
+    span_labels = {"1m":"1 Month","3m":"3 Months","6m":"6 Months","1y":"1 Year","all":"All Time"}
+
+    try:
+        crm_rows    = queries.client_crm_detail(login, range_start, range_end)
+        mt4_rows    = queries.client_mt4_detail(login, range_start, range_end)
+        praxis_rows = queries.client_praxis_detail(login, range_start, range_end)
+    except Exception as e:
+        crm_rows = mt4_rows = praxis_rows = []
+
+    # Summary totals
+    crm_cash   = sum(r["total_usd"] for r in crm_rows
+                     if r["is_cash"] and r.get("transactionapproval") == "Approved"
+                     and r.get("transactiontype") in ("Deposit","TransferIn"))
+    crm_with   = sum(r["total_usd"] for r in crm_rows
+                     if r["is_cash"] and r.get("transactionapproval") == "Approved"
+                     and r.get("transactiontype") in ("Withdrawal","Withdraw","TransferOut"))
+    praxis_dep = sum(r["usd_amount"] for r in praxis_rows if r["direction"] == "payment")
+    praxis_with= sum(r["usd_amount"] for r in praxis_rows
+                     if r["direction"] in ("withdrawal","payout"))
+
+    return render_template("client_detail.html",
+        login=login, span=span, span_label=span_labels.get(span, span),
+        range_start=str(range_start), range_end=str(range_end), ref=ref,
+        crm_rows=crm_rows, mt4_rows=mt4_rows, praxis_rows=praxis_rows,
+        crm_cash=round(crm_cash,2), crm_with=round(crm_with,2),
+        praxis_dep=round(praxis_dep,2), praxis_with=round(praxis_with,2),
+    )
+
+
 @app.route("/recon/<month>/praxis")
 @require_recon_auth
 def recon_praxis(month):
+    import datetime as _dt
     try:
         year, mon = int(month[:4]), int(month[5:7])
     except (ValueError, IndexError):
         abort(400)
+
+    span = request.args.get("span", "1m")   # 1m 3m 6m 1y all
+
+    # Compute date range from span
+    month_end   = (_dt.date(year + 1, 1, 1) if mon == 12
+                   else _dt.date(year, mon + 1, 1))
+    span_labels = {"1m": "1 Month", "3m": "3 Months", "6m": "6 Months",
+                   "1y": "1 Year",  "all": "All Time"}
+    if span == "3m":
+        d = month_end - _dt.timedelta(days=92)
+        date_from = _dt.date(d.year, d.month, 1)
+    elif span == "6m":
+        d = month_end - _dt.timedelta(days=183)
+        date_from = _dt.date(d.year, d.month, 1)
+    elif span == "1y":
+        d = month_end - _dt.timedelta(days=365)
+        date_from = _dt.date(d.year, d.month, 1)
+    elif span == "all":
+        date_from = _dt.date(2021, 1, 1)   # Praxis data starts 2021
+    else:
+        date_from = _dt.date(year, mon, 1)
+
     try:
-        tree   = queries.praxis_client_tree(year, mon)
+        tree   = queries.praxis_client_tree(year, mon,
+                                            date_from=date_from, date_to=month_end)
         months = queries.available_months()
     except Exception as e:
         tree   = []
         months = []
-    return render_template("praxis_tree.html", month=month, tree=tree, months=months)
+    return render_template("praxis_tree.html", month=month, tree=tree, months=months,
+                           span=span, span_label=span_labels.get(span, span),
+                           date_from=str(date_from), date_to=str(month_end))
 
 
 @app.route("/recon/<month>/refresh", methods=["POST"])

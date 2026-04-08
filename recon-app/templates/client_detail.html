@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %} — Client {{ login }}{% endblock %}
+{% block content %}
+<style>
+  .cd-span-btn {
+    font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px;
+    border:1px solid var(--border); background:transparent; color:var(--muted);
+    cursor:pointer; text-decoration:none; display:inline-flex; align-items:center;
+    transition:border-color .15s,color .15s,background .15s;
+  }
+  .cd-span-btn:hover { border-color:rgba(255,255,255,.2); color:var(--text); }
+  .cd-span-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.08); }
+
+  .cd-summary-grid {
+    display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:var(--sp-4);
+  }
+  .cd-stat {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius-md); padding:16px 20px;
+  }
+  .cd-stat .label { font-size:10px; font-weight:700; text-transform:uppercase;
+                    letter-spacing:.07em; color:var(--muted); margin-bottom:6px; }
+  .cd-stat .value { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .cd-section { margin-bottom:var(--sp-4); }
+  .cd-section-head {
+    display:flex; align-items:center; gap:10px; margin-bottom:10px;
+  }
+  .cd-section-title { font-size:11px; font-weight:700; text-transform:uppercase;
+                      letter-spacing:.08em; color:var(--muted); }
+  .cd-badge {
+    display:inline-flex; align-items:center; height:20px; padding:0 8px;
+    border-radius:999px; font-size:10px; font-weight:700;
+  }
+</style>
+
+{% set spans = [('1m','1M'),('3m','3M'),('6m','6M'),('1y','1Y'),('all','All')] %}
+{% set base_url = '/client/' ~ login ~ ('?ref=' ~ ref if ref else '') %}
+
+<div class="page-header" style="margin-bottom:var(--sp-3);">
+  <div>
+    {% if ref %}
+    <a href="/recon/{{ ref }}" class="back-link">← {{ ref }}</a>
+    {% else %}
+    <a href="/" class="back-link">← Dashboard</a>
+    {% endif %}
+    <div class="page-title" style="margin-top:4px;">Client {{ login }}</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:3px;">
+      {{ range_start }} → {{ range_end }} &middot; {{ span_label }}
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;">
+    {% for s, lbl in spans %}
+    <a class="cd-span-btn {% if span == s %}active{% endif %}"
+       href="/client/{{ login }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ s }}">{{ lbl }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Summary cards -->
+<div class="cd-summary-grid">
+  <div class="cd-stat">
+    <div class="label">CRM Cash Deposits</div>
+    <div class="value pos">${{ "{:,.2f}".format(crm_cash) }}</div>
+  </div>
+  <div class="cd-stat">
+    <div class="label">CRM Cash Withdrawals</div>
+    <div class="value neg">${{ "{:,.2f}".format(crm_with) }}</div>
+  </div>
+  <div class="cd-stat">
+    <div class="label">Praxis Deposits</div>
+    <div class="value" style="color:rgba(167,139,250,.9);">${{ "{:,.2f}".format(praxis_dep) }}</div>
+  </div>
+  <div class="cd-stat">
+    <div class="label">Praxis vs CRM Diff</div>
+    {% set diff = praxis_dep - crm_cash %}
+    <div class="value {% if diff > 1 %}pos{% elif diff < -1 %}neg{% endif %}">
+      {{ "{:+,.2f}".format(diff) if diff != 0 else '—' }}
+    </div>
+  </div>
+</div>
+
+<!-- Praxis transactions -->
+{% if praxis_rows %}
+<div class="cd-section">
+  <div class="cd-section-head">
+    <span class="cd-section-title">Praxis Transactions</span>
+    <span class="cd-badge" style="background:rgba(167,139,250,.12);color:#a78bfa;">{{ praxis_rows|length }}</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>TID</th>
+          <th>Direction</th>
+          <th>Method</th>
+          <th>PSP</th>
+          <th class="num">USD</th>
+          <th class="num">Local Amt</th>
+          <th>Currency</th>
+          <th class="num">Fee</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in praxis_rows %}
+        <tr>
+          <td style="font-family:monospace;font-size:11px;color:var(--muted);">{{ r.tid }}</td>
+          <td>
+            <span class="badge {% if r.direction == 'payment' %}matched{% else %}discrepancy{% endif %}">
+              {% if r.direction == 'payment' %}↓ Deposit{% else %}↑ Withdrawal{% endif %}
+            </span>
+          </td>
+          <td>{{ r.payment_method or '—' }}</td>
+          <td style="color:var(--muted);font-size:11px;">{{ r.payment_processor or '—' }}</td>
+          <td class="num {% if r.direction == 'payment' %}pos{% else %}neg{% endif %}">
+            ${{ "{:,.2f}".format(r.usd_amount) }}
+          </td>
+          <td class="num" style="color:var(--muted);">{{ "{:,.2f}".format(r.amount_local) }}</td>
+          <td>{{ r.currency or '—' }}</td>
+          <td class="num" style="color:var(--muted);">${{ "{:.2f}".format(r.fee_actual) }}</td>
+          <td style="color:var(--muted);">{{ r.ts }}</td>
+        </tr>
+        {% endfor %}
+        <tr style="border-top:1px solid var(--border);">
+          <td colspan="4" style="padding:6px 16px;font-size:11px;font-weight:700;
+              text-transform:uppercase;letter-spacing:.06em;color:rgba(212,175,55,.6);">Total</td>
+          <td class="num" style="font-weight:700;color:rgba(212,175,55,.9);padding:6px 16px;">
+            ${{ "{:,.2f}".format(praxis_rows | sum(attribute='usd_amount')) }}
+          </td>
+          <td colspan="4"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- CRM transactions -->
+<div class="cd-section">
+  <div class="cd-section-head">
+    <span class="cd-section-title">CRM Transactions</span>
+    <span class="cd-badge" style="background:rgba(79,142,247,.12);color:var(--accent);">{{ crm_rows|length }}</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Payment Method</th>
+          <th>Approval</th>
+          <th class="num">Count</th>
+          <th class="num">USD Total</th>
+          <th>First Date</th>
+          <th>Last Date</th>
+          <th>Kind</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if crm_rows %}
+          {% for r in crm_rows %}
+          <tr>
+            <td>{{ r.transactiontype or '—' }}</td>
+            <td>{{ r.payment_method or '—' }}</td>
+            <td>
+              <span class="badge {% if r.transactionapproval == 'Approved' %}matched{% elif r.transactionapproval == 'Failure' %}discrepancy{% else %}mt4_only{% endif %}">
+                {{ r.transactionapproval }}
+              </span>
+            </td>
+            <td class="num">{{ r.tx_count }}</td>
+            <td class="num {% if r.transactiontype in ('Deposit','TransferIn','Credit in') %}pos{% else %}neg{% endif %}">
+              {{ "{:+,.2f}".format(r.total_usd if r.transactiontype in ('Deposit','TransferIn','Credit in') else -r.total_usd) }}
+            </td>
+            <td style="color:var(--muted);">{{ r.first_date or '—' }}</td>
+            <td style="color:var(--muted);">{{ r.last_date or '—' }}</td>
+            <td>
+              {% if r.is_cash %}<span class="legend-item cash" style="font-size:11px;">cash</span>
+              {% else %}<span class="legend-item noncash" style="font-size:11px;">non-cash</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="8" class="empty">No CRM records in this period.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MT4 daily profits -->
+<div class="cd-section">
+  <div class="cd-section-head">
+    <span class="cd-section-title">MT4 Daily Net Deposits</span>
+    <span class="cd-badge" style="background:rgba(34,197,94,.12);color:var(--green);">{{ mt4_rows|length }} days</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th class="num">Net Deposit</th>
+          <th class="num">Net (USD)</th>
+          <th class="num">Balance</th>
+          <th class="num">Equity</th>
+          <th class="num">Realised P&amp;L</th>
+          <th class="num">Unrealised P&amp;L</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if mt4_rows %}
+          {% set totals = namespace(net=0, pnl=0) %}
+          {% for r in mt4_rows %}
+          {% set _ = totals.__setattr__('net', totals.net + (r.convertednetdeposit or 0)) %}
+          {% set _ = totals.__setattr__('pnl', totals.pnl + (r.closedpnl or 0)) %}
+          <tr>
+            <td>{{ r.date }}</td>
+            <td class="num {% if r.netdeposit > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(r.netdeposit) }}</td>
+            <td class="num {% if r.convertednetdeposit > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(r.convertednetdeposit) }}</td>
+            <td class="num">{{ "{:,.2f}".format(r.balance) }}</td>
+            <td class="num">{{ "{:,.2f}".format(r.equity) }}</td>
+            <td class="num {% if (r.closedpnl or 0) > 0 %}pos{% elif (r.closedpnl or 0) < 0 %}neg{% endif %}">
+              {% if r.closedpnl %}{{ "{:+,.2f}".format(r.closedpnl) }}{% else %}—{% endif %}
+            </td>
+            <td class="num" style="color:var(--muted);">
+              {% if r.floatingpnl %}{{ "{:+,.2f}".format(r.floatingpnl) }}{% else %}—{% endif %}
+            </td>
+            <td>{{ r.groupcurrency }}</td>
+          </tr>
+          {% endfor %}
+          <tr style="border-top:2px solid var(--border);font-weight:700;">
+            <td>Total</td>
+            <td></td>
+            <td class="num {% if totals.net > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(totals.net) }}</td>
+            <td colspan="3"></td>
+            <td class="num {% if totals.pnl > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(totals.pnl) }}</td>
+            <td></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="empty">No MT4 activity in this period.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

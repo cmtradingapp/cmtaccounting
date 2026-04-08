@@ -141,7 +141,7 @@
         {% for r in rows %}
         <tr>
           <td>
-            <a class="login-link" href="/recon/{{ month }}/{{ r.login }}">{{ r.login }}</a>
+            <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}">{{ r.login }}</a>
           </td>
           <td class="num">{{ "{:,.2f}".format(r.mt4_net) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_dep) }}</td>
