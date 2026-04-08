@@ -232,7 +232,7 @@
               {% if mt4 %}
                 {% set tot = namespace(net=0) %}
                 {% for r in mt4 %}
-                {% set _ = tot.__setattr__('net', tot.net + (r.convertednetdeposit or 0)) %}
+                {% set tot.net = tot.net + (r.convertednetdeposit or 0) %}
                 <tr>
                   <td data-val="{{ r.date }}">{{ r.date }}</td>
                   <td class="num {% if r.netdeposit > 0 %}pos{% else %}neg{% endif %}" data-val="{{ r.netdeposit }}">{{ "{:+,.2f}".format(r.netdeposit) }}</td>
