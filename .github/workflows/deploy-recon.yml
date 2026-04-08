@@ -45,7 +45,7 @@ jobs:
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/recon-app && docker compose up -d --build && docker compose ps"
           else
-            echo "Code-only change — up -d (applies compose config + volume, no rebuild)"
+            echo "Code-only change — restart to flush Jinja2/Python caches"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-              "cd /root/recon-app && docker compose up -d && docker compose ps"
+              "docker restart recon-app-recon-1 && sleep 3 && docker ps --filter name=recon-app-recon-1 --format '{{.Names}} {{.Status}}'"
           fi
