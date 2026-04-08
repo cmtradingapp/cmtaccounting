@@ -221,6 +221,17 @@
         </tr>
         {% endfor %}
       </tbody>
+      <tfoot>
+        <tr style="border-top:1px solid var(--border);">
+          <td colspan="4" style="padding:6px 8px;font-size:11px;font-weight:700;
+              text-transform:uppercase;letter-spacing:.06em;color:rgba(212,175,55,.6);">Total</td>
+          <td class="num" style="padding:6px 8px;font-weight:700;
+              color:rgba(212,175,55,.9);font-variant-numeric:tabular-nums;">
+            ${{ "{:,.2f}".format(client.mt4_accounts[0].transactions | sum(attribute='usd')) }}
+          </td>
+          <td colspan="2"></td>
+        </tr>
+      </tfoot>
     </table>
     {% endif %}
   </div>
