@@ -716,7 +716,7 @@ def _call_claude(system_prompt: str, user_msg: str) -> str:
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     message = client.messages.create(
         model=ANTHROPIC_MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0.0,
         system=system_prompt,
         messages=[{"role": "user", "content": user_msg}],
@@ -729,6 +729,32 @@ def _call_claude(system_prompt: str, user_msg: str) -> str:
             raw = raw[4:]
         raw = raw.rsplit("```", 1)[0].strip()
     return raw
+
+
+
+def _safe_json_loads(raw: str) -> dict:
+    """
+    Parse JSON from Claude. If the response was truncated (hit max_tokens),
+    attempt to recover by closing any open structures before parsing.
+    """
+    import re as _re
+    raw = raw.strip()
+    try:
+        return __import__('json').loads(raw)
+    except Exception as e:
+        # Try to repair truncated JSON by closing open arrays/objects
+        # Count unclosed brackets
+        depth_obj = raw.count('{') - raw.count('}')
+        depth_arr = raw.count('[') - raw.count(']')
+        # Remove trailing partial string/value
+        fixed = _re.sub(r',?\s*"[^"]*$', '', raw)   # trailing open string
+        fixed = _re.sub(r',\s*$', '', fixed)          # trailing comma
+        # Close open arrays then objects
+        fixed += ']' * max(0, depth_arr) + '}' * max(0, depth_obj)
+        try:
+            return __import__('json').loads(fixed)
+        except Exception:
+            raise e   # re-raise original error if repair fails
 
 
 def analyze_agreement(text: str, system_prompt: str = None,
@@ -756,7 +782,7 @@ def analyze_agreement(text: str, system_prompt: str = None,
     )
 
     raw    = _call_claude(active_prompt, user_msg)
-    result = json.loads(raw)
+    result = _safe_json_loads(raw)
 
     result.setdefault("agreement", {})
     result.setdefault("fee_rules", [])
@@ -1023,7 +1049,7 @@ def analyze_amendment(text: str, system_prompt: str = None,
     )
 
     raw    = _call_claude(active_prompt, user_msg)
-    result = json.loads(raw)
+    result = _safe_json_loads(raw)
 
     result.setdefault("amendment", {})
     result.setdefault("rule_changes", [])
