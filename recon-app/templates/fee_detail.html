@@ -381,7 +381,7 @@
         <div id="editPctFields" class="fee-fields">
           <div class="form-row">
             <label>Rate (%)
-              <input type="number" name="pct_rate" step="0.001" min="0" max="100" placeholder="e.g. 3.5">
+              <input type="number" name="pct_rate" step="any" min="0" max="100" placeholder="e.g. 3.5">
             </label>
             <div></div>
           </div>
@@ -389,7 +389,7 @@
         <div id="editFixedFields" class="fee-fields" style="display:none;">
           <div class="form-row">
             <label>Amount
-              <input type="number" name="fixed_amount" step="0.01" min="0" placeholder="e.g. 100">
+              <input type="number" name="fixed_amount" step="any" min="0" placeholder="e.g. 100">
             </label>
             <label>Currency
               <select id="editCurrencyInput" name="fixed_currency"><option value="USD" selected>USD</option></select>
@@ -471,7 +471,7 @@
       <div id="pctFields" class="fee-fields">
         <div class="form-row">
           <label>Rate (%)
-            <input type="number" name="pct_rate" step="0.001" min="0" max="100" placeholder="e.g. 3.5">
+            <input type="number" name="pct_rate" step="any" min="0" max="100" placeholder="e.g. 3.5">
           </label>
           <div></div>
         </div>
@@ -480,7 +480,7 @@
       <div id="fixedFields" class="fee-fields" style="display:none;">
         <div class="form-row">
           <label>Amount
-            <input type="number" name="fixed_amount" step="0.01" min="0" placeholder="e.g. 100">
+            <input type="number" name="fixed_amount" step="any" min="0" placeholder="e.g. 100">
           </label>
           <label>Currency
             <select id="addCurrencyInput" name="fixed_currency"><option value="USD" selected>USD</option></select>
@@ -1095,9 +1095,9 @@ function setVal(form, name, val) {
 }
 
 function tierRowHtml(from, to, rate) {
-  return '<td><input type="number" name="tier_from" step="0.01" min="0" value="' + from + '"></td>' +
-         '<td><input type="number" name="tier_to"   step="0.01" min="0" placeholder="unlimited" value="' + (to !== null ? to : '') + '"></td>' +
-         '<td><input type="number" name="tier_rate" step="0.001" min="0" max="100" required placeholder="e.g. 3.5" value="' + rate + '"></td>' +
+  return '<td><input type="number" name="tier_from" step="any" min="0" value="' + from + '"></td>' +
+         '<td><input type="number" name="tier_to"   step="any" min="0" placeholder="unlimited" value="' + (to !== null ? to : '') + '"></td>' +
+         '<td><input type="number" name="tier_rate" step="any" min="0" max="100" required placeholder="e.g. 3.5" value="' + rate + '"></td>' +
          '<td><button type="button" class="tier-remove" onclick="this.closest(\'tr\').remove()">✕</button></td>';
 }
 </script>
