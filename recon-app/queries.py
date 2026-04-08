@@ -612,7 +612,7 @@ def client_list(date_from=None, date_to=None) -> list:
                     login,
                     SUM(convertednetdeposit)  AS net_deposit,
                     SUM(closedpnl)            AS client_realised_pnl,
-                    AVG(groupcurrency)        AS currency,
+                    MAX(groupcurrency)        AS currency,
                     MAX(date)                 AS last_active
                 FROM dealio.daily_profits
                 WHERE date >= %s AND date < %s
