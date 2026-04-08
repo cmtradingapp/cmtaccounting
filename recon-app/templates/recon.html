@@ -191,10 +191,9 @@
 
   function syncGhost() {
     var wrapRect = wrap.getBoundingClientRect();
-    // Position ghost exactly over the wrapper
-    ghost.style.left   = wrapRect.left + 'px';
-    ghost.style.top    = '56px';
-    ghost.style.width  = wrapRect.width + 'px';
+    ghost.style.left  = wrapRect.left + 'px';
+    ghost.style.top   = '0px';
+    ghost.style.width = wrapRect.width + 'px';
 
     // Rebuild column widths from real cells
     ghostRow.innerHTML = '';
@@ -231,9 +230,9 @@
 
   var shown = false;
   function onScroll() {
-    // Show ghost only once the BOTTOM of the real thead clears the site nav (56px)
+    // Show ghost only once the BOTTOM of the real thead has scrolled above the viewport top
     var rect = realThead.getBoundingClientRect();
-    var shouldShow = rect.bottom <= 56;
+    var shouldShow = rect.bottom <= 0;
     if (shouldShow && !shown) {
       syncGhost();
       ghost.style.display = 'block';
