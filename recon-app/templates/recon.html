@@ -3,23 +3,21 @@
 {% block content %}
 <style>
   /* Tighter table for the wider recon layout */
-  /* overflow: clip in x only — does NOT create a scroll container,
-     so position:sticky on thead works relative to the viewport.
-     'overflow-x: clip' is supported in all modern browsers (Chrome 90+, FF 81+, Safari 16+). */
-  .recon-table-wrap {
-    overflow-x: auto;
-    overflow-y: clip;
-    border-radius: 14px;
-    border: 1px solid var(--border);
+  .recon-table-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--border); }
+  .recon-table { border-collapse: collapse; }
+  /* Ghost header — mirrors real column widths via JS, shown when real thead scrolls out of view */
+  #stickyReconHead {
+    position: fixed; top: 56px; left: 0; right: 0;
+    z-index: 50; display: none;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,.4);
   }
-  .recon-table { border-collapse: separate; border-spacing: 0; }
-  .recon-table thead th {
-    position: sticky;
-    top: 56px;   /* site <header> height — header is now sticky too */
-    z-index: 10;
-    background: var(--surface);
-    box-shadow: inset 0 -1px 0 var(--border);
+  #stickyReconHead table { border-collapse: collapse; table-layout: fixed; }
+  #stickyReconHead th {
+    padding: 8px 10px; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); text-align: left; white-space: nowrap;
   }
+  #stickyReconHead th.num { text-align: right; }
   .recon-table th { padding: 8px 10px; font-size: 10px; }
   .recon-table td { padding: 10px 10px; font-size: 12px; }
   .recon-table td:last-child { padding-right: 12px; }
@@ -173,5 +171,52 @@
   </table>
 </div>
 
+<!-- Ghost sticky header — shown when real thead scrolls above viewport -->
+<div id="stickyReconHead"><table><thead><tr id="stickyReconRow"></tr></thead></table></div>
+
+<script>
+(function () {
+  var realHead = document.querySelector('.recon-table thead tr');
+  var ghost    = document.getElementById('stickyReconHead');
+  var ghostRow = document.getElementById('stickyReconRow');
+  var wrap     = document.querySelector('.recon-table-wrap');
+  if (!realHead || !ghost || !wrap) return;
+
+  // Clone th elements into the ghost row
+  function buildGhost() {
+    ghostRow.innerHTML = '';
+    var cells = realHead.querySelectorAll('th');
+    cells.forEach(function (th) {
+      var g = document.createElement('th');
+      g.textContent  = th.textContent;
+      g.className    = th.className;
+      g.style.width  = th.getBoundingClientRect().width + 'px';
+      ghostRow.appendChild(g);
+    });
+    // Match ghost table width to real table
+    ghost.querySelector('table').style.width =
+      document.querySelector('.recon-table').getBoundingClientRect().width + 'px';
+  }
+
+  // Sync horizontal scroll of ghost with wrapper
+  wrap.addEventListener('scroll', function () {
+    ghost.scrollLeft = wrap.scrollLeft;
+  });
+
+  var shown = false;
+  function onScroll() {
+    var rect = realHead.getBoundingClientRect();
+    // Show ghost when real thead top scrolls above the nav bar (56px)
+    if (rect.bottom < 56) {
+      if (!shown) { buildGhost(); ghost.style.display = 'block'; shown = true; }
+    } else {
+      if (shown) { ghost.style.display = 'none'; shown = false; }
+    }
+  }
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', function () { if (shown) buildGhost(); });
+})();
+</script>
 
 {% endblock %}
