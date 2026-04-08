@@ -294,24 +294,22 @@ def praxis_summary(year: int, month: int) -> dict:
     except Exception:
         rows = []
 
-    # Map each session_cid to MT4 login(s); when one Praxis customer has multiple
-    # MT4 accounts, split deposits equally across them.
+    # Map each session_cid to MT4 login(s).
+    # Only assign when the mapping is unambiguous (exactly one MT4 login per Praxis customer).
+    # When a Praxis customer has multiple MT4 accounts we cannot reliably attribute the
+    # deposit to the correct account without a transaction-level reference — skip those.
     result: dict = {}
     for r in rows:
         cid    = str(r["session_cid"]).strip()
         logins = account_map.get(cid, [])
-        if not logins:
-            continue
-        dep   = float(r["praxis_deposits"] or 0)
-        with_ = float(r["praxis_withdrawals"] or 0)
-        cnt   = int(r["praxis_tx_count"] or 0)
-        share = len(logins)
-        for login in logins:
-            if login not in result:
-                result[login] = {"praxis_deposits": 0.0, "praxis_withdrawals": 0.0, "praxis_tx_count": 0}
-            result[login]["praxis_deposits"]    += dep   / share
-            result[login]["praxis_withdrawals"] += with_ / share
-            result[login]["praxis_tx_count"]    += cnt   // share or 1
+        if len(logins) != 1:
+            continue   # 0 = no match, >1 = ambiguous — skip both
+        login = logins[0]
+        if login not in result:
+            result[login] = {"praxis_deposits": 0.0, "praxis_withdrawals": 0.0, "praxis_tx_count": 0}
+        result[login]["praxis_deposits"]    += float(r["praxis_deposits"] or 0)
+        result[login]["praxis_withdrawals"] += float(r["praxis_withdrawals"] or 0)
+        result[login]["praxis_tx_count"]    += int(r["praxis_tx_count"] or 0)
 
     _cache_set(key, result)
     return result
