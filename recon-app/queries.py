@@ -619,12 +619,17 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
     if cached is not None:
         return cached
 
-    # Load fee rules keyed by psp_name lower
+    # Load fee rules keyed by agreement_id AND psp_name lower
     all_agreements = get_all_agreements()
+    rules_by_id: dict = {}
     fee_rules_by_psp: dict = {}
     for agr in all_agreements:
         rules = get_fee_rules(agr["id"])
+        rules_by_id[agr["id"]] = {"rules": rules, "psp_name": agr["psp_name"]}
         fee_rules_by_psp[agr["psp_name"].lower()] = {"rules": rules, "psp_name": agr["psp_name"]}
+
+    # Load saved processor → agreement mappings (confirmed manual overrides)
+    saved_mappings = get_processor_mappings()   # {processor_name: {agreement_id, confirmed}}
 
     # Pull Praxis transactions for the period
     try:
@@ -650,20 +655,28 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
     except Exception:
         rows = []
 
-    # Helper — reuse app.py _expected_fee logic inline
+    # Helper — look up expected fee using saved mappings first, fuzzy fallback
     def _calc_expected(usd_amount, payment_method, direction, processor):
         if not usd_amount:
             return 0.0, False
         fee_type = "Deposit" if direction == "payment" else "Withdrawal"
         pm_norm  = (payment_method or "").lower()
-        proc_l   = (processor or "").lower()
+        proc_key = (processor or "")
 
-        # Find PSP match
+        # 1. Check saved manual/AI mapping first (highest priority)
         matched_psp = None
-        for psp_key, psp_data in fee_rules_by_psp.items():
-            if psp_key in proc_l or proc_l in psp_key:
-                matched_psp = psp_data
-                break
+        saved = saved_mappings.get(proc_key)
+        if saved and saved.get("agreement_id"):
+            matched_psp = rules_by_id.get(saved["agreement_id"])
+
+        # 2. Fall back to fuzzy name match
+        if not matched_psp:
+            proc_l = proc_key.lower()
+            for psp_key, psp_data in fee_rules_by_psp.items():
+                if psp_key in proc_l or proc_l in psp_key:
+                    matched_psp = psp_data
+                    break
+
         if not matched_psp:
             return 0.0, False
 
@@ -713,7 +726,7 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
         dirn  = r["direction"]
 
         exp, hit = _calc_expected(usd, meth, dirn, proc)
-        if not hit:
+        if not hit and proc not in saved_mappings:
             unmatched.add(proc)
 
         for bucket, key2 in [(by_psp, proc), (by_method, meth)]:
@@ -1689,11 +1702,74 @@ def login_mt4_detail(year: int, month: int, login: int):
 # PSP Fee Management
 # ---------------------------------------------------------------------------
 
+def _ensure_processor_mappings_table():
+    """Maps Praxis payment_processor strings to psp_agreements.id."""
+    if _PG:
+        ddl = """
+            CREATE TABLE IF NOT EXISTS processor_mappings (
+                processor_name TEXT PRIMARY KEY,
+                agreement_id   INTEGER REFERENCES psp_agreements(id) ON DELETE SET NULL,
+                confirmed      INTEGER DEFAULT 0,
+                created_at     TIMESTAMPTZ DEFAULT NOW(),
+                updated_at     TIMESTAMPTZ DEFAULT NOW()
+            );
+        """
+    else:
+        ddl = """
+            CREATE TABLE IF NOT EXISTS processor_mappings (
+                processor_name TEXT PRIMARY KEY,
+                agreement_id   INTEGER REFERENCES psp_agreements(id) ON DELETE SET NULL,
+                confirmed      INTEGER DEFAULT 0,
+                created_at     TEXT DEFAULT (datetime('now')),
+                updated_at     TEXT DEFAULT (datetime('now'))
+            );
+        """
+    with fees_db() as conn:
+        conn.executescript(ddl)
+
+
+def get_processor_mappings() -> dict:
+    """Return {processor_name: {agreement_id, confirmed}} for all saved mappings."""
+    with fees_db() as conn:
+        rows = conn.execute(
+            "SELECT processor_name, agreement_id, confirmed FROM processor_mappings"
+        ).fetchall()
+        return {r["processor_name"]: {"agreement_id": r["agreement_id"],
+                                       "confirmed": bool(r["confirmed"])}
+                for r in rows}
+
+
+def save_processor_mapping(processor_name: str, agreement_id, confirmed: bool = True):
+    with fees_db() as conn:
+        if _PG:
+            conn.execute("""
+                INSERT INTO processor_mappings (processor_name, agreement_id, confirmed, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (processor_name) DO UPDATE
+                  SET agreement_id=EXCLUDED.agreement_id,
+                      confirmed=EXCLUDED.confirmed,
+                      updated_at=NOW()
+            """, (processor_name, agreement_id, 1 if confirmed else 0))
+        else:
+            conn.execute("""
+                INSERT OR REPLACE INTO processor_mappings
+                  (processor_name, agreement_id, confirmed, updated_at)
+                VALUES (?, ?, ?, datetime('now'))
+            """, (processor_name, agreement_id, 1 if confirmed else 0))
+
+
+def delete_processor_mapping(processor_name: str):
+    with fees_db() as conn:
+        conn.execute("DELETE FROM processor_mappings WHERE processor_name=?",
+                     (processor_name,))
+
+
 def ensure_fee_tables():
     _ensure_fee_tables_core()
     _ensure_prompt_tables()
     _ensure_context_notes_table()
     _ensure_amendment_tables()
+    _ensure_processor_mappings_table()
 
 
 def _ensure_prompt_tables():

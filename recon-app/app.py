@@ -646,6 +646,85 @@ CURRENCIES = [
     "RWF", "XOF", "XAF", "AED", "BRL", "CLP", "COP", "MXN", "PEN",
 ]
 
+@app.route("/fees/processor-map")
+@require_fees_auth
+def fees_processor_map():
+    """Page showing all detected Praxis processors and their agreement mappings."""
+    import datetime as _dt
+    # Get all distinct processors seen in last 1Y
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT payment_processor,
+                           COUNT(*) AS tx_count,
+                           SUM(usd_amount) AS volume,
+                           SUM(fee/100.0) AS actual_fees
+                    FROM praxis_transactions
+                    WHERE created_timestamp >= EXTRACT(EPOCH FROM (NOW()-INTERVAL '1 year'))
+                    GROUP BY payment_processor
+                    ORDER BY volume DESC NULLS LAST
+                """)
+                return [dict(r) for r in cur.fetchall()]
+        processors = queries._db_retry(_fetch)
+    except Exception:
+        processors = []
+
+    agreements = queries.get_all_agreements()
+    mappings   = queries.get_processor_mappings()
+    return render_template("fee_processor_map.html",
+                           processors=processors, agreements=agreements,
+                           mappings=mappings)
+
+
+@app.route("/fees/processor-map/save", methods=["POST"])
+@require_fees_auth
+def fees_processor_map_save():
+    data = request.get_json(force=True)
+    processor    = (data.get("processor") or "").strip()
+    agreement_id = data.get("agreement_id")   # None = unmap
+    if not processor:
+        return jsonify({"error": "processor required"}), 400
+    if agreement_id:
+        queries.save_processor_mapping(processor, int(agreement_id), confirmed=True)
+    else:
+        queries.delete_processor_mapping(processor)
+    # Bust fee_calculator cache
+    for k in [k for k in queries._CACHE if k.startswith("fee_calc:")]:
+        del queries._CACHE[k]
+    return jsonify({"ok": True})
+
+
+@app.route("/fees/processor-map/auto-match", methods=["POST"])
+@require_fees_auth
+def fees_processor_map_auto():
+    """AI suggests agreement matches for unmapped processors."""
+    import json as _json
+    data        = request.get_json(force=True)
+    processors  = data.get("processors", [])   # list of {name, volume}
+    agreements  = queries.get_all_agreements()
+    agr_list    = [{"id": a["id"], "psp_name": a["psp_name"],
+                    "provider_name": a.get("provider_name","")} for a in agreements]
+
+    prompt = (
+        "You are matching Praxis payment processor names to PSP fee agreement names.\n\n"
+        "AGREEMENTS:\n" + _json.dumps(agr_list, indent=2) + "\n\n"
+        "PRAXIS PROCESSORS TO MATCH:\n" +
+        _json.dumps(processors, indent=2) + "\n\n"
+        "Return ONLY a JSON array of objects: "
+        "[{\"processor\": \"...\", \"agreement_id\": <int or null>, \"confidence\": \"high|medium|low\", \"reason\": \"...\"}]\n"
+        "Match by name similarity. Use null agreement_id if no reasonable match exists."
+    )
+    try:
+        import ai_parse as _ai
+        raw = _ai._call_claude("You are a payment processor name matching assistant.", prompt)
+        suggestions = _json.loads(raw)
+        return jsonify({"suggestions": suggestions})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/fees/calculator")
 @require_fees_auth
 def fees_calculator():

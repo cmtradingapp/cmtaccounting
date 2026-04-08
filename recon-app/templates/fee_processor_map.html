@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %} — Processor Mapping{% endblock %}
+{% block content %}
+<style>
+  .pm-row {
+    display:grid;
+    grid-template-columns: 220px 1fr 220px 90px;
+    gap:12px; align-items:center;
+    padding:10px 16px; border-bottom:1px solid var(--border);
+    font-size:13px;
+  }
+  .pm-row:last-child { border-bottom:none; }
+  .pm-row:hover { background:rgba(255,255,255,.02); }
+  .pm-processor { font-weight:700; }
+  .pm-stats { font-size:11px; color:var(--muted); }
+  .pm-select {
+    background:var(--surface-alt); border:1px solid var(--border);
+    color:var(--text); border-radius:var(--radius-sm); padding:0 10px;
+    height:34px; font-size:12px; width:100%;
+    transition:border-color .15s;
+  }
+  .pm-select:focus { border-color:var(--accent); outline:none; }
+  .pm-badge {
+    display:inline-flex; align-items:center; height:22px; padding:0 8px;
+    border-radius:999px; font-size:10px; font-weight:700;
+  }
+  .pm-badge.confirmed { background:rgba(34,197,94,.12); color:var(--green); }
+  .pm-badge.fuzzy     { background:rgba(245,158,11,.12); color:var(--yellow); }
+  .pm-badge.unmapped  { background:rgba(239,68,68,.1);   color:var(--red); }
+  .pm-badge.ai        { background:rgba(167,139,250,.12); color:#a78bfa; }
+
+  /* AI suggestion highlight */
+  .pm-row.ai-suggested .pm-select { border-color:rgba(167,139,250,.5); }
+
+  #aiBtn { transition:background .15s; }
+  #aiBtn.loading { opacity:.7; pointer-events:none; }
+</style>
+
+<div class="page-header" style="margin-bottom:var(--sp-4);">
+  <div>
+    <a href="/fees/calculator" class="back-link">← Fee Calculator</a>
+    <div class="page-title" style="margin-top:4px;">Processor → Agreement Mapping</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:3px;">
+      Map each Praxis payment processor to its fee agreement for accurate fee calculations.
+    </div>
+  </div>
+  <button id="aiBtn" class="btn btn-primary" onclick="autoMatch()">
+    ✨ AI Auto-Match All
+  </button>
+</div>
+
+<div style="background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.2);
+            border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:var(--sp-3);
+            font-size:12px;color:var(--text-2);">
+  <strong style="color:#a78bfa;">How it works:</strong>
+  Saved mappings override fuzzy name matching in the fee calculator.
+  Green = confirmed by you. Amber = inferred by name similarity. Red = no match.
+  Click <strong>AI Auto-Match</strong> to let Claude suggest matches for all unmapped processors.
+</div>
+
+<!-- Summary counts -->
+{% set n_mapped   = mappings|length %}
+{% set n_total    = processors|length %}
+{% set n_unmapped = n_total - n_mapped %}
+<div style="display:flex;gap:10px;margin-bottom:var(--sp-3);">
+  <span class="pm-badge confirmed">{{ n_mapped }} mapped</span>
+  <span class="pm-badge unmapped">{{ n_unmapped }} unmapped</span>
+  <span style="font-size:12px;color:var(--muted);margin-left:4px;">{{ n_total }} processors total (last 1 year)</span>
+</div>
+
+<div class="card">
+  <!-- Header -->
+  <div class="pm-row" style="background:var(--surface);font-size:10px;font-weight:700;
+       text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:1px solid var(--border);">
+    <span>Processor</span>
+    <span>Volume / Transactions</span>
+    <span>Fee Agreement</span>
+    <span>Status</span>
+  </div>
+
+  {% for p in processors %}
+  {% set proc = p.payment_processor or 'unknown' %}
+  {% set saved = mappings.get(proc) %}
+  {% set saved_id = saved.get('agreement_id') if saved else none %}
+  {% set is_confirmed = saved.get('confirmed', False) if saved else False %}
+  <div class="pm-row" id="row-{{ loop.index }}" data-processor="{{ proc }}">
+    <div>
+      <div class="pm-processor">{{ proc }}</div>
+    </div>
+    <div class="pm-stats">
+      ${{ "{:,.0f}".format(p.volume or 0) }} vol &nbsp;·&nbsp;
+      {{ "{:,}".format(p.tx_count or 0) }} txns &nbsp;·&nbsp;
+      ${{ "{:,.2f}".format(p.actual_fees or 0) }} fees
+    </div>
+    <select class="pm-select" data-proc="{{ proc }}"
+            onchange="saveMapping('{{ proc }}', this.value, this)">
+      <option value="">— No mapping —</option>
+      {% for a in agreements %}
+      <option value="{{ a.id }}" {% if saved_id == a.id %}selected{% endif %}>
+        {{ a.psp_name }}{% if a.provider_name %} ({{ a.provider_name[:30] }}){% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    <div id="badge-{{ loop.index }}">
+      {% if is_confirmed %}
+        <span class="pm-badge confirmed">✓ Saved</span>
+      {% elif saved_id %}
+        <span class="pm-badge fuzzy">~ Auto</span>
+      {% else %}
+        <span class="pm-badge unmapped">Unmapped</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+var _agreements = {{ agreements | tojson }};
+
+function saveMapping(processor, agreementId, selectEl) {
+  var idx = selectEl.closest('[data-processor]').id.replace('row-','');
+  var badge = document.getElementById('badge-' + idx);
+
+  fetch('/fees/processor-map/save', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      processor: processor,
+      agreement_id: agreementId ? parseInt(agreementId) : null
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (d.ok) {
+      badge.innerHTML = agreementId
+        ? '<span class="pm-badge confirmed">✓ Saved</span>'
+        : '<span class="pm-badge unmapped">Unmapped</span>';
+    } else {
+      alert('Error: ' + (d.error || 'unknown'));
+    }
+  });
+}
+
+function autoMatch() {
+  var btn = document.getElementById('aiBtn');
+  btn.classList.add('loading');
+  btn.textContent = '⏳ Asking AI…';
+
+  // Collect unmapped processors
+  var unmapped = [];
+  document.querySelectorAll('.pm-select').forEach(function(sel) {
+    if (!sel.value) {
+      var row = sel.closest('[data-processor]');
+      var statsEl = row.querySelector('.pm-stats');
+      unmapped.push({
+        name:   row.getAttribute('data-processor'),
+        volume: statsEl ? statsEl.textContent.trim() : ''
+      });
+    }
+  });
+
+  if (!unmapped.length) {
+    alert('All processors are already mapped!');
+    btn.classList.remove('loading');
+    btn.textContent = '✨ AI Auto-Match All';
+    return;
+  }
+
+  fetch('/fees/processor-map/auto-match', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ processors: unmapped })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    btn.classList.remove('loading');
+    btn.textContent = '✨ AI Auto-Match All';
+
+    if (d.error) { alert('AI error: ' + d.error); return; }
+
+    var suggestions = d.suggestions || [];
+    var applied = 0;
+
+    suggestions.forEach(function(s) {
+      if (!s.agreement_id) return;
+      var sel = document.querySelector('.pm-select[data-proc="' + s.processor + '"]');
+      if (!sel || sel.value) return;   // skip already mapped
+
+      // Pre-fill the select with AI suggestion (not saved yet — user must confirm)
+      sel.value = String(s.agreement_id);
+      var row   = sel.closest('[data-processor]');
+      var idx   = row.id.replace('row-','');
+      var badge = document.getElementById('badge-' + idx);
+      badge.innerHTML = '<span class="pm-badge ai" title="' + (s.confidence||'') + ' confidence: ' + (s.reason||'') + '">✨ AI (' + (s.confidence||'?') + ')</span>';
+      row.classList.add('ai-suggested');
+      applied++;
+    });
+
+    if (applied) {
+      // Show banner to confirm all AI suggestions
+      var banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:100;padding:14px 18px;border-radius:var(--radius-md);background:rgba(22,25,32,.95);border:1px solid rgba(167,139,250,.3);font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
+      banner.innerHTML = '<strong style="color:#a78bfa;">✨ AI suggested ' + applied + ' match' + (applied>1?'es':'') + '</strong><br>'
+        + '<span style="color:var(--text-2);font-size:12px;">Review selections above, then click to confirm:</span><br>'
+        + '<div style="margin-top:8px;display:flex;gap:8px;">'
+        + '<button onclick="confirmAllAI(this)" class="btn btn-primary" style="height:30px;font-size:12px;">Save All AI Matches</button>'
+        + '<button onclick="this.closest(\'div[style]\').remove()" class="btn" style="height:30px;font-size:12px;">Dismiss</button>'
+        + '</div>';
+      document.body.appendChild(banner);
+    } else {
+      alert('AI found no new matches for the remaining unmapped processors.');
+    }
+  })
+  .catch(function(e){
+    btn.classList.remove('loading');
+    btn.textContent = '✨ AI Auto-Match All';
+    alert('Request failed: ' + e);
+  });
+}
+
+function confirmAllAI() {
+  var aiRows = document.querySelectorAll('.ai-suggested');
+  var promises = [];
+  aiRows.forEach(function(row) {
+    var proc = row.getAttribute('data-processor');
+    var sel  = row.querySelector('.pm-select');
+    if (sel && sel.value) {
+      promises.push(
+        fetch('/fees/processor-map/save', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({processor: proc, agreement_id: parseInt(sel.value)})
+        }).then(function(r){ return r.json(); }).then(function(d){
+          if (d.ok) {
+            row.classList.remove('ai-suggested');
+            var idx   = row.id.replace('row-','');
+            var badge = document.getElementById('badge-' + idx);
+            badge.innerHTML = '<span class="pm-badge confirmed">✓ Saved</span>';
+          }
+        })
+      );
+    }
+  });
+  Promise.all(promises).then(function(){
+    document.querySelectorAll('div[style*="position:fixed"]').forEach(function(el){el.remove();});
+  });
+}
+</script>
+{% endblock %}
