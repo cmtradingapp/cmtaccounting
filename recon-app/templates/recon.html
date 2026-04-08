@@ -3,8 +3,23 @@
 {% block content %}
 <style>
   /* Tighter table for the wider recon layout */
-  .recon-table-wrap { overflow-x: auto; overflow-y: visible; border-radius: 14px; border: 1px solid var(--border); }
-  .recon-table thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: 0 1px 0 var(--border); }
+  /* overflow: clip in x only — does NOT create a scroll container,
+     so position:sticky on thead works relative to the viewport.
+     'overflow-x: clip' is supported in all modern browsers (Chrome 90+, FF 81+, Safari 16+). */
+  .recon-table-wrap {
+    overflow-x: auto;
+    overflow-y: clip;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+  }
+  .recon-table { border-collapse: separate; border-spacing: 0; }
+  .recon-table thead th {
+    position: sticky;
+    top: 56px;   /* site <header> height — header is now sticky too */
+    z-index: 10;
+    background: var(--surface);
+    box-shadow: inset 0 -1px 0 var(--border);
+  }
   .recon-table th { padding: 8px 10px; font-size: 10px; }
   .recon-table td { padding: 10px 10px; font-size: 12px; }
   .recon-table td:last-child { padding-right: 12px; }
