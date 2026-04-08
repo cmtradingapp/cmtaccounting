@@ -357,7 +357,7 @@ function autoMapMethods() {
         + '<span style="font-size:12px;color:var(--text-2);">Review then confirm:</span><br>'
         + '<div style="margin-top:8px;display:flex;gap:8px;">'
         + '<button onclick="confirmAllMethodAI(this)" class="btn btn-primary" style="height:30px;font-size:12px;">Save All</button>'
-        + '<button onclick="this.closest('div[style]').remove()" class="btn" style="height:30px;font-size:12px;">Dismiss</button>'
+        + '<button onclick="this.closest(\'div[style]\').remove()" class="btn" style="height:30px;font-size:12px;">Dismiss</button>'
         + '</div>';
       document.body.appendChild(banner);
     } else { alert('AI found no new matches.'); }
