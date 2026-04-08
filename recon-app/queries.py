@@ -1030,6 +1030,24 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
         and r.get("transactiontype") in ("Withdrawal","Withdraw","TransferOut")
     )
 
+    # 4. Trading P&L from MT4 (converted to USD)
+    # client_realised  = sum of convertedclosedpnl across all accounts/days
+    # company_pnl      = -client_realised  (B-Book: client loss = company gain)
+    # net_flow         = deposits - withdrawals (money the client put in net)
+    # client_net_worth = net_flow + client_realised  (what they'd have if they closed everything)
+    client_realised_pnl = 0.0
+    client_unrealised_eod = 0.0   # last known floating P&L
+    for rows in mt4_by_login.values():
+        for r in rows:
+            client_realised_pnl   += float(r.get("convertedclosedpnl")   or r.get("closedpnl")   or 0)
+            # Keep the last (most recent) floating P&L as end-of-period snapshot
+        if rows:
+            last = rows[-1]
+            client_unrealised_eod = float(last.get("convertedfloatingpnl") or last.get("floatingpnl") or 0)
+
+    company_trading_pnl = round(-client_realised_pnl, 2)   # positive = company profit
+    net_deposit         = round(crm_dep - crm_with, 2)
+
     result = {
         "cid":          cid,
         "name":         name,
@@ -1039,11 +1057,18 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
         "crm_by_login": crm_by_login,
         "mt4_by_login": mt4_by_login,
         "summary": {
-            "praxis_deposits":    round(praxis_dep, 2),
-            "praxis_withdrawals": round(praxis_with, 2),
-            "crm_cash_dep":       round(crm_dep, 2),
-            "crm_cash_with":      round(crm_with, 2),
-            "diff":               round(praxis_dep - crm_dep, 2),
+            "praxis_deposits":      round(praxis_dep, 2),
+            "praxis_withdrawals":   round(praxis_with, 2),
+            "crm_cash_dep":         round(crm_dep, 2),
+            "crm_cash_with":        round(crm_with, 2),
+            "diff":                 round(praxis_dep - crm_dep, 2),
+            "net_deposit":          net_deposit,
+            "client_realised_pnl":  round(client_realised_pnl, 2),
+            "client_unrealised_eod":round(client_unrealised_eod, 2),
+            "company_trading_pnl":  company_trading_pnl,
+            # Total company value from client = trading profit + net deposit margin
+            # (money deposited but never withdrawn stays with the company)
+            "company_total_value":  round(company_trading_pnl + net_deposit, 2),
         }
     }
     _cache_set(key, result)

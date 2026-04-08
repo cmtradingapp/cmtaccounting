@@ -11,7 +11,12 @@
   .cd-span-btn:hover { border-color:rgba(255,255,255,.2); color:var(--text); }
   .cd-span-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.08); }
 
-  .cd-summary-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:var(--sp-4); }
+  .cd-summary-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:12px; }
+  .cd-pnl-grid     { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:var(--sp-4); }
+  .cd-stat-sm { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 16px; }
+  .cd-stat-sm .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:4px; }
+  .cd-stat-sm .value { font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .cd-stat-sm .hint  { font-size:11px; color:var(--muted); margin-top:3px; line-height:1.4; }
   .cd-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 18px; }
   .cd-stat .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px; }
   .cd-stat .value { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
@@ -84,6 +89,39 @@
     <div class="value {% if s.diff > 1 %}pos{% elif s.diff < -1 %}neg{% endif %}">
       {{ "{:+,.2f}".format(s.diff) if s.diff != 0 else '—' }}
     </div>
+  </div>
+</div>
+
+<!-- Trading P&L row -->
+<div class="cd-pnl-grid">
+  <div class="cd-stat-sm">
+    <div class="label">Client Realised P&amp;L</div>
+    <div class="value {% if s.client_realised_pnl > 0 %}pos{% elif s.client_realised_pnl < 0 %}neg{% endif %}">
+      {{ "{:+,.2f}".format(s.client_realised_pnl) if s.client_realised_pnl != 0 else '—' }}
+    </div>
+    <div class="hint">Sum of closed trades (USD). Positive = client won.</div>
+  </div>
+  <div class="cd-stat-sm">
+    <div class="label">Company Trading P&amp;L</div>
+    <div class="value {% if s.company_trading_pnl > 0 %}pos{% elif s.company_trading_pnl < 0 %}neg{% endif %}">
+      {{ "{:+,.2f}".format(s.company_trading_pnl) if s.company_trading_pnl != 0 else '—' }}
+    </div>
+    <div class="hint">= −Client P&amp;L. Positive = company profited from this client's trading.</div>
+  </div>
+  <div class="cd-stat-sm">
+    <div class="label">Net Deposit (CRM)</div>
+    <div class="value {% if s.net_deposit > 0 %}pos{% elif s.net_deposit < 0 %}neg{% endif %}">
+      {{ "{:+,.2f}".format(s.net_deposit) if s.net_deposit != 0 else '—' }}
+    </div>
+    <div class="hint">Deposits minus withdrawals. Money the client still has on account.</div>
+  </div>
+  <div class="cd-stat-sm" style="border-color:{% if s.company_total_value > 0 %}rgba(34,197,94,.3){% elif s.company_total_value < 0 %}rgba(239,68,68,.3){% else %}var(--border){% endif %};">
+    <div class="label">Total Company Value</div>
+    <div class="value {% if s.company_total_value > 0 %}pos{% elif s.company_total_value < 0 %}neg{% endif %}"
+         style="font-size:22px;">
+      {{ "{:+,.2f}".format(s.company_total_value) if s.company_total_value != 0 else '—' }}
+    </div>
+    <div class="hint">Trading P&amp;L + Net Deposit. Overall value this client generated for the company.</div>
   </div>
 </div>
 
