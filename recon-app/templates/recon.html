@@ -171,51 +171,83 @@
   </table>
 </div>
 
-<!-- Ghost sticky header — shown when real thead scrolls above viewport -->
-<div id="stickyReconHead"><table><thead><tr id="stickyReconRow"></tr></thead></table></div>
+<!-- Ghost sticky header: position/width matched to wrapper via JS -->
+<div id="stickyReconHead" style="display:none;position:fixed;z-index:50;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  box-shadow:0 4px 12px rgba(0,0,0,.4);overflow:hidden;">
+  <table style="border-collapse:collapse;table-layout:fixed;">
+    <thead><tr id="stickyReconRow"></tr></thead>
+  </table>
+</div>
 
 <script>
 (function () {
-  var realHead = document.querySelector('.recon-table thead tr');
-  var ghost    = document.getElementById('stickyReconHead');
-  var ghostRow = document.getElementById('stickyReconRow');
-  var wrap     = document.querySelector('.recon-table-wrap');
-  if (!realHead || !ghost || !wrap) return;
+  var realThead = document.querySelector('.recon-table thead');
+  var realRow   = document.querySelector('.recon-table thead tr');
+  var ghost     = document.getElementById('stickyReconHead');
+  var ghostRow  = document.getElementById('stickyReconRow');
+  var wrap      = document.querySelector('.recon-table-wrap');
+  if (!realThead || !ghost || !wrap) return;
 
-  // Clone th elements into the ghost row
-  function buildGhost() {
+  function syncGhost() {
+    var wrapRect = wrap.getBoundingClientRect();
+    // Position ghost exactly over the wrapper
+    ghost.style.left   = wrapRect.left + 'px';
+    ghost.style.top    = '56px';
+    ghost.style.width  = wrapRect.width + 'px';
+
+    // Rebuild column widths from real cells
     ghostRow.innerHTML = '';
-    var cells = realHead.querySelectorAll('th');
-    cells.forEach(function (th) {
+    realRow.querySelectorAll('th').forEach(function (th) {
       var g = document.createElement('th');
-      g.textContent  = th.textContent;
-      g.className    = th.className;
-      g.style.width  = th.getBoundingClientRect().width + 'px';
+      g.textContent = th.textContent;
+      g.className   = th.className;
+      // Use the real cell's rendered width
+      g.style.width = th.offsetWidth + 'px';
+      g.style.minWidth = th.offsetWidth + 'px';
+      g.style.padding = '8px 10px';
+      g.style.fontSize = '10px';
+      g.style.fontWeight = '600';
+      g.style.textTransform = 'uppercase';
+      g.style.letterSpacing = '.06em';
+      g.style.color = 'var(--muted)';
+      g.style.whiteSpace = 'nowrap';
+      g.style.textAlign = th.classList.contains('num') ? 'right' : 'left';
       ghostRow.appendChild(g);
     });
-    // Match ghost table width to real table
-    ghost.querySelector('table').style.width =
-      document.querySelector('.recon-table').getBoundingClientRect().width + 'px';
+
+    // Ghost inner table total width = sum of all column widths
+    var totalW = Array.from(realRow.querySelectorAll('th'))
+                      .reduce(function (s, th) { return s + th.offsetWidth; }, 0);
+    ghost.querySelector('table').style.width = totalW + 'px';
+
+    // Sync horizontal scroll
+    ghost.scrollLeft = wrap.scrollLeft;
   }
 
-  // Sync horizontal scroll of ghost with wrapper
   wrap.addEventListener('scroll', function () {
     ghost.scrollLeft = wrap.scrollLeft;
-  });
+  }, { passive: true });
 
   var shown = false;
   function onScroll() {
-    var rect = realHead.getBoundingClientRect();
-    // Show ghost when real thead top scrolls above the nav bar (56px)
-    if (rect.bottom < 56) {
-      if (!shown) { buildGhost(); ghost.style.display = 'block'; shown = true; }
-    } else {
-      if (shown) { ghost.style.display = 'none'; shown = false; }
+    // Show ghost only once the BOTTOM of the real thead clears the site nav (56px)
+    var rect = realThead.getBoundingClientRect();
+    var shouldShow = rect.bottom <= 56;
+    if (shouldShow && !shown) {
+      syncGhost();
+      ghost.style.display = 'block';
+      shown = true;
+    } else if (!shouldShow && shown) {
+      ghost.style.display = 'none';
+      shown = false;
     }
   }
 
   window.addEventListener('scroll', onScroll, { passive: true });
-  window.addEventListener('resize', function () { if (shown) buildGhost(); });
+  window.addEventListener('resize', function () {
+    if (shown) syncGhost();
+  });
 })();
 </script>
 
