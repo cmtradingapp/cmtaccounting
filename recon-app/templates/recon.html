@@ -44,6 +44,7 @@
       <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
       {% endfor %}
     </select>
+    <a class="btn" href="/recon/{{ month }}/praxis" style="border-color:rgba(167,139,250,.4);color:rgba(167,139,250,.9);">🌿 Praxis Tree</a>
     <a class="btn btn-primary" href="/recon/{{ month }}/export">↓ Export Excel</a>
     <form method="POST" action="/recon/{{ month }}/refresh" style="display:contents;">
       <input type="hidden" name="status"       value="{{ status_filter }}">

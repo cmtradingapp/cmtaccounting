@@ -127,6 +127,22 @@ def recon(month):
     )
 
 
+@app.route("/recon/<month>/praxis")
+@require_recon_auth
+def recon_praxis(month):
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+    except (ValueError, IndexError):
+        abort(400)
+    try:
+        tree   = queries.praxis_client_tree(year, mon)
+        months = queries.available_months()
+    except Exception as e:
+        tree   = []
+        months = []
+    return render_template("praxis_tree.html", month=month, tree=tree, months=months)
+
+
 @app.route("/recon/<month>/refresh", methods=["POST"])
 @require_recon_auth
 def recon_refresh(month):

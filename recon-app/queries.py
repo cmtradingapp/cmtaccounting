@@ -596,6 +596,150 @@ def summary_stats(rows):
     }
 
 
+def praxis_client_tree(year: int, month: int) -> list:
+    """
+    Build a per-Praxis-customer tree for the month:
+    Each node = one Praxis customer (session_cid), with:
+      - customer name / email
+      - list of MT4 accounts they map to (via vtiger_trading_accounts)
+      - per-account: Praxis deposits vs CRM cash net, match status
+      - per-account: individual Praxis transaction rows
+      - ambiguous flag when the cid maps to >1 MT4 login
+
+    Cached 5 minutes.
+    """
+    import datetime
+    key = f"praxis_tree:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    # 1. Load Praxis transactions for the month
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch_praxis():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT
+                        session_cid,
+                        tid,
+                        session_intent      AS direction,
+                        usd_amount,
+                        amount / 100.0      AS amount_local,
+                        currency,
+                        payment_method,
+                        payment_processor,
+                        fee / 100.0         AS fee_actual,
+                        wallet_data_email   AS email,
+                        customer_first_name AS first_name,
+                        customer_last_name  AS last_name,
+                        TO_TIMESTAMP(created_timestamp) AS ts
+                    FROM praxis_transactions
+                    WHERE created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
+                      AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
+                      AND session_cid IS NOT NULL AND session_cid != ''
+                    ORDER BY session_cid, created_timestamp
+                """, (month_start, month_end))
+                return cur.fetchall()
+        praxis_rows = _db_retry(_fetch_praxis)
+    except Exception:
+        praxis_rows = []
+
+    # 2. Group Praxis transactions by session_cid
+    from collections import defaultdict
+    by_cid: dict = defaultdict(list)
+    for r in praxis_rows:
+        by_cid[str(r["session_cid"]).strip()].append(dict(r))
+
+    # 3. Account map cid → [login]
+    account_map = _load_praxis_account_map()
+
+    # 4. CRM cash summary keyed by login (reuse cached crm_summary)
+    crm = crm_summary(year, month)
+
+    # 5. Build tree
+    tree = []
+    for cid, txs in sorted(by_cid.items()):
+        logins     = account_map.get(cid, [])
+        ambiguous  = len(logins) > 1
+        # Customer info from first tx
+        sample     = txs[0]
+        name_parts = [sample.get("first_name") or "", sample.get("last_name") or ""]
+        name       = " ".join(p for p in name_parts if p).strip() or "—"
+        email      = sample.get("email") or "—"
+
+        total_praxis = sum(float(t["usd_amount"] or 0) for t in txs
+                          if t["direction"] == "payment")
+        total_praxis -= sum(float(t["usd_amount"] or 0) for t in txs
+                           if t["direction"] in ("withdrawal", "payout"))
+
+        mt4_accounts = []
+        for login in (logins if logins else [None]):
+            acct_txs = txs   # when ambiguous, all txs shown under each login
+            p_dep  = sum(float(t["usd_amount"] or 0) for t in acct_txs if t["direction"] == "payment")
+            p_with = sum(float(t["usd_amount"] or 0) for t in acct_txs
+                        if t["direction"] in ("withdrawal", "payout"))
+            p_net  = round(p_dep - p_with, 2)
+
+            c_net  = round(crm.get(login or 0, {}).get("cash_net", 0), 2) if login else 0
+            diff   = round(p_net - c_net, 2)
+
+            if login is None:
+                match = "no_mt4"
+            elif abs(diff) < 1.0:
+                match = "matched"
+            elif c_net == 0 and p_net != 0:
+                match = "unmatched_praxis"
+            elif p_net == 0 and c_net != 0:
+                match = "unmatched_crm"
+            else:
+                match = "discrepancy"
+
+            tx_list = []
+            for t in acct_txs:
+                tx_list.append({
+                    "tid":       t["tid"],
+                    "direction": t["direction"],
+                    "usd":       round(float(t["usd_amount"] or 0), 2),
+                    "amount_local": round(float(t["amount_local"] or 0), 2),
+                    "currency":  t["currency"],
+                    "method":    t["payment_method"],
+                    "processor": t["payment_processor"],
+                    "fee":       round(float(t["fee_actual"] or 0), 2),
+                    "ts":        str(t["ts"])[:16] if t["ts"] else "",
+                })
+
+            mt4_accounts.append({
+                "login":          login,
+                "praxis_net":     p_net,
+                "praxis_dep":     round(p_dep, 2),
+                "praxis_with":    round(p_with, 2),
+                "crm_net":        c_net,
+                "diff":           diff,
+                "match":          match,
+                "transactions":   tx_list,
+            })
+
+        tree.append({
+            "session_cid":   cid,
+            "name":          name,
+            "email":         email,
+            "ambiguous":     ambiguous,
+            "total_praxis":  round(total_praxis, 2),
+            "mt4_accounts":  mt4_accounts,
+            "has_issue":     ambiguous or any(a["match"] not in ("matched",) for a in mt4_accounts),
+        })
+
+    # Sort: issues first, then by total amount desc
+    tree.sort(key=lambda n: (not n["has_issue"], -abs(n["total_praxis"])))
+
+    _cache_set(key, tree)
+    return tree
+
+
 def equity_by_client(year: int, month: int) -> list:
     """Last balance & equity per login for the month (MRS Export #1). Cached 5 min."""
     import datetime

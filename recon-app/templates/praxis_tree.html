@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %} — Praxis Tree · {{ month }}{% endblock %}
+{% block content %}
+<style>
+  .pt-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--sp-4); }
+  .pt-search {
+    display:flex; align-items:center; gap:8px;
+    background:var(--surface-alt); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:0 10px; height:34px;
+    width:280px; transition:border-color .15s;
+  }
+  .pt-search:focus-within { border-color:var(--accent); }
+  .pt-search input { background:none; border:none; outline:none; color:var(--text); font-size:13px; flex:1; }
+  .pt-search svg  { color:var(--muted); flex-shrink:0; }
+
+  .pt-stats { display:flex; gap:10px; margin-bottom:var(--sp-3); flex-wrap:wrap; }
+  .pt-stat  {
+    display:inline-flex; align-items:center; gap:6px; padding:4px 12px;
+    border-radius:999px; font-size:12px; font-weight:600;
+    border:1px solid var(--border); background:var(--surface);
+  }
+  .pt-stat .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  .client-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius-md); margin-bottom:10px; overflow:hidden;
+    transition:border-color .15s;
+  }
+  .client-card:hover { border-color:rgba(255,255,255,.15); }
+  .client-card.ambiguous  { border-left:3px solid #a78bfa; }
+  .client-card.discrepancy{ border-left:3px solid var(--yellow); }
+  .client-card.clean      { border-left:3px solid var(--green); }
+  .client-card.no-mt4     { border-left:3px solid var(--muted); }
+
+  .client-head {
+    display:flex; align-items:center; gap:12px;
+    padding:12px 16px; cursor:pointer; user-select:none;
+  }
+  .client-head:hover { background:rgba(255,255,255,.02); }
+  .client-chevron { font-size:10px; color:var(--muted); transition:transform .2s; flex-shrink:0; }
+  .client-card.open .client-chevron { transform:rotate(90deg); }
+
+  .client-name  { font-weight:700; font-size:13px; }
+  .client-cid   { font-size:11px; color:var(--muted); font-family:monospace; }
+  .client-email { font-size:11px; color:var(--text-2); }
+  .client-total { font-size:14px; font-weight:700; margin-left:auto; font-variant-numeric:tabular-nums; }
+
+  .client-body  { display:none; padding:0 16px 14px; }
+  .client-card.open .client-body { display:block; }
+
+  /* Account rows */
+  .acct-row {
+    display:grid; grid-template-columns:120px 1fr 1fr 1fr 80px;
+    gap:8px; align-items:center;
+    padding:8px 12px; border-radius:var(--radius-sm); margin-bottom:4px;
+    font-size:12px;
+  }
+  .acct-row.matched      { background:rgba(34,197,94,.06); }
+  .acct-row.discrepancy  { background:rgba(245,158,11,.07); }
+  .acct-row.unmatched_praxis { background:rgba(239,68,68,.06); }
+  .acct-row.unmatched_crm   { background:rgba(148,163,184,.06); }
+  .acct-row.no_mt4       { background:rgba(255,255,255,.03); }
+  .acct-login { font-weight:700; color:var(--accent); font-size:13px; }
+  .acct-num   { font-variant-numeric:tabular-nums; text-align:right; }
+  .acct-diff.pos { color:var(--green); }
+  .acct-diff.neg { color:var(--red); }
+
+  /* Transaction table */
+  .tx-table { width:100%; border-collapse:collapse; margin-top:8px; font-size:11px; }
+  .tx-table th {
+    padding:5px 8px; text-align:left; color:var(--muted);
+    font-weight:700; font-size:10px; text-transform:uppercase; letter-spacing:.05em;
+    border-bottom:1px solid var(--border);
+  }
+  .tx-table td { padding:5px 8px; border-bottom:1px solid rgba(255,255,255,.04); }
+  .tx-table tr:last-child td { border-bottom:none; }
+  .tx-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .badge-direction {
+    display:inline-flex; align-items:center; height:18px; padding:0 6px;
+    border-radius:999px; font-size:10px; font-weight:700;
+  }
+  .badge-payment    { background:rgba(34,197,94,.15); color:var(--green); }
+  .badge-withdrawal { background:rgba(239,68,68,.15);  color:var(--red); }
+
+  /* Empty state */
+  .pt-empty { text-align:center; padding:64px 32px; color:var(--muted); }
+</style>
+
+{% set mon_names = ['January','February','March','April','May','June','July','August','September','October','November','December'] %}
+{% set mon_label = mon_names[(month[5:7]|int) - 1] + ' ' + month[:4] %}
+
+<div class="pt-header">
+  <div>
+    <a href="/recon/{{ month }}" class="back-link">← {{ mon_label }}</a>
+    <div class="page-title" style="margin-top:4px;">Praxis Client Tree</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:3px;">
+      {{ mon_label }} &middot; {{ tree|length }} Praxis clients
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <div class="pt-search">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="ptSearch" placeholder="Name, email, CID, login…" oninput="filterTree(this.value)">
+    </div>
+    <select onchange="window.location='/recon/'+this.value+'/praxis'" style="height:34px;width:140px;border-radius:var(--radius-sm);">
+      {% for m in months %}
+      <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+{% if tree %}
+{% set n_ambiguous   = tree | selectattr('ambiguous') | list | length %}
+{% set n_discrepancy = tree | rejectattr('ambiguous') | selectattr('has_issue') | list | length %}
+{% set n_clean       = tree | rejectattr('has_issue') | list | length %}
+<div class="pt-stats">
+  <span class="pt-stat"><span class="dot" style="background:#a78bfa;"></span>{{ n_ambiguous }} ambiguous</span>
+  <span class="pt-stat"><span class="dot" style="background:var(--yellow);"></span>{{ n_discrepancy }} discrepancy</span>
+  <span class="pt-stat"><span class="dot" style="background:var(--green);"></span>{{ n_clean }} matched</span>
+</div>
+
+<div id="ptTree">
+{% for client in tree %}
+{% set card_class = 'ambiguous' if client.ambiguous else ('discrepancy' if client.has_issue else 'clean') %}
+{% set open_default = client.has_issue %}
+<div class="client-card {{ card_class }} {% if open_default %}open{% endif %}" id="cc-{{ loop.index }}"
+     data-search="{{ [client.name, client.email, client.session_cid] | join(' ') | lower }}
+       {%- for a in client.mt4_accounts %} {{ a.login }}{% endfor %}">
+  <div class="client-head" onclick="toggleCard('cc-{{ loop.index }}')">
+    <span class="client-chevron">▶</span>
+    <div>
+      <div class="client-name">{{ client.name }}</div>
+      <div style="display:flex;gap:10px;margin-top:2px;">
+        <span class="client-cid">cid: {{ client.session_cid }}</span>
+        {% if client.email != '—' %}<span class="client-email">{{ client.email }}</span>{% endif %}
+      </div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+      {% if client.ambiguous %}
+      <span class="badge" style="background:rgba(167,139,250,.15);color:#a78bfa;">⚠ Ambiguous</span>
+      {% elif client.has_issue %}
+      <span class="badge" style="background:rgba(245,158,11,.12);color:var(--yellow);">⚠ Discrepancy</span>
+      {% else %}
+      <span class="badge matched">✓ Matched</span>
+      {% endif %}
+      <span class="client-total {% if client.total_praxis >= 0 %}pos{% else %}neg{% endif %}">
+        ${{ "{:,.2f}".format(client.total_praxis) }}
+      </span>
+    </div>
+  </div>
+
+  <div class="client-body">
+    {% if client.ambiguous %}
+    <div style="font-size:12px;color:#a78bfa;margin-bottom:10px;padding:8px 12px;
+                background:rgba(167,139,250,.07);border-radius:var(--radius-sm);">
+      ⚠ This Praxis customer maps to {{ client.mt4_accounts|length }} MT4 accounts.
+      The deposit attribution below is uncertain — same transactions shown under each account.
+    </div>
+    {% endif %}
+
+    {% for acct in client.mt4_accounts %}
+    <div class="acct-row {{ acct.match }}">
+      <span>
+        {% if acct.login %}
+        <a class="acct-login" href="/recon/{{ month }}/{{ acct.login }}">{{ acct.login }}</a>
+        {% else %}
+        <span style="color:var(--muted);font-size:12px;">No MT4 account</span>
+        {% endif %}
+      </span>
+      <span class="acct-num" title="Praxis net">
+        <span style="font-size:10px;color:var(--muted);">Praxis</span><br>
+        ${{ "{:,.2f}".format(acct.praxis_net) }}
+      </span>
+      <span class="acct-num" title="CRM cash net">
+        <span style="font-size:10px;color:var(--muted);">CRM</span><br>
+        ${{ "{:,.2f}".format(acct.crm_net) }}
+      </span>
+      <span class="acct-num acct-diff {{ 'pos' if acct.diff > 0 else 'neg' if acct.diff < 0 else '' }}" title="Difference">
+        <span style="font-size:10px;color:var(--muted);">Diff</span><br>
+        {{ "{:+,.2f}".format(acct.diff) if acct.diff != 0 else '—' }}
+      </span>
+      <span style="text-align:right;">
+        {% if acct.match == 'matched' %}<span class="badge matched">✓</span>
+        {% elif acct.match == 'discrepancy' %}<span class="badge" style="background:rgba(245,158,11,.12);color:var(--yellow);">⚠</span>
+        {% elif acct.match == 'unmatched_praxis' %}<span class="badge discrepancy">No CRM</span>
+        {% elif acct.match == 'unmatched_crm' %}<span class="badge" style="background:rgba(148,163,184,.12);color:var(--muted);">No Praxis</span>
+        {% else %}<span class="badge" style="background:rgba(255,255,255,.06);color:var(--muted);">?</span>
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
+
+    {% if client.mt4_accounts[0].transactions %}
+    <table class="tx-table" style="margin-top:12px;">
+      <thead>
+        <tr>
+          <th>TID</th>
+          <th>Direction</th>
+          <th>Method</th>
+          <th>PSP</th>
+          <th class="num" style="text-align:right;">USD</th>
+          <th class="num" style="text-align:right;">Fee</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in client.mt4_accounts[0].transactions %}
+        <tr>
+          <td style="font-family:monospace;font-size:10px;color:var(--muted);">{{ tx.tid }}</td>
+          <td>
+            <span class="badge-direction badge-{{ tx.direction }}">
+              {{ '↓ Dep' if tx.direction == 'payment' else '↑ With' }}
+            </span>
+          </td>
+          <td>{{ tx.method or '—' }}</td>
+          <td style="color:var(--muted);font-size:11px;">{{ tx.processor or '—' }}</td>
+          <td class="num">${{ "{:,.2f}".format(tx.usd) }}</td>
+          <td class="num" style="color:var(--muted);">${{ "{:.2f}".format(tx.fee) }}</td>
+          <td style="color:var(--muted);">{{ tx.ts }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+</div>
+
+<div id="ptNoResults" style="display:none;" class="pt-empty">
+  <div style="font-size:13px;">No clients match your search.</div>
+</div>
+
+{% else %}
+<div class="pt-empty">
+  <div style="font-size:32px;margin-bottom:12px;opacity:.3;">🌿</div>
+  <div style="font-size:15px;font-weight:600;margin-bottom:6px;">No Praxis data for {{ mon_label }}</div>
+  <div style="font-size:13px;">No transactions found in the Praxis database for this period.</div>
+</div>
+{% endif %}
+
+<script>
+function toggleCard(id) {
+  var el = document.getElementById(id);
+  el.classList.toggle('open');
+}
+
+function filterTree(q) {
+  q = q.toLowerCase().trim();
+  var cards = document.querySelectorAll('#ptTree .client-card');
+  var visible = 0;
+  cards.forEach(function(c) {
+    var match = !q || (c.dataset.search || '').indexOf(q) !== -1;
+    c.style.display = match ? '' : 'none';
+    if (match) visible++;
+    // Auto-open matching cards when searching
+    if (q && match) c.classList.add('open');
+  });
+  document.getElementById('ptNoResults').style.display = visible === 0 ? 'block' : 'none';
+}
+</script>
+
+{% endblock %}
