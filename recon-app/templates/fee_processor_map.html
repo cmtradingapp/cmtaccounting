@@ -42,6 +42,14 @@
 
   #aiBtn { transition:background .15s; }
   #aiBtn.loading { opacity:.7; pointer-events:none; }
+
+  .clear-btn {
+    background:none; border:none; color:var(--muted); cursor:pointer;
+    font-size:14px; line-height:1; padding:1px 4px; border-radius:3px;
+    transition:color .15s; flex-shrink:0;
+  }
+  .clear-btn:hover { color:var(--red); }
+  .badge-cell { display:flex; align-items:center; gap:5px; }
 </style>
 
 <div class="page-header" style="margin-bottom:var(--sp-4);">
@@ -122,11 +130,13 @@
       </option>
       {% endfor %}
     </select>
-    <div id="badge-{{ loop.index }}">
+    <div id="badge-{{ loop.index }}" class="badge-cell">
       {% if is_confirmed %}
         <span class="pm-badge confirmed">✓ Saved</span>
+        <button class="clear-btn" title="Clear mapping" onclick="clearMapping('{{ proc }}', this)">×</button>
       {% elif saved_id %}
         <span class="pm-badge fuzzy">~ Auto</span>
+        <button class="clear-btn" title="Clear mapping" onclick="clearMapping('{{ proc }}', this)">×</button>
       {% else %}
         <span class="pm-badge unmapped">Unmapped</span>
       {% endif %}
@@ -170,11 +180,13 @@
       <option value="{{ c }}" {% if saved and saved.canonical == c %}selected{% endif %}>{{ c }}</option>
       {% endfor %}
     </select>
-    <div id="mbadge-{{ loop.index }}">
+    <div id="mbadge-{{ loop.index }}" class="badge-cell">
       {% if saved and saved.confirmed %}
         <span class="pm-badge confirmed">✓ Saved</span>
+        <button class="clear-btn" title="Clear mapping" onclick="clearMethodMapping('{{ mkey }}', this)">×</button>
       {% elif saved %}
         <span class="pm-badge fuzzy">~ Auto</span>
+        <button class="clear-btn" title="Clear mapping" onclick="clearMethodMapping('{{ mkey }}', this)">×</button>
       {% else %}
         <span class="pm-badge unmapped">Unmapped</span>
       {% endif %}
@@ -210,7 +222,7 @@ function saveMethodMapping(praxis_method, canonical, selectEl) {
   .then(function(d){
     if (d.ok) {
       badge.innerHTML = canonical
-        ? '<span class="pm-badge confirmed">✓ Saved</span>'
+        ? '<span class="pm-badge confirmed">✓ Saved</span><button class="clear-btn" title="Clear mapping" onclick="clearMethodMapping(\'' + praxis_method.replace(/'/g, "\\'") + '\', this)">×</button>'
         : '<span class="pm-badge unmapped">Unmapped</span>';
     } else { alert('Error: ' + (d.error||'unknown')); }
   });
@@ -232,7 +244,7 @@ function saveMapping(processor, agreementId, selectEl) {
   .then(function(d){
     if (d.ok) {
       badge.innerHTML = agreementId
-        ? '<span class="pm-badge confirmed">✓ Saved</span>'
+        ? '<span class="pm-badge confirmed">✓ Saved</span><button class="clear-btn" title="Clear mapping" onclick="clearMapping(\'' + processor + '\', this)">×</button>'
         : '<span class="pm-badge unmapped">Unmapped</span>';
     } else {
       alert('Error: ' + (d.error || 'unknown'));
@@ -384,6 +396,20 @@ function confirmAllMethodAI(btn) {
     }
   });
   Promise.all(proms).then(function(){ if (banner) banner.remove(); });
+}
+
+function clearMapping(processor, btn) {
+  var row = btn.closest('[data-processor]');
+  var sel = row.querySelector('.pm-select');
+  sel.value = '';
+  saveMapping(processor, '', sel);
+}
+
+function clearMethodMapping(praxis_method, btn) {
+  var row = btn.closest('[data-method]');
+  var sel = row.querySelector('.pm-select');
+  sel.value = '';
+  saveMethodMapping(praxis_method, '', sel);
 }
 
 function confirmAllAI(btn) {
