@@ -48,3 +48,6 @@ putty-creds.txt
 recon-app/.env
 github-pat.txt
 recon-app/fees.db
+
+recon-app/certs/*.crt
+recon-app/certs/*.key
