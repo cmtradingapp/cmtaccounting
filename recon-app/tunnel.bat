@@ -5,6 +5,9 @@ echo   15433 ^> backoffice postgres
 echo   15434 ^> praxis operations DB
 echo   15435 ^> fees postgres (FEES_MODE=live only)
 echo.
+echo NOTE: Antelope CRM (Azure SQL) connects DIRECTLY to
+echo       cmtmainserver.database.windows.net:1433 -- no tunnel needed.
+echo.
 echo Keep this window open while developing. Close it to disconnect.
 echo.
 

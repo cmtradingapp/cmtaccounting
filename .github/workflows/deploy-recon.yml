@@ -42,8 +42,8 @@ jobs:
           # (rsync excludes .env so the rest of the file is preserved)
           sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
             "touch /root/recon-app/.env && \
-             sed -i '/^ADMIN_USER=/d; /^ADMIN_PASS=/d' /root/recon-app/.env && \
-             printf 'ADMIN_USER=${{ secrets.ADMIN_USER }}\nADMIN_PASS=${{ secrets.ADMIN_PASS }}\n' \
+             sed -i '/^ADMIN_USER=/d; /^ADMIN_PASS=/d; /^CRM_PASS=/d' /root/recon-app/.env && \
+             printf 'ADMIN_USER=${{ secrets.ADMIN_USER }}\nADMIN_PASS=${{ secrets.ADMIN_PASS }}\nCRM_PASS=${{ secrets.CRM_PASS }}\n' \
                >> /root/recon-app/.env"
 
       - name: Restart or rebuild container

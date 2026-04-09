@@ -32,6 +32,12 @@ services:
       - PRAXIS_DB=operations
       - PRAXIS_USER=praxis_reader
       - PRAXIS_PASS=gc6Z8vd92JOa
+      # Antelope CRM — Azure SQL (direct TLS, no tunnel needed)
+      - CRM_HOST=cmtmainserver.database.windows.net
+      - CRM_PORT=1433
+      - CRM_DB=cmt_main
+      - CRM_USER=${CRM_USER:-reco}
+      - CRM_PASS=${CRM_PASS}
       # Fee DB mode: demo (SQLite) or live (fees_postgres service below)
       - FEES_MODE=demo
       - FEES_PG_HOST=fees_postgres

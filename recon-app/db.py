@@ -2,6 +2,7 @@ import os
 import sqlite3
 import psycopg2
 import psycopg2.extras
+import pymssql
 from contextlib import contextmanager
 
 # ── Fee DB mode ────────────────────────────────────────────────────────────
@@ -136,6 +137,18 @@ def _conn_praxis():
         connect_timeout=10,
     )
 
+def _conn_crm():
+    """Antelope CRM — Azure SQL (MSSQL). Direct TLS connection, no SSH tunnel needed."""
+    return pymssql.connect(
+        server=os.environ["CRM_HOST"],
+        port=int(os.environ.get("CRM_PORT", 1433)),
+        database=os.environ["CRM_DB"],
+        user=os.environ["CRM_USER"],
+        password=os.environ["CRM_PASS"],
+        tds_version="7.4",   # required for Azure SQL
+        login_timeout=10,
+    )
+
 def _conn_fees_pg():
     return psycopg2.connect(
         host=os.environ["FEES_PG_HOST"],
@@ -171,6 +184,18 @@ def praxis():
     conn = _conn_praxis()
     try:
         yield psycopg2.extras.RealDictCursor(conn)
+    finally:
+        conn.close()
+
+@contextmanager
+def crm():
+    """Read-only connection to Antelope CRM (Azure SQL / MSSQL).
+    Direct TLS connection to cmtmainserver.database.windows.net — no SSH tunnel.
+    Table: report.vtiger_mttransactions (deposits/withdrawals with PSP transaction IDs).
+    """
+    conn = _conn_crm()
+    try:
+        yield conn.cursor(as_dict=True)
     finally:
         conn.close()
 
