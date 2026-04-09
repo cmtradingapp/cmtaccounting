@@ -3,7 +3,7 @@
 import os
 import time
 import psycopg2
-from db import dealio, backoffice, fees_db, FEES_MODE
+from db import dealio, backoffice, crm, fees_db, FEES_MODE
 
 # True when the fees database is PostgreSQL (FEES_MODE=live)
 _PG = FEES_MODE == "live"
@@ -108,20 +108,19 @@ def _is_cash(payment_method, transactiontype):
 
 
 def available_months():
-    """Months that have data in backoffice, most recent first."""
+    """Months that have CRM data, most recent first. Source: Antelope CRM (Azure SQL)."""
     cached = _cache_get("available_months", _TTL_MONTHS)
     if cached is not None:
         return cached
 
     def _fetch():
-        with backoffice() as cur:
+        with crm() as cur:
             cur.execute("""
-                SELECT DISTINCT TO_CHAR(DATE_TRUNC('month', confirmation_time), 'YYYY-MM') AS month
-                FROM vtiger_mttransactions
+                SELECT DISTINCT TOP 36 FORMAT(confirmation_time, 'yyyy-MM') AS month
+                FROM report.vtiger_mttransactions
                 WHERE transactionapproval = 'Approved'
                   AND confirmation_time IS NOT NULL
                 ORDER BY month DESC
-                LIMIT 36
             """)
             return [r["month"] for r in cur.fetchall()]
 
@@ -137,19 +136,20 @@ def crm_summary(year: int, month: int):
     month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
 
     def _fetch_crm():
-        with backoffice() as cur:
+        with crm() as cur:
             cur.execute("""
                 SELECT
                     login,
                     transactiontype,
                     payment_method,
                     transactionapproval,
-                    COUNT(*)          AS tx_count,
-                    SUM(usdamount)    AS total_usd
-                FROM vtiger_mttransactions
+                    COUNT(*)       AS tx_count,
+                    SUM(usdamount) AS total_usd
+                FROM report.vtiger_mttransactions
                 WHERE confirmation_time >= %s
                   AND confirmation_time <  %s
                   AND transactionapproval = 'Approved'
+                  AND (deleted IS NULL OR deleted = 0)
                 GROUP BY login, transactiontype, payment_method, transactionapproval
             """, (month_start, month_end))
             return cur.fetchall()
@@ -236,8 +236,8 @@ def _load_praxis_account_map() -> dict:
     try:
         mapping: dict = {}
         def _fetch():
-            with backoffice() as cur:
-                cur.execute("SELECT login, vtigeraccountid FROM vtiger_trading_accounts")
+            with crm() as cur:
+                cur.execute("SELECT login, vtigeraccountid FROM report.vtiger_trading_accounts WHERE (deleted IS NULL OR deleted = 0)")
                 m: dict = {}
                 for r in cur.fetchall():
                     cid = str(r["vtigeraccountid"]).strip()
@@ -1016,11 +1016,19 @@ def equity_report(date_from=None, date_to=None) -> list:
     except Exception:
         praxis_names = {}
 
-    # dealio_users fallback
+    # CRM name fallback (vtiger_account joined to trading_accounts)
     try:
         def _fetch_du():
-            with backoffice() as cur:
-                cur.execute("SELECT login, name FROM dealio_users WHERE name IS NOT NULL AND name != ''")
+            with crm() as cur:
+                cur.execute("""
+                    SELECT ta.login,
+                           RTRIM(a.first_name + ' ' + a.last_name) AS name,
+                           a.email
+                    FROM report.vtiger_trading_accounts ta
+                    JOIN report.vtiger_account a ON a.accountid = ta.vtigeraccountid
+                    WHERE (ta.deleted IS NULL OR ta.deleted = 0)
+                      AND ta.login IS NOT NULL
+                """)
                 return {r["login"]: (r["name"] or "").strip() for r in cur.fetchall()}
         dealio_names = _db_retry(_fetch_du)
     except Exception:
@@ -1122,10 +1130,19 @@ def client_list(date_from=None, date_to=None) -> list:
     except Exception:
         praxis_names = {}
 
-    # Fallback: dealio_users.name keyed by login (covers clients with no Praxis activity)
+    # Fallback: Antelope CRM name keyed by login (covers clients with no Praxis activity)
     def _fetch_dealio_names():
-        with backoffice() as cur:
-            cur.execute("SELECT login, name, email FROM dealio_users WHERE name IS NOT NULL AND name != ''")
+        with crm() as cur:
+            cur.execute("""
+                SELECT ta.login,
+                       RTRIM(a.first_name + ' ' + a.last_name) AS name,
+                       a.email
+                FROM report.vtiger_trading_accounts ta
+                JOIN report.vtiger_account a ON a.accountid = ta.vtigeraccountid
+                WHERE (ta.deleted IS NULL OR ta.deleted = 0)
+                  AND ta.login IS NOT NULL
+                  AND a.first_name IS NOT NULL AND a.first_name != ''
+            """)
             return {r["login"]: {"name": (r["name"] or "").strip(), "email": r["email"] or ""}
                     for r in cur.fetchall()}
     try:
