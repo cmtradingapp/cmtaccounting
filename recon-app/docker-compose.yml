@@ -47,6 +47,7 @@ services:
       - FEES_PG_PASS=FeesLive2026!
     volumes:
       - /root/recon-app:/app   # mount source → container; rsync + restart is sufficient
+      - /root/client-call-manager/backend/certs:/app/certs:ro  # dealio mTLS client certs
     networks:
       - recon_net
       - backoffice_net

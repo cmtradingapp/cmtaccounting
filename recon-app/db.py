@@ -108,6 +108,15 @@ class _PgConnAdapter:
 # ── Connection factories ───────────────────────────────────────────────────
 
 def _conn_dealio():
+    _certs = os.path.join(os.path.dirname(__file__), "certs")
+    _ssl = {}
+    if os.path.isdir(_certs):
+        _ssl = {
+            "sslmode":     "verify-ca",
+            "sslcert":     os.path.join(_certs, "client.crt"),
+            "sslkey":      os.path.join(_certs, "client.key"),
+            "sslrootcert": os.path.join(_certs, "ca.crt"),
+        }
     return psycopg2.connect(
         host=os.environ["DEALIO_HOST"],
         port=int(os.environ.get("DEALIO_PORT", 5106)),
@@ -115,6 +124,7 @@ def _conn_dealio():
         user=os.environ["DEALIO_USER"],
         password=os.environ["DEALIO_PASS"],
         connect_timeout=10,
+        **_ssl,
     )
 
 def _conn_backoffice():
