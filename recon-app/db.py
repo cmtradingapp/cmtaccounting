@@ -112,10 +112,9 @@ def _conn_dealio():
     _ssl = {}
     if os.path.isdir(_certs):
         _ssl = {
-            "sslmode":     "verify-ca",
-            "sslcert":     os.path.join(_certs, "client.crt"),
-            "sslkey":      os.path.join(_certs, "client.key"),
-            "sslrootcert": os.path.join(_certs, "ca.crt"),
+            "sslmode": "require",          # client cert auth; server cert not verified (ca.crt is client CA)
+            "sslcert": os.path.join(_certs, "client.crt"),
+            "sslkey":  os.path.join(_certs, "client.key"),
         }
     return psycopg2.connect(
         host=os.environ["DEALIO_HOST"],
