@@ -129,6 +129,7 @@
         <th class="num th-noncash">Non-Cash In</th>
         <th class="num th-noncash">Non-Cash Out</th>
         <th class="num">Difference</th>
+        <th class="num" title="Difference after subtracting expected PSP fees — ~0 means correctly matched">Fee Adj.</th>
         <th class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Praxis net deposits (USD)">Praxis Net</th>
         <th>Status</th>
         <th>Methods</th>
@@ -154,7 +155,11 @@
             {% if r.crm_noncash_out %}{{ "{:,.2f}".format(r.crm_noncash_out) }}{% else %}—{% endif %}
           </td>
           <td class="num {% if r.difference > 1 %}pos{% elif r.difference < -1 %}neg{% endif %}">
-            {% if r.abs_diff >= 0.01 %}{{ "{:+,.2f}".format(r.difference) }}{% else %}—{% endif %}
+            {% if r.abs_diff >= 0.01 or r.difference %}{{ "{:+,.2f}".format(r.difference) }}{% else %}—{% endif %}
+          </td>
+          <td class="num {% if r.fee_adj_diff > 1 %}pos{% elif r.fee_adj_diff < -1 %}neg{% else %}muted{% endif %}"
+              title="Expected fees: ${{ '{:,.2f}'.format(r.expected_fees) }}">
+            {% if r.expected_fees %}{{ "{:+,.2f}".format(r.fee_adj_diff) }}{% else %}—{% endif %}
           </td>
           <td class="num praxis-col">
             {% if r.praxis_net %}{{ "{:,.2f}".format(r.praxis_net) }}{% else %}—{% endif %}

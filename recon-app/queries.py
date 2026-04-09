@@ -315,6 +315,161 @@ def praxis_summary(year: int, month: int) -> dict:
     return result
 
 
+def _load_fee_calc_context():
+    """
+    Build the four data structures needed to compute expected PSP fees.
+    Shared by fee_calculator() and crm_expected_fees().
+    All underlying queries are cached, so this is cheap to call repeatedly.
+    Returns (rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db).
+    """
+    all_agreements = get_all_agreements()
+    rules_by_id: dict = {}
+    fee_rules_by_psp: dict = {}
+    for agr in all_agreements:
+        rules = get_fee_rules(agr["id"])
+        rules_by_id[agr["id"]] = {"rules": rules, "psp_name": agr["psp_name"]}
+        fee_rules_by_psp[agr["psp_name"].lower()] = {"rules": rules, "psp_name": agr["psp_name"]}
+    saved_mappings      = get_processor_mappings()
+    method_mappings_db  = get_method_mappings()
+    return rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db
+
+
+_PM_DEFAULTS_GLOBAL = {
+    "mobileafrica": "Mobile Money", "mobilemoney": "Mobile Money",
+    "mobilemoney_checkout": "Mobile Money", "altmobilemoney": "Mobile Money",
+    "tingg": "Mobile Money", "payunit": "Mobile Money",
+    "altbankonline": "Electronic Payment", "altcrypto": "Crypto", "crypto": "Crypto",
+    "ozow": "Electronic Payment", "zpay": "Electronic Payment", "dusupay": "Mobile Money",
+    "credit card": "Credit Cards", "creditcard": "Credit Cards",
+    "virtualpay": "Electronic Payment", "paywall": "Electronic Payment",
+    "bank transfer": "Bank Wire", "wire": "Bank Wire",
+    # CRM-specific method names
+    "external": "Electronic Payment", "wire": "Bank Wire", "creditcard": "Credit Cards",
+    "electronicpayment": "Electronic Payment", "cryptowallet": "Crypto",
+}
+
+
+def _apply_fee_rule(usd_amount, payment_method, fee_type,
+                    rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db):
+    """
+    Return expected fee (float) for a single transaction.
+    Equivalent to the _calc_expected() closure inside fee_calculator(),
+    but callable as a module-level function.
+    """
+    if not usd_amount:
+        return 0.0
+    # Translate method name to canonical form
+    pm_raw   = (payment_method or "").lower().strip()
+    saved_m  = method_mappings_db.get(pm_raw)
+    pm_canon = saved_m["canonical"] if saved_m else _PM_DEFAULTS_GLOBAL.get(pm_raw, pm_raw)
+    pm_norm  = pm_canon.lower()
+
+    # This function is called with processor=None for CRM data — use fuzzy PSP match only
+    # (CRM payment_processor IS available but only via a separate per-tx query)
+    matched_psp = None
+    for psp_key, psp_data in fee_rules_by_psp.items():
+        if psp_key in pm_norm or pm_norm in psp_key:
+            matched_psp = psp_data
+            break
+    if not matched_psp:
+        return 0.0
+
+    best = None
+    for rule in matched_psp["rules"]:
+        if rule.get("fee_type") != fee_type:
+            continue
+        rule_pm = (rule.get("payment_method") or "").lower()
+        if rule_pm and rule_pm not in pm_norm and pm_norm not in rule_pm:
+            continue
+        if best is None or rule_pm:
+            best = rule
+    if not best:
+        return 0.0
+
+    kind = best.get("fee_kind", "percentage")
+    pct  = float(best.get("pct_rate") or 0)
+    fix  = float(best.get("fixed_amount") or 0)
+    usd  = float(usd_amount or 0)
+    if kind == "percentage":       return round(usd * pct, 4)
+    if kind == "fixed":            return round(fix, 4)
+    if kind == "fixed_plus_pct":   return round(fix + usd * pct, 4)
+    if kind == "tiered":
+        for tier in sorted(best.get("tiers", []), key=lambda t: t.get("volume_from", 0), reverse=True):
+            if usd >= tier.get("volume_from", 0):
+                return round(usd * float(tier.get("pct_rate", 0)), 4)
+    return 0.0
+
+
+def crm_expected_fees(year: int, month: int) -> dict:
+    """
+    For each login, compute the total expected PSP fee for approved deposits
+    in the given month using fee rules from the fees database.
+
+    Returns {login: expected_fee_usd}.
+
+    This bridges the gap between MT4 net deposit (post-fee) and CRM gross deposit
+    (pre-fee), allowing the reconciliation to compute a fee-adjusted difference.
+    """
+    import datetime
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+
+    key = f"crm_fees:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    # Load fee calc context (all cached)
+    rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db = _load_fee_calc_context()
+
+    # Fetch individual deposit transactions from CRM (need per-tx amounts + processor)
+    def _fetch_txns():
+        with crm() as cur:
+            cur.execute("""
+                SELECT login, payment_method, payment_processor, usdamount
+                FROM report.vtiger_mttransactions
+                WHERE confirmation_time >= %s AND confirmation_time < %s
+                  AND transactionapproval = 'Approved'
+                  AND transactiontype IN ('Deposit', 'TransferIn')
+                  AND (deleted IS NULL OR deleted = 0)
+                  AND login IS NOT NULL
+            """, (month_start, month_end))
+            return cur.fetchall()
+
+    try:
+        txns = _db_retry(_fetch_txns)
+    except Exception:
+        txns = []
+
+    fees_by_login: dict = {}
+    for r in txns:
+        login      = r["login"]
+        usd        = float(r["usdamount"] or 0)
+        pm         = r["payment_method"] or ""
+        processor  = r["payment_processor"] or ""
+
+        # Try processor-first lookup (highest precision)
+        fee = 0.0
+        if processor:
+            saved = saved_mappings.get(processor)
+            if saved and saved.get("agreement_id"):
+                matched = rules_by_id.get(saved["agreement_id"])
+                if matched:
+                    fee = _apply_fee_rule(usd, pm, "Deposit",
+                                         {saved["agreement_id"]: matched},
+                                         {}, {}, method_mappings_db)
+        # Fallback: match by payment method name
+        if fee == 0.0:
+            fee = _apply_fee_rule(usd, pm, "Deposit",
+                                  rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db)
+
+        if fee > 0:
+            fees_by_login[login] = round(fees_by_login.get(login, 0.0) + fee, 4)
+
+    _cache_set(key, fees_by_login)
+    return fees_by_login
+
+
 def reconcile(year: int, month: int):
     """Join MT4 netdeposit vs CRM cash transactions per login (cached 5 min)."""
     key = f"reconcile:{year}:{month}"
@@ -325,21 +480,26 @@ def reconcile(year: int, month: int):
     crm    = crm_summary(year, month)
     mt4    = mt4_summary(year, month)
     praxis = praxis_summary(year, month)
+    fees   = crm_expected_fees(year, month)   # {login: expected_fee_usd}
 
     rows = []
     for login in set(crm) | set(mt4):
         c = crm.get(login, {})
         m = mt4.get(login, {})
 
-        mt4_net  = round(float(m.get("net_usd") or 0), 2)
-        crm_cash = round(c.get("cash_net", 0), 2)
-        diff     = round(mt4_net - crm_cash, 2)
+        mt4_net      = round(float(m.get("net_usd") or 0), 2)
+        crm_cash     = round(c.get("cash_net", 0), 2)
+        expected_fee = round(fees.get(login, 0.0), 2)
+        diff         = round(mt4_net - crm_cash, 2)
+        # Fee-adjusted difference: MT4 net vs (CRM gross - expected PSP fee)
+        # Should be ~0 for correctly processed transactions
+        fee_adj_diff = round(mt4_net - (crm_cash - expected_fee), 2)
 
         if login not in crm:
             status = "mt4_only"
         elif login not in mt4:
             status = "crm_only"
-        elif abs(diff) < 1.0:
+        elif abs(fee_adj_diff) < 1.0:
             status = "matched"
         else:
             status = "discrepancy"
@@ -357,7 +517,9 @@ def reconcile(year: int, month: int):
             "crm_noncash_in":     round(c.get("noncash_in", 0), 2),
             "crm_noncash_out":    round(c.get("noncash_out", 0), 2),
             "difference":         diff,
-            "abs_diff":           abs(diff),
+            "abs_diff":           abs(fee_adj_diff),
+            "expected_fees":      expected_fee,
+            "fee_adj_diff":       fee_adj_diff,
             "status":             status,
             "payment_methods":    c.get("payment_methods", ""),
             "tx_count":           c.get("tx_count", 0),
@@ -619,17 +781,8 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
     if cached is not None:
         return cached
 
-    # Load fee rules keyed by agreement_id AND psp_name lower
-    all_agreements = get_all_agreements()
-    rules_by_id: dict = {}
-    fee_rules_by_psp: dict = {}
-    for agr in all_agreements:
-        rules = get_fee_rules(agr["id"])
-        rules_by_id[agr["id"]] = {"rules": rules, "psp_name": agr["psp_name"]}
-        fee_rules_by_psp[agr["psp_name"].lower()] = {"rules": rules, "psp_name": agr["psp_name"]}
-
-    # Load saved processor → agreement mappings (confirmed manual overrides)
-    saved_mappings = get_processor_mappings()   # {processor_name: {agreement_id, confirmed}}
+    # Load fee rules and mappings (shared helper, all results cached)
+    rules_by_id, fee_rules_by_psp, saved_mappings, _ = _load_fee_calc_context()
 
     # Pull Praxis transactions for the period
     try:
