@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %} — Admin Panel{% endblock %}
+{% block content %}
+<style>
+  .admin-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius-md); margin-bottom:var(--sp-4); overflow:hidden;
+  }
+  .admin-card-header {
+    padding:14px 20px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .admin-card-title {
+    font-size:13px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.07em; color:var(--muted);
+  }
+  .admin-card-body { padding:20px; }
+  .admin-stat {
+    display:flex; align-items:center; gap:6px;
+    font-size:12px; color:var(--muted);
+  }
+  .admin-stat strong { color:var(--text); }
+  .snap-row {
+    display:grid; grid-template-columns:1fr 80px 130px auto;
+    gap:12px; align-items:center;
+    padding:10px 0; border-bottom:1px solid rgba(255,255,255,.04);
+    font-size:13px;
+  }
+  .snap-row:last-child { border-bottom:none; }
+  .snap-name { font-weight:600; }
+  .snap-actions { display:flex; gap:6px; justify-content:flex-end; }
+  .mode-badge {
+    display:inline-flex; align-items:center; gap:7px;
+    padding:5px 14px; border-radius:999px;
+    font-size:12px; font-weight:700;
+  }
+  .mode-badge.demo { background:rgba(245,158,11,.1); color:var(--yellow); border:1px solid rgba(245,158,11,.3); }
+  .mode-badge.live { background:rgba(34,197,94,.1);  color:var(--green);  border:1px solid rgba(34,197,94,.3); }
+  .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .dot.demo { background:var(--yellow); }
+  .dot.live { background:var(--green); animation:pulse-dot 2s infinite; box-shadow:0 0 0 0 rgba(34,197,94,.4); }
+  .upload-zone {
+    border:2px dashed rgba(79,142,247,.3); border-radius:var(--radius-sm);
+    padding:20px; text-align:center; cursor:pointer; position:relative;
+    transition:border-color .2s; background:rgba(79,142,247,.03);
+  }
+  .upload-zone:hover { border-color:var(--accent); }
+  .upload-zone input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .upload-zone .uz-label { font-size:13px; font-weight:600; color:var(--text-2); }
+  .upload-zone .uz-hint  { font-size:11px; color:var(--muted); margin-top:4px; }
+  #uploadProgress { display:none; margin-top:10px; font-size:12px; color:var(--muted); }
+</style>
+
+<div style="max-width:780px;margin:0 auto;">
+  <div style="margin-bottom:24px;">
+    <a href="/fees" class="back-link">← Fees</a>
+    <div class="page-title" style="margin-top:6px;">Admin Panel</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:3px;">
+      Database management, mode switching and snapshots. Requires admin credentials.
+    </div>
+  </div>
+
+  <!-- ── DB Mode ────────────────────────────────────────────────── -->
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Database Mode</span>
+      <span class="mode-badge {{ fees_mode }}">
+        <span class="dot {{ fees_mode }}"></span>
+        {{ 'LIVE DB' if fees_mode == 'live' else 'DEMO DB' }}
+      </span>
+    </div>
+    <div class="admin-card-body">
+      <div style="font-size:13px;color:var(--text-2);margin-bottom:16px;">
+        {% if fees_mode == 'live' %}
+          Connected to <strong>PostgreSQL</strong> (fees_postgres container). Live production data.
+        {% else %}
+          Using local <strong>SQLite</strong> (fees.db). Safe for testing — no live data affected.
+        {% endif %}
+      </div>
+      <button class="btn {% if fees_mode == 'live' %}btn-danger{% else %}btn-primary{% endif %}"
+              style="height:36px;font-size:13px;"
+              onclick="switchMode()">
+        Switch to {{ 'Demo (SQLite)' if fees_mode == 'live' else 'Live (PostgreSQL)' }}
+      </button>
+      <span id="modeStatus" style="font-size:12px;color:var(--muted);margin-left:12px;display:none;"></span>
+    </div>
+  </div>
+
+  <!-- ── Active Demo DB ─────────────────────────────────────────── -->
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Active Demo Database (fees.db)</span>
+      {% if db_info %}
+      <div class="admin-stat">
+        <strong>{{ db_info.size_mb }} MB</strong> &nbsp;·&nbsp; modified {{ db_info.modified }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="admin-card-body">
+      <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+        <a href="/fees/admin/backup" class="btn" style="height:36px;font-size:13px;">
+          ↓ Download Backup
+        </a>
+      </div>
+
+      {% if fees_mode == 'demo' %}
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+                  color:var(--muted);margin-bottom:10px;">Replace Active Database</div>
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="dbFileInput" accept=".db" onchange="handleDbUpload(this)">
+        <div class="uz-label">Drop a .db file here or click to browse</div>
+        <div class="uz-hint">Must be a valid SQLite database. Will replace fees.db immediately.</div>
+      </div>
+      <div id="uploadProgress"></div>
+      {% else %}
+      <div style="font-size:12px;color:var(--muted);">
+        Upload is only available in DEMO mode.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Snapshot Library ───────────────────────────────────────── -->
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Snapshot Library</span>
+      <span style="font-size:12px;color:var(--muted);">{{ snapshots|length }} snapshot{{ 's' if snapshots|length != 1 }}</span>
+    </div>
+    <div class="admin-card-body">
+
+      <!-- Save current as snapshot -->
+      <div style="display:flex;gap:8px;margin-bottom:20px;align-items:center;">
+        <input type="text" id="snapshotLabel" placeholder="snapshot-name (alphanumeric, dash, underscore)"
+               style="flex:1;height:36px;padding:0 12px;background:var(--surface-alt);
+                      border:1px solid var(--border);border-radius:var(--radius-sm);
+                      color:var(--text);font-size:13px;"
+               maxlength="40" pattern="[A-Za-z0-9_\-]+">
+        <button class="btn btn-primary" style="height:36px;font-size:13px;white-space:nowrap;"
+                onclick="saveSnapshot()">Save Current as Snapshot</button>
+      </div>
+
+      <!-- Snapshot list -->
+      {% if snapshots %}
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">
+        <div class="snap-row" style="font-size:10px;font-weight:700;text-transform:uppercase;
+             letter-spacing:.07em;color:var(--muted);padding:8px 12px;
+             background:rgba(255,255,255,.02);border-bottom:1px solid var(--border);">
+          <span>Name</span><span>Size</span><span>Modified</span><span>Actions</span>
+        </div>
+        {% for s in snapshots %}
+        <div class="snap-row" style="padding:10px 12px;" id="snap-{{ s.name }}">
+          <span class="snap-name">{{ s.name }}</span>
+          <span style="color:var(--muted);">{{ s.size_mb }} MB</span>
+          <span style="color:var(--muted);">{{ s.modified }}</span>
+          <div class="snap-actions">
+            {% if fees_mode == 'demo' %}
+            <button class="btn" style="height:28px;font-size:11px;padding:0 10px;"
+                    onclick="activateSnapshot('{{ s.name }}')">Activate</button>
+            {% endif %}
+            <a href="/fees/admin/snapshot/{{ s.name }}/download"
+               class="btn" style="height:28px;font-size:11px;padding:0 10px;">↓</a>
+            <button class="btn" style="height:28px;font-size:11px;padding:0 10px;color:var(--muted);"
+                    onclick="deleteSnapshot('{{ s.name }}')">✕</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div style="font-size:13px;color:var(--muted);padding:16px 0;">
+        No snapshots yet. Save one above to create a named copy of the current database.
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+
+<script>
+function switchMode() {
+  var current = '{{ fees_mode }}';
+  var next    = current === 'live' ? 'demo' : 'live';
+  if (!confirm('Switch fees database from ' + current.toUpperCase() + ' to ' + next.toUpperCase() + '?\n\n' +
+    (next === 'live' ? 'Connects to the PostgreSQL fees_postgres container.'
+                     : 'Switches back to the local SQLite fees.db file.') +
+    '\n\nThe container will restart — this takes ~5 seconds.')) return;
+  var st = document.getElementById('modeStatus');
+  st.style.display = 'inline'; st.textContent = 'Switching…';
+  fetch('/fees/mode', {method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'mode='+next})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.ok) {
+        st.textContent = 'Restarting container…';
+        setTimeout(function(){ window.location.reload(); }, 4000);
+      } else {
+        st.textContent = 'Error: ' + (d.msg || 'unknown');
+      }
+    }).catch(function(){ st.textContent = 'Request failed'; });
+}
+
+function handleDbUpload(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var prog = document.getElementById('uploadProgress');
+  prog.style.display = 'block';
+  prog.textContent = 'Uploading ' + file.name + ' (' + (file.size/1048576).toFixed(1) + ' MB)…';
+  if (!confirm('Replace fees.db with "' + file.name + '"? This will overwrite the current database immediately.')) {
+    input.value = ''; prog.style.display = 'none'; return;
+  }
+  var fd = new FormData(); fd.append('db_file', file);
+  fetch('/fees/admin/upload', {method:'POST', body:fd})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.ok) {
+        prog.textContent = '✓ Database replaced. Reloading…';
+        setTimeout(function(){ window.location.reload(); }, 1500);
+      } else {
+        prog.textContent = '✗ Error: ' + (d.error || 'unknown');
+        input.value = '';
+      }
+    }).catch(function(e){ prog.textContent = 'Upload failed: ' + e; input.value = ''; });
+}
+
+function saveSnapshot() {
+  var label = document.getElementById('snapshotLabel').value.trim();
+  if (!label) { alert('Enter a snapshot name.'); return; }
+  if (!/^[A-Za-z0-9_\-]{1,40}$/.test(label)) {
+    alert('Name must be 1–40 chars: letters, numbers, dash, underscore.'); return;
+  }
+  fetch('/fees/admin/snapshot/save', {method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'label='+encodeURIComponent(label)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.ok) { window.location.reload(); }
+      else { alert('Error: ' + (d.error || 'unknown')); }
+    });
+}
+
+function activateSnapshot(name) {
+  if (!confirm('Activate snapshot "' + name + '"?\n\nThis will replace the current fees.db with this snapshot immediately.')) return;
+  fetch('/fees/admin/snapshot/'+encodeURIComponent(name)+'/activate', {method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.ok) { alert('Snapshot "' + name + '" is now active.'); window.location.reload(); }
+      else { alert('Error: ' + (d.error || 'unknown')); }
+    });
+}
+
+function deleteSnapshot(name) {
+  if (!confirm('Permanently delete snapshot "' + name + '"?')) return;
+  fetch('/fees/admin/snapshot/'+encodeURIComponent(name)+'/delete', {method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.ok) { var el = document.getElementById('snap-'+name); if(el) el.remove(); }
+      else { alert('Error: ' + (d.error||'unknown')); }
+    });
+}
+</script>
+{% endblock %}

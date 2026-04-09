@@ -24,12 +24,14 @@ try:
 except Exception as e:
     print(f"WARNING: Could not create fee tables: {e}")
 
-_RECON_USER = os.environ.get("RECON_USER", "")
-_RECON_PASS = os.environ.get("RECON_PASS", "")
-_FEES_USER  = os.environ.get("FEES_USER",  "")
-_FEES_PASS  = os.environ.get("FEES_PASS",  "")
-_FX_USER    = os.environ.get("FX_USER",    "")
-_FX_PASS    = os.environ.get("FX_PASS",    "")
+_RECON_USER  = os.environ.get("RECON_USER",  "")
+_RECON_PASS  = os.environ.get("RECON_PASS",  "")
+_FEES_USER   = os.environ.get("FEES_USER",   "")
+_FEES_PASS   = os.environ.get("FEES_PASS",   "")
+_FX_USER     = os.environ.get("FX_USER",     "")
+_FX_PASS     = os.environ.get("FX_PASS",     "")
+_ADMIN_USER  = os.environ.get("ADMIN_USER",  "")
+_ADMIN_PASS  = os.environ.get("ADMIN_PASS",  "")
 
 
 def _unauthorized(realm):
@@ -72,6 +74,18 @@ def require_fx_auth(f):
         auth = request.authorization
         if not auth or auth.username != _FX_USER or auth.password != _FX_PASS:
             return _unauthorized("CMT FX Rates")
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_admin_auth(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _ADMIN_USER or not _ADMIN_PASS:
+            abort(500, "ADMIN_USER and ADMIN_PASS env vars not set.")
+        auth = request.authorization
+        if not auth or auth.username != _ADMIN_USER or auth.password != _ADMIN_PASS:
+            return _unauthorized("CMT Admin")
         return f(*args, **kwargs)
     return wrapper
 
@@ -840,19 +854,145 @@ def fees_calculator_uncovered():
 @app.route("/fees/db-backup")
 @require_fees_auth
 def fees_db_backup():
-    """Download the current fees.db SQLite file."""
+    """Legacy URL — redirect to admin panel."""
+    return redirect(url_for("fees_admin"))
+
+
+# ---------------------------------------------------------------------------
+# Admin panel
+# ---------------------------------------------------------------------------
+
+_SNAPSHOTS_DIR = os.path.join(os.path.dirname(__file__), "db_snapshots")
+_FEES_DB_PATH  = os.path.join(os.path.dirname(__file__), "fees.db")
+
+
+def _snapshot_label_safe(label):
+    import re as _re
+    return bool(_re.match(r'^[A-Za-z0-9_\-]{1,40}$', label or ""))
+
+
+def _list_snapshots():
     import os as _os
-    db_path = _os.path.join(_os.path.dirname(__file__), "fees.db")
-    if not _os.path.exists(db_path):
+    if not _os.path.isdir(_SNAPSHOTS_DIR):
+        return []
+    snaps = []
+    for fn in sorted(_os.listdir(_SNAPSHOTS_DIR)):
+        if fn.endswith(".db"):
+            path = _os.path.join(_SNAPSHOTS_DIR, fn)
+            st   = _os.stat(path)
+            snaps.append({
+                "name":     fn[:-3],
+                "filename": fn,
+                "size_mb":  round(st.st_size / 1_048_576, 1),
+                "modified": __import__("datetime").datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            })
+    return snaps
+
+
+@app.route("/fees/admin")
+@require_admin_auth
+def fees_admin():
+    import os as _os, datetime as _dt
+    from db import FEES_MODE
+    db_stat = _os.stat(_FEES_DB_PATH) if _os.path.exists(_FEES_DB_PATH) else None
+    db_info = {
+        "size_mb":  round(db_stat.st_size / 1_048_576, 1) if db_stat else 0,
+        "modified": _dt.datetime.fromtimestamp(db_stat.st_mtime).strftime("%Y-%m-%d %H:%M") if db_stat else "—",
+    } if db_stat else None
+    return render_template("fees_admin.html",
+                           fees_mode=FEES_MODE,
+                           db_info=db_info,
+                           snapshots=_list_snapshots())
+
+
+@app.route("/fees/admin/backup")
+@require_admin_auth
+def fees_admin_backup():
+    from datetime import date as _d
+    if not os.path.exists(_FEES_DB_PATH):
         abort(404, "fees.db not found")
-    from datetime import date as _date
-    filename = f"fees_backup_{_date.today()}.db"
-    return send_file(db_path, as_attachment=True, download_name=filename,
+    return send_file(_FEES_DB_PATH, as_attachment=True,
+                     download_name=f"fees_backup_{_d.today()}.db",
                      mimetype="application/octet-stream")
 
 
+@app.route("/fees/admin/upload", methods=["POST"])
+@require_admin_auth
+def fees_admin_upload():
+    from db import FEES_MODE
+    if FEES_MODE != "demo":
+        return jsonify({"ok": False, "error": "Only available in DEMO mode"}), 400
+    f = request.files.get("db_file")
+    if not f or not f.filename.endswith(".db"):
+        return jsonify({"ok": False, "error": "Please upload a .db file"}), 400
+    data = f.read()
+    # Validate it's a SQLite file (magic bytes)
+    if not data.startswith(b"SQLite format 3\x00"):
+        return jsonify({"ok": False, "error": "File is not a valid SQLite database"}), 400
+    # Bust all caches before replacing
+    queries._CACHE.clear()
+    with open(_FEES_DB_PATH, "wb") as fh:
+        fh.write(data)
+    return jsonify({"ok": True})
+
+
+@app.route("/fees/admin/snapshot/save", methods=["POST"])
+@require_admin_auth
+def fees_admin_snapshot_save():
+    import shutil as _sh
+    label = request.form.get("label", "").strip()
+    if not _snapshot_label_safe(label):
+        return jsonify({"ok": False, "error": "Label must be 1–40 alphanumeric/dash/underscore chars"}), 400
+    if not os.path.exists(_FEES_DB_PATH):
+        return jsonify({"ok": False, "error": "fees.db not found"}), 404
+    os.makedirs(_SNAPSHOTS_DIR, exist_ok=True)
+    dest = os.path.join(_SNAPSHOTS_DIR, f"{label}.db")
+    _sh.copy2(_FEES_DB_PATH, dest)
+    return jsonify({"ok": True})
+
+
+@app.route("/fees/admin/snapshot/<name>/activate", methods=["POST"])
+@require_admin_auth
+def fees_admin_snapshot_activate(name):
+    import shutil as _sh
+    from db import FEES_MODE
+    if FEES_MODE != "demo":
+        return jsonify({"ok": False, "error": "Only available in DEMO mode"}), 400
+    if not _snapshot_label_safe(name):
+        abort(400)
+    src = os.path.join(_SNAPSHOTS_DIR, f"{name}.db")
+    if not os.path.exists(src):
+        abort(404)
+    queries._CACHE.clear()
+    _sh.copy2(src, _FEES_DB_PATH)
+    return jsonify({"ok": True})
+
+
+@app.route("/fees/admin/snapshot/<name>/download")
+@require_admin_auth
+def fees_admin_snapshot_download(name):
+    if not _snapshot_label_safe(name):
+        abort(400)
+    path = os.path.join(_SNAPSHOTS_DIR, f"{name}.db")
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, as_attachment=True, download_name=f"{name}.db",
+                     mimetype="application/octet-stream")
+
+
+@app.route("/fees/admin/snapshot/<name>/delete", methods=["POST"])
+@require_admin_auth
+def fees_admin_snapshot_delete(name):
+    if not _snapshot_label_safe(name):
+        abort(400)
+    path = os.path.join(_SNAPSHOTS_DIR, f"{name}.db")
+    if os.path.exists(path):
+        os.remove(path)
+    return jsonify({"ok": True})
+
+
 @app.route("/fees/mode", methods=["POST"])
-@require_fees_auth
+@require_admin_auth
 def fees_switch_mode():
     """Switch FEES_MODE between demo and live by updating docker-compose.yml
     and restarting the container. Server-only — no-op in local dev."""

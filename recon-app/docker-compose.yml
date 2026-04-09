@@ -22,6 +22,8 @@ services:
       - FEES_PASS=PUlDNl_ZZDirFBxaF8FFtQ
       - FX_USER=CMTFxRates
       - FX_PASS=I0vcjes2tgVfkQxE1DHQac1H
+      - ADMIN_USER=${ADMIN_USER:-CMTAdmin}
+      - ADMIN_PASS=${ADMIN_PASS:-ChangeMe2026!}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       # Praxis operations database (direct connection from server)
