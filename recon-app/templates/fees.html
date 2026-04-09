@@ -201,6 +201,7 @@ function switchFeesMode() {
           <th>Terminated</th>
           <th>Settlement Bank</th>
           <th class="num">Rules</th>
+          <th></th>
         </tr>
       </thead>
       <tbody id="tbody-historical">
@@ -215,10 +216,21 @@ function switchFeesMode() {
           <td style="color:var(--muted);">{{ a.updated_at[:10] if a.updated_at else '—' }}</td>
           <td style="color:var(--text-2);">{{ a.settlement_bank or '—' }}</td>
           <td class="num">{{ a.rule_count }}</td>
+          <td onclick="event.stopPropagation()">
+            <form method="POST" action="/fees/{{ a.id }}/purge" style="margin:0;"
+                  onsubmit="return confirm('Permanently delete {{ a.psp_name }} and all its fee rules? This cannot be undone.')">
+              <button type="submit" title="Delete permanently"
+                      style="background:none;border:none;color:var(--muted);cursor:pointer;
+                             font-size:15px;padding:2px 6px;border-radius:3px;line-height:1;
+                             transition:color .15s;"
+                      onmouseover="this.style.color='var(--red)'"
+                      onmouseout="this.style.color='var(--muted)'">🗑</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
         <tr id="no-results-historical" style="display:none;">
-          <td colspan="7" class="empty" style="padding:32px;color:var(--muted);">
+          <td colspan="8" class="empty" style="padding:32px;color:var(--muted);">
             No terminated agreements match your search.
           </td>
         </tr>

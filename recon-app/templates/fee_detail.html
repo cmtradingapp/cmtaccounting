@@ -218,6 +218,7 @@
         {% if agreement.agr_filename %}
         <a class="btn" href="/fees/{{ agreement.id }}/download-agreement">↓ Download Initial Agreement</a>
         {% endif %}
+        {% if agreement.active %}
         <div id="terminateArea">
           <button class="btn btn-danger" id="terminateBtn" onclick="showTerminateConfirm()">Terminate</button>
           <div id="terminateConfirm" style="display:none;">
@@ -232,6 +233,9 @@
             </div>
           </div>
         </div>
+        {% else %}
+        <div style="font-size:11px;color:var(--muted);padding:6px 0;">Terminated — view only</div>
+        {% endif %}
       </div>
 
     </div>

@@ -2602,6 +2602,13 @@ def delete_agreement(psp_id):
         conn.execute("UPDATE psp_agreements SET active = 0 WHERE id = ?", (psp_id,))
 
 
+def purge_agreement(psp_id):
+    """Permanently delete a terminated agreement and all its fee rules."""
+    with fees_db() as conn:
+        conn.execute("DELETE FROM psp_fee_rules WHERE agreement_id = ?", (psp_id,))
+        conn.execute("DELETE FROM psp_agreements WHERE id = ? AND active = 0", (psp_id,))
+
+
 def update_addendum_date(psp_id, addendum_date):
     with fees_db() as conn:
         conn.execute(

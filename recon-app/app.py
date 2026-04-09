@@ -965,6 +965,14 @@ def fees_delete(psp_id):
     return redirect(url_for("fees_list"))
 
 
+@app.route("/fees/<int:psp_id>/purge", methods=["POST"])
+@require_fees_auth
+def fees_purge(psp_id):
+    """Permanently delete a terminated agreement from history."""
+    queries.purge_agreement(psp_id)
+    return redirect(url_for("fees_list") + "#historical")
+
+
 @app.route("/fees/<int:psp_id>/rules/add", methods=["POST"])
 @require_fees_auth
 def fees_add_rule(psp_id):
