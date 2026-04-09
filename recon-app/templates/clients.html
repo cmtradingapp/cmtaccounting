@@ -314,7 +314,8 @@ function loadData(span) {
       var ageEl = document.getElementById('clCacheAge');
       if (ageEl) ageEl.textContent = age != null ? '· cached ' + age + 's ago' : '';
 
-      applyView();
+      // Defer by one rAF so the browser finishes layout (clientHeight) before vsRender reads it
+      requestAnimationFrame(function() { applyView(); });
     })
     .catch(function(e) {
       document.getElementById('clLoadMsg').textContent = 'Error loading data. Try refreshing.';
