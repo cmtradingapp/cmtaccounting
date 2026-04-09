@@ -970,7 +970,7 @@ def fees_delete(psp_id):
 def fees_purge(psp_id):
     """Permanently delete a terminated agreement from history."""
     queries.purge_agreement(psp_id)
-    return redirect(url_for("fees_list") + "#historical")
+    return jsonify({"ok": True})
 
 
 @app.route("/fees/<int:psp_id>/rules/add", methods=["POST"])

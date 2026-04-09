@@ -217,15 +217,13 @@ function switchFeesMode() {
           <td style="color:var(--text-2);">{{ a.settlement_bank or '—' }}</td>
           <td class="num">{{ a.rule_count }}</td>
           <td onclick="event.stopPropagation()">
-            <form method="POST" action="/fees/{{ a.id }}/purge" style="margin:0;"
-                  onsubmit="return confirm('Permanently delete {{ a.psp_name }} and all its fee rules? This cannot be undone.')">
-              <button type="submit" title="Delete permanently"
-                      style="background:none;border:none;color:var(--muted);cursor:pointer;
-                             font-size:15px;padding:2px 6px;border-radius:3px;line-height:1;
-                             transition:color .15s;"
-                      onmouseover="this.style.color='var(--red)'"
-                      onmouseout="this.style.color='var(--muted)'">🗑</button>
-            </form>
+            <button title="Delete permanently"
+                    onclick="purgeAgreement({{ a.id }}, '{{ a.psp_name | e }}', this)"
+                    style="background:none;border:none;color:var(--muted);cursor:pointer;
+                           font-size:15px;padding:2px 6px;border-radius:3px;line-height:1;
+                           transition:color .15s;"
+                    onmouseover="this.style.color='var(--red)'"
+                    onmouseout="this.style.color='var(--muted)'">🗑</button>
           </td>
         </tr>
         {% endfor %}
@@ -325,6 +323,29 @@ function clearSearch() {
 {% if terminated|length > 0 and agreements|length == 0 %}
 switchTab('historical');
 {% endif %}
+
+function purgeAgreement(id, name, btn) {
+  if (!confirm('Permanently delete "' + name + '" and all its fee rules?\nThis cannot be undone.')) return;
+  var row = btn.closest('tr');
+  row.style.transition = 'opacity .35s ease, transform .35s ease';
+  row.style.opacity    = '0';
+  row.style.transform  = 'translateX(40px)';
+  fetch('/fees/' + id + '/purge', {method: 'POST'})
+    .then(function(r) {
+      if (!r.ok) { row.style.opacity=''; row.style.transform=''; alert('Delete failed.'); return; }
+      setTimeout(function() {
+        row.remove();
+        // Update the count badge on the tab button
+        var tbody = document.getElementById('tbody-historical');
+        var remaining = tbody ? tbody.querySelectorAll('tr:not([id])').length : 0;
+        var countEl = document.querySelector('#tab-historical-btn .tab-count');
+        if (countEl) countEl.textContent = remaining;
+        var meta = document.getElementById('meta-historical');
+        if (meta) meta.textContent = remaining + ' terminated agreement' + (remaining !== 1 ? 's' : '');
+      }, 370);
+    })
+    .catch(function() { row.style.opacity=''; row.style.transform=''; alert('Request failed.'); });
+}
 </script>
 
 {% endblock %}
