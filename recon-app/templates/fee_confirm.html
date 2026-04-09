@@ -170,10 +170,16 @@
 <div style="max-width:860px;margin:0 auto;">
 
   <div style="margin-bottom:20px;">
-    <a href="/fees/upload" class="back-link">← Upload another</a>
-    <div class="page-title" style="margin-top:6px;">Review AI Extraction</div>
+    <a href="/fees" class="back-link">← Fees</a>
+    {% if not manual %}
+    <a href="/fees/upload" class="back-link" style="margin-left:8px;">← Upload another</a>
+    {% endif %}
+    <div class="page-title" style="margin-top:6px;">
+      {% if manual %}Add PSP Agreement{% else %}Review AI Extraction{% endif %}
+    </div>
   </div>
 
+  {% if not manual %}
   <div class="ai-banner">
     <span class="ai-icon">🤖</span>
     <div>
@@ -181,6 +187,7 @@
       Review carefully — edit any fields before saving. Nothing is committed until you click Save.
     </div>
   </div>
+  {% endif %}
 
   {% if dups_removed %}
   <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;margin-bottom:14px;

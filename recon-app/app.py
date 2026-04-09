@@ -958,6 +958,22 @@ def fees_edit(psp_id):
     return redirect(url_for("fees_detail", psp_id=psp_id))
 
 
+@app.route("/fees/add")
+@require_fees_auth
+def fees_add_manual():
+    """Render the confirm form with empty data for manual agreement entry."""
+    historical = request.args.get("historical") == "1"
+    return render_template(
+        "fee_confirm.html",
+        agreement={}, fee_rules=[], dups_removed=0,
+        ai_warnings=[], raw_response="", filename=None,
+        cache_token=None, historical=historical, manual=True,
+        entities=queries.get_entities(),
+        fee_types=FEE_TYPES, payment_methods=PAYMENT_METHODS, currencies=CURRENCIES,
+        gaps=[],
+    )
+
+
 @app.route("/fees/<int:psp_id>/delete", methods=["POST"])
 @require_fees_auth
 def fees_delete(psp_id):
