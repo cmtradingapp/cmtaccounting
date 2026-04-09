@@ -34,6 +34,18 @@ jobs:
             --exclude='*.db-wal' \
             recon-app/ root@213.199.45.213:/root/recon-app/
 
+      - name: Inject admin credentials into server .env
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASS }}
+        run: |
+          # Write/update ADMIN_USER and ADMIN_PASS in the server's .env
+          # (rsync excludes .env so the rest of the file is preserved)
+          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
+            "touch /root/recon-app/.env && \
+             sed -i '/^ADMIN_USER=/d; /^ADMIN_PASS=/d' /root/recon-app/.env && \
+             printf 'ADMIN_USER=${{ secrets.ADMIN_USER }}\nADMIN_PASS=${{ secrets.ADMIN_PASS }}\n' \
+               >> /root/recon-app/.env"
+
       - name: Restart or rebuild container
         env:
           SSHPASS: ${{ secrets.SERVER_PASS }}
