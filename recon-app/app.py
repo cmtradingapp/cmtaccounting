@@ -1095,17 +1095,21 @@ def fees_upload():
     if not default_tpl and templates:
         default_tpl = templates[0]
 
+    historical = (request.args.get("historical") == "1"
+                  if request.method == "GET"
+                  else request.form.get("historical") == "1")
+
     if request.method == "GET":
         return render_template("fee_upload.html", templates=templates,
                                default_tpl=default_tpl, context_notes=context_notes,
-                               amendment_agreement=amend_agr)
+                               amendment_agreement=amend_agr, historical=historical)
 
     def _render_error(msg):
         psp_id_post = request.form.get("psp_id", type=int)
         agr = queries.get_agreement(psp_id_post) if psp_id_post else None
         return render_template("fee_upload.html", templates=templates,
                                default_tpl=default_tpl, context_notes=context_notes,
-                               amendment_agreement=agr, error=msg)
+                               amendment_agreement=agr, historical=historical, error=msg)
 
     f = request.files.get("agreement_file")
     if not f or not f.filename:
@@ -1289,6 +1293,7 @@ def fees_upload():
         currencies=CURRENCIES,
         filename=f.filename,
         cache_token=agr_cache_token,
+        historical=historical,
     )
 
 
@@ -1352,6 +1357,10 @@ def fees_upload_confirm():
         fn, fd = queries.pop_upload_cache(cache_token)
         if fn and fd:
             queries.save_agreement_file(psp_id, fn, fd)
+
+    # Historical mode: immediately deactivate so it lands in the Historical tab
+    if request.form.get("historical") == "1":
+        queries.delete_agreement(psp_id)
 
     return redirect(url_for("fees_detail", psp_id=psp_id))
 

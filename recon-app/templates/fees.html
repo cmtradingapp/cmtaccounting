@@ -189,7 +189,13 @@ function switchFeesMode() {
 <!-- Historical tab -->
 <div id="tab-historical" style="display:none;">
   {% if terminated %}
-  <div class="table-meta" id="meta-historical">{{ terminated|length }} terminated agreement{{ 's' if terminated|length != 1 }}</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+    <div class="table-meta" id="meta-historical" style="margin-bottom:0;">{{ terminated|length }} terminated agreement{{ 's' if terminated|length != 1 }}</div>
+    <a href="/fees/upload?historical=1" class="btn btn-ghost"
+       style="height:32px;font-size:12px;padding:0 12px;border:1px solid rgba(255,255,255,.12);">
+      + Add Historical
+    </a>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -239,6 +245,11 @@ function switchFeesMode() {
   <div style="text-align:center;padding:48px 32px;color:var(--muted);
               background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);">
     <div style="font-size:13px;">No terminated agreements.</div>
+    <a href="/fees/upload?historical=1" class="btn btn-ghost"
+       style="margin-top:16px;display:inline-flex;height:34px;padding:0 16px;font-size:13px;
+              border:1px solid rgba(255,255,255,.12);">
+      + Add Historical Agreement
+    </a>
   </div>
   {% endif %}
 </div>

@@ -203,9 +203,18 @@
   </div>
   {% endif %}
 
+  {% if historical %}
+  <div style="padding:10px 14px;margin-bottom:16px;
+       background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.25);
+       border-radius:var(--radius-sm);font-size:12px;color:var(--yellow);">
+    <strong>Historical mode</strong> — confirming will save this agreement directly to the Historical tab.
+  </div>
+  {% endif %}
+
   <form method="POST" action="/fees/upload/confirm" id="confirmForm">
     <input type="hidden" name="rule_count"   id="ruleCount" value="{{ fee_rules|length }}">
     <input type="hidden" name="cache_token"  value="{{ cache_token or '' }}">
+    {% if historical %}<input type="hidden" name="historical" value="1">{% endif %}
 
     <!-- ── Agreement details ────────────────────────────────── -->
     <div class="section-title">Agreement Details</div>
@@ -287,7 +296,7 @@
     <div class="form-footer" style="margin-top:var(--sp-4);">
       <div class="form-footer-actions">
         <button type="submit" class="btn btn-primary" style="height:42px;padding:0 28px;font-size:14px;">
-          Save PSP &amp; Fee Rules
+          {% if historical %}Save to History{% else %}Save PSP &amp; Fee Rules{% endif %}
         </button>
         <a href="/fees" class="btn btn-cancel" style="height:42px;padding:0 20px;">Discard</a>
       </div>
