@@ -706,6 +706,16 @@ def _validate_rules(rules: list) -> list[str]:
 
 # ── Main API call ──────────────────────────────────────────────────────────
 
+def _strip_fences(raw: str) -> str:
+    """Remove markdown code fences if Claude wraps the JSON."""
+    if raw.startswith("```"):
+        raw = raw.split("```", 2)[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.rsplit("```", 1)[0].strip()
+    return raw
+
+
 def _call_claude(system_prompt: str, user_msg: str) -> str:
     """Call Claude and return the raw JSON text response."""
     if not ANTHROPIC_KEY:
@@ -721,14 +731,39 @@ def _call_claude(system_prompt: str, user_msg: str) -> str:
         system=system_prompt,
         messages=[{"role": "user", "content": user_msg}],
     )
-    raw = message.content[0].text.strip()
-    # Strip markdown code fences if Claude wraps the JSON
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[1]          # drop opening fence + lang tag
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.rsplit("```", 1)[0].strip()
-    return raw
+    return _strip_fences(message.content[0].text.strip())
+
+
+def _call_claude_with_pdf(file_bytes: bytes, system_prompt: str, user_text: str) -> str:
+    """Call Claude with a PDF sent as a native document block (handles scanned/image PDFs)."""
+    import base64
+    if not ANTHROPIC_KEY:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is not set. "
+            "Add it to recon-app/.env: ANTHROPIC_API_KEY=sk-ant-..."
+        )
+    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    message = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=8192,
+        temperature=0.0,
+        system=system_prompt,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": base64.b64encode(file_bytes).decode(),
+                    },
+                },
+                {"type": "text", "text": user_text},
+            ],
+        }],
+    )
+    return _strip_fences(message.content[0].text.strip())
 
 
 
@@ -1066,4 +1101,83 @@ def analyze_amendment(text: str, system_prompt: str = None,
     result["warnings"]      = warnings
     result["gaps"]          = find_potential_gaps(rules, pages) if pages else []
     result["raw_response"]  = raw
+    return result
+
+
+# ── Vision-mode analysis (scanned / image PDFs) ────────────────────────────
+
+def analyze_agreement_vision(file_bytes: bytes, filename: str,
+                             system_prompt: str = None) -> dict:
+    """
+    Analyze a PDF agreement using Claude's native PDF vision API.
+    Use this when pdfplumber cannot extract text (scanned/image PDFs).
+    Same post-processing as analyze_agreement; source annotations are skipped
+    because there is no extracted text to reference.
+    """
+    active_prompt = system_prompt or SYSTEM_PROMPT
+
+    user_text = (
+        "Parse the PSP agreement in the attached PDF document.\n\n"
+        "Return a JSON object that EXACTLY matches this structure:\n"
+        f"{_JSON_EXAMPLE}\n\n"
+        "ALLOWED fee_type values (use ONLY these):\n"
+        f"{FEE_TYPES}\n\n"
+        "ALLOWED payment_method values (use ONLY these, or null):\n"
+        f"{PAYMENT_METHODS}\n\n"
+        "Return ONLY the JSON object. No markdown, no commentary."
+    )
+
+    raw    = _call_claude_with_pdf(file_bytes, active_prompt, user_text)
+    result = _safe_json_loads(raw)
+
+    result.setdefault("agreement", {})
+    result.setdefault("fee_rules", [])
+
+    rules        = [_normalise_rule(r) for r in result["fee_rules"]]
+    before       = len(rules)
+    rules        = _dedup_rules(rules)
+    warnings     = _validate_rules(rules)
+
+    result["fee_rules"]    = rules
+    result["dups_removed"] = before - len(rules)
+    result["warnings"]     = warnings
+    result["gaps"]         = []   # no text pages to scan
+    result["raw_response"] = raw
+    return result
+
+
+def analyze_amendment_vision(file_bytes: bytes, filename: str,
+                             system_prompt: str = None) -> dict:
+    """
+    Analyze a PDF amendment using Claude's native PDF vision API.
+    Same post-processing as analyze_amendment; source annotations are skipped.
+    """
+    active_prompt = system_prompt or AMENDMENT_SYSTEM_PROMPT
+
+    user_text = (
+        "Parse the PSP AMENDMENT document in the attached PDF.\n\n"
+        "Return a JSON object with keys 'amendment' and 'rule_changes'.\n\n"
+        "ALLOWED fee_type values (use ONLY these):\n"
+        f"{FEE_TYPES}\n\n"
+        "ALLOWED payment_method values (use ONLY these, or null):\n"
+        f"{PAYMENT_METHODS}\n\n"
+        "Return ONLY the JSON object. No markdown, no commentary."
+    )
+
+    raw    = _call_claude_with_pdf(file_bytes, active_prompt, user_text)
+    result = _safe_json_loads(raw)
+
+    result.setdefault("amendment", {})
+    result.setdefault("rule_changes", [])
+
+    rules        = [_normalise_rule(r) for r in result["rule_changes"]]
+    before       = len(rules)
+    rules        = _dedup_rules(rules)
+    warnings     = _validate_rules(rules)
+
+    result["rule_changes"] = rules
+    result["dups_removed"] = before - len(rules)
+    result["warnings"]     = warnings
+    result["gaps"]         = []
+    result["raw_response"] = raw
     return result

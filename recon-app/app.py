@@ -1128,6 +1128,8 @@ def fees_upload():
     # Amendment mode: psp_id in form → amend an existing agreement
     psp_id_post = request.form.get("psp_id", type=int)
 
+    vision_mode = request.form.get("vision_mode") == "1"
+
     try:
         file_bytes = f.read()
         text  = ai_parse.extract_text(file_bytes, f.filename)
@@ -1136,13 +1138,13 @@ def fees_upload():
         return _render_error(f"Could not read file: {e}")
 
     if not text.strip():
-        return _render_error("No text could be extracted from this file. "
-                             "It may be a scanned image PDF — try a DOCX version instead.")
+        if not vision_mode or ext != "pdf":
+            return _render_error(
+                "No text could be extracted from this file. "
+                "If this is a scanned PDF, tick \"Scanned PDF (vision)\" and re-upload.")
 
     # ── New agreement flow: save file alongside the agreement ───────────────
     if not psp_id_post:
-        # file_bytes available; will be saved after agreement is created in confirm step
-        # cache now so confirm can retrieve it
         agr_cache_token = str(uuid.uuid4())
         queries.cache_upload(agr_cache_token, f.filename, file_bytes)
     else:
@@ -1155,7 +1157,11 @@ def fees_upload():
             return _render_error("PSP not found.")
 
         try:
-            result = ai_parse.analyze_amendment(text, system_prompt=system_prompt, pages=pages)
+            if vision_mode:
+                result = ai_parse.analyze_amendment_vision(file_bytes, f.filename,
+                                                           system_prompt=system_prompt)
+            else:
+                result = ai_parse.analyze_amendment(text, system_prompt=system_prompt, pages=pages)
         except Exception as e:
             return _render_error(f"AI analysis failed: {e}")
 
@@ -1235,7 +1241,11 @@ def fees_upload():
 
     # ── New agreement flow ─────────────────────────────────────────────────
     try:
-        result = ai_parse.analyze_agreement(text, system_prompt=system_prompt, pages=pages)
+        if vision_mode:
+            result = ai_parse.analyze_agreement_vision(file_bytes, f.filename,
+                                                       system_prompt=system_prompt)
+        else:
+            result = ai_parse.analyze_agreement(text, system_prompt=system_prompt, pages=pages)
     except Exception as e:
         return _render_error(f"AI analysis failed: {e}")
 

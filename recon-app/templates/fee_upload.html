@@ -252,6 +252,21 @@
           <span class="file-size" id="fileSize"></span>
         </div>
 
+        <!-- Vision mode toggle (PDF only) -->
+        <div id="visionToggle" style="margin-top:12px;padding:10px 14px;
+             background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.2);
+             border-radius:var(--radius-sm);">
+          <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" name="vision_mode" value="1" id="visionMode"
+                   style="width:15px;height:15px;accent-color:#a78bfa;flex-shrink:0;">
+            <span style="font-weight:600;color:#a78bfa;">Scanned PDF — use AI vision</span>
+          </label>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-left:24px;">
+            For PDFs with no selectable text (photographed or scanned pages).
+            Claude reads each page as an image — slower but works on any scan.
+          </div>
+        </div>
+
         <!-- Additional context: new typed boxes -->
         <div style="margin-top:20px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
@@ -354,6 +369,10 @@ function showFile(file) {
   document.getElementById('fileName').textContent = file.name;
   document.getElementById('fileSize').textContent = formatSize(file.size);
   document.getElementById('filePreview').style.display = 'flex';
+  // Hide vision toggle for non-PDF files
+  var isPdf = ext === 'pdf';
+  document.getElementById('visionToggle').style.display = isPdf ? '' : 'none';
+  if (!isPdf) document.getElementById('visionMode').checked = false;
   submitBtn.disabled = false;
 }
 fileInput.addEventListener('change', function() { if (this.files[0]) showFile(this.files[0]); });

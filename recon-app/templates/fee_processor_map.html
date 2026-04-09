@@ -299,12 +299,13 @@ function autoMatch() {
     if (applied) {
       // Show banner to confirm all AI suggestions
       var banner = document.createElement('div');
+      banner.className = 'ai-banner';
       banner.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:100;padding:14px 18px;border-radius:var(--radius-md);background:rgba(22,25,32,.95);border:1px solid rgba(167,139,250,.3);font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
       banner.innerHTML = '<strong style="color:#a78bfa;">✨ AI suggested ' + applied + ' match' + (applied>1?'es':'') + '</strong><br>'
         + '<span style="color:var(--text-2);font-size:12px;">Review selections above, then click to confirm:</span><br>'
         + '<div style="margin-top:8px;display:flex;gap:8px;">'
         + '<button onclick="confirmAllAI(this)" class="btn btn-primary" style="height:30px;font-size:12px;">Save All AI Matches</button>'
-        + '<button onclick="this.closest(\'div[style]\').remove()" class="btn" style="height:30px;font-size:12px;">Dismiss</button>'
+        + '<button onclick="this.closest(\'.ai-banner\').remove()" class="btn" style="height:30px;font-size:12px;">Dismiss</button>'
         + '</div>';
       document.body.appendChild(banner);
     } else {
@@ -352,19 +353,21 @@ function autoMapMethods() {
     });
     if (applied) {
       var banner = document.createElement('div');
+      banner.className = 'ai-banner';
       banner.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:100;padding:14px 18px;border-radius:var(--radius-md);background:rgba(22,25,32,.95);border:1px solid rgba(167,139,250,.3);font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);';
       banner.innerHTML = '<strong style="color:#a78bfa;">✨ AI mapped '+applied+' method'+(applied>1?'s':'')+'</strong><br>'
         + '<span style="font-size:12px;color:var(--text-2);">Review then confirm:</span><br>'
         + '<div style="margin-top:8px;display:flex;gap:8px;">'
         + '<button onclick="confirmAllMethodAI(this)" class="btn btn-primary" style="height:30px;font-size:12px;">Save All</button>'
-        + '<button onclick="this.closest(\'div[style]\').remove()" class="btn" style="height:30px;font-size:12px;">Dismiss</button>'
+        + '<button onclick="this.closest(\'.ai-banner\').remove()" class="btn" style="height:30px;font-size:12px;">Dismiss</button>'
         + '</div>';
       document.body.appendChild(banner);
     } else { alert('AI found no new matches.'); }
   }).catch(function(e){ btn.classList.remove('loading'); btn.textContent='✨ AI Auto-Map All'; alert('Failed: '+e); });
 }
 
-function confirmAllMethodAI() {
+function confirmAllMethodAI(btn) {
+  var banner = btn ? btn.closest('.ai-banner') : null;
   var aiRows = document.querySelectorAll('#tab-methods .ai-suggested');
   var proms = [];
   aiRows.forEach(function(row){
@@ -380,10 +383,11 @@ function confirmAllMethodAI() {
         }));
     }
   });
-  Promise.all(proms).then(function(){document.querySelectorAll('div[style*="position:fixed"]').forEach(function(el){el.remove();});});
+  Promise.all(proms).then(function(){ if (banner) banner.remove(); });
 }
 
-function confirmAllAI() {
+function confirmAllAI(btn) {
+  var banner = btn ? btn.closest('.ai-banner') : null;
   var aiRows = document.querySelectorAll('.ai-suggested');
   var promises = [];
   aiRows.forEach(function(row) {
@@ -405,9 +409,7 @@ function confirmAllAI() {
       );
     }
   });
-  Promise.all(promises).then(function(){
-    document.querySelectorAll('div[style*="position:fixed"]').forEach(function(el){el.remove();});
-  });
+  Promise.all(promises).then(function(){ if (banner) banner.remove(); });
 }
 </script>
 {% endblock %}
