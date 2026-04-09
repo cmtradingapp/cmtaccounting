@@ -53,9 +53,8 @@
 <div class="page-header">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <div class="page-title">PSP Fee Agreements</div>
-    <a class="btn btn-ghost" href="/fees/upload" style="border:1px solid rgba(79,142,247,.3);">⬆ Upload Agreement</a>
-    <a class="btn btn-ghost" href="/fees/add" style="border:1px solid rgba(79,142,247,.3);">✎ Manual Entry</a>
-    <a class="btn btn-primary" href="/fees/new">+ Add PSP</a>
+    <a id="btnUpload" class="btn btn-ghost" href="/fees/upload" style="border:1px solid rgba(79,142,247,.3);">⬆ Upload Agreement</a>
+    <a id="btnManual" class="btn btn-ghost" href="/fees/add" style="border:1px solid rgba(79,142,247,.3);">✎ Manual Entry</a>
     <a class="btn" href="/fees/calculator" style="border-color:rgba(34,197,94,.3);color:rgba(34,197,94,.9);">⚖ Fee Calculator</a>
     <a class="btn" href="/fees/processor-map" style="border-color:rgba(167,139,250,.3);color:rgba(167,139,250,.9);">⚙ Processor Map</a>
     <a class="btn" href="/fees/db-backup" title="Download fees.db backup">↓ Backup DB</a>
@@ -190,19 +189,7 @@ function switchFeesMode() {
 <!-- Historical tab -->
 <div id="tab-historical" style="display:none;">
   {% if terminated %}
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-    <div class="table-meta" id="meta-historical" style="margin-bottom:0;">{{ terminated|length }} terminated agreement{{ 's' if terminated|length != 1 }}</div>
-    <div style="display:flex;gap:6px;">
-      <a href="/fees/upload?historical=1" class="btn btn-ghost"
-         style="height:32px;font-size:12px;padding:0 12px;border:1px solid rgba(255,255,255,.12);">
-        ⬆ Upload Historical
-      </a>
-      <a href="/fees/add?historical=1" class="btn btn-ghost"
-         style="height:32px;font-size:12px;padding:0 12px;border:1px solid rgba(255,255,255,.12);">
-        ✎ Enter Manually
-      </a>
-    </div>
-  </div>
+  <div class="table-meta" id="meta-historical">{{ terminated|length }} terminated agreement{{ 's' if terminated|length != 1 }}</div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -252,16 +239,7 @@ function switchFeesMode() {
   <div style="text-align:center;padding:48px 32px;color:var(--muted);
               background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);">
     <div style="font-size:13px;">No terminated agreements.</div>
-    <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;">
-      <a href="/fees/upload?historical=1" class="btn btn-ghost"
-         style="height:34px;padding:0 16px;font-size:13px;border:1px solid rgba(255,255,255,.12);">
-        ⬆ Upload Historical
-      </a>
-      <a href="/fees/add?historical=1" class="btn btn-ghost"
-         style="height:34px;padding:0 16px;font-size:13px;border:1px solid rgba(255,255,255,.12);">
-        ✎ Enter Manually
-      </a>
-    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:8px;">Use the Upload or Manual Entry buttons above to add one.</div>
   </div>
   {% endif %}
 </div>
@@ -296,6 +274,11 @@ function switchTab(name) {
   document.getElementById('tab-historical').style.display = name === 'historical' ? '' : 'none';
   document.getElementById('tab-active-btn').classList.toggle('active',     name === 'active');
   document.getElementById('tab-historical-btn').classList.toggle('active', name === 'historical');
+  // Update header buttons to reflect the active tab
+  var hist = name === 'historical';
+  document.getElementById('btnUpload').href        = hist ? '/fees/upload?historical=1' : '/fees/upload';
+  document.getElementById('btnUpload').textContent = hist ? '⬆ Upload Historical'       : '⬆ Upload Agreement';
+  document.getElementById('btnManual').href        = hist ? '/fees/add?historical=1'    : '/fees/add';
   // Re-apply filter on tab switch
   if (_searchQuery) filterAgreements(_searchQuery);
 }
