@@ -33,6 +33,52 @@
     background:rgba(239,68,68,.1); color:var(--red); border:1px solid rgba(239,68,68,.2);
     margin:3px;
   }
+
+  /* Uncovered drawer */
+  .uc-drawer {
+    position:fixed; top:0; right:0; height:100vh; width:560px;
+    background:var(--surface); border-left:1px solid var(--border);
+    z-index:200; display:flex; flex-direction:column;
+    transform:translateX(100%); transition:transform .25s ease;
+    box-shadow:-8px 0 32px rgba(0,0,0,.4);
+  }
+  .uc-drawer.open { transform:translateX(0); }
+  .uc-drawer-header {
+    padding:16px 20px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
+  }
+  .uc-drawer-body { flex:1; overflow-y:auto; padding:16px 20px; }
+  .uc-group { margin-bottom:20px; }
+  .uc-group-head {
+    display:flex; align-items:center; justify-content:space-between;
+    font-size:12px; font-weight:700; color:var(--text);
+    padding:7px 10px; background:rgba(255,255,255,.04);
+    border:1px solid var(--border); border-radius:var(--radius-sm);
+    margin-bottom:4px;
+  }
+  .uc-group-sub { font-size:11px; color:var(--muted); font-weight:400; }
+  .uc-tx {
+    display:grid; grid-template-columns:1fr 90px 90px 90px;
+    gap:8px; padding:6px 10px; border-bottom:1px solid rgba(255,255,255,.04);
+    font-size:12px; align-items:center;
+  }
+  .uc-tx:last-child { border-bottom:none; }
+  .uc-tx .tid { font-family:monospace; font-size:11px; color:var(--muted); }
+  .uc-tx .ts  { font-size:11px; color:var(--muted); }
+  .uc-badge {
+    display:inline-flex; height:18px; padding:0 7px; align-items:center;
+    border-radius:999px; font-size:10px; font-weight:700;
+  }
+  .uc-badge.dep  { background:rgba(34,197,94,.1);  color:var(--green); }
+  .uc-badge.with { background:rgba(239,68,68,.1);  color:var(--red); }
+  .uc-badge.nomap{ background:rgba(245,158,11,.1); color:var(--yellow); }
+  .psp-row { cursor:pointer; }
+  .psp-row:hover td { background:rgba(79,142,247,.05); }
+  .uc-overlay {
+    position:fixed; inset:0; z-index:199; background:rgba(0,0,0,.4);
+    display:none;
+  }
+  .uc-overlay.open { display:block; }
 </style>
 
 <div class="page-header" style="margin-bottom:var(--sp-4);">
@@ -116,7 +162,8 @@
         {% if data.by_psp %}
           {% for r in data.by_psp %}
           {% set v = r.variance %}
-          <tr>
+          <tr class="psp-row" onclick="openUncovered('{{ r.label | e }}')"
+              title="Click to see uncovered transactions">
             <td style="font-weight:600;">{{ r.label }}</td>
             <td class="num">{{ "{:,}".format(r.tx_count) }}</td>
             <td class="num">${{ "{:,.2f}".format(r.gross_volume) }}</td>
@@ -131,6 +178,9 @@
                   <div class="match-bar-fill" style="width:{{ r.match_rate }}%;"></div>
                 </div>
                 <span style="font-size:11px;color:var(--muted);">{{ r.match_rate }}%</span>
+                {% if r.match_rate < 100 %}
+                <span style="font-size:10px;color:rgba(79,142,247,.6);">↗</span>
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -207,7 +257,109 @@
 <div style="font-size:12px;color:var(--muted);margin-top:var(--sp-3);display:flex;gap:16px;flex-wrap:wrap;">
   <span><span style="color:var(--red);">Red variance</span> = overcharged (actual > expected)</span>
   <span><span style="color:var(--green);">Green variance</span> = undercharged (actual < expected)</span>
-  <span>Rule coverage bar = % of transactions with a matching fee rule</span>
+  <span>Rule coverage bar = % of transactions with a matching fee rule &middot; <strong>Click any PSP row</strong> to see uncovered transactions</span>
 </div>
+
+<!-- Overlay + Drawer -->
+<div class="uc-overlay" id="ucOverlay" onclick="closeUncovered()"></div>
+<div class="uc-drawer" id="ucDrawer">
+  <div class="uc-drawer-header">
+    <div>
+      <div id="ucTitle" style="font-size:14px;font-weight:700;color:var(--text);">Uncovered Transactions</div>
+      <div id="ucSub" style="font-size:11px;color:var(--muted);margin-top:2px;"></div>
+    </div>
+    <button onclick="closeUncovered()" style="background:none;border:none;color:var(--muted);
+            font-size:20px;cursor:pointer;line-height:1;padding:4px;">×</button>
+  </div>
+  <div class="uc-drawer-body" id="ucBody">
+    <div style="color:var(--muted);font-size:13px;">Loading…</div>
+  </div>
+</div>
+
+<script>
+var _ucSpan = '{{ span }}';
+
+function openUncovered(processor) {
+  document.getElementById('ucTitle').textContent = processor + ' — Uncovered';
+  document.getElementById('ucSub').textContent   = 'Loading…';
+  document.getElementById('ucBody').innerHTML    = '<div style="color:var(--muted);font-size:13px;padding:20px 0;">Loading…</div>';
+  document.getElementById('ucOverlay').classList.add('open');
+  document.getElementById('ucDrawer').classList.add('open');
+
+  fetch('/fees/calculator/uncovered?processor=' + encodeURIComponent(processor) + '&span=' + _ucSpan)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.error) {
+        document.getElementById('ucBody').innerHTML = '<div style="color:var(--red);">Error: ' + d.error + '</div>';
+        return;
+      }
+      var txs = d.transactions || [];
+      document.getElementById('ucSub').textContent = txs.length
+        ? txs.length + ' uncovered transaction' + (txs.length > 1 ? 's' : '')
+        : 'All transactions are covered ✓';
+
+      if (!txs.length) {
+        document.getElementById('ucBody').innerHTML =
+          '<div style="color:var(--green);font-size:13px;padding:20px 0;">All transactions have a matching fee rule.</div>';
+        return;
+      }
+
+      // Group by canonical_method + direction
+      var groups = {};
+      txs.forEach(function(t) {
+        var key = t.canonical_method + '|' + t.direction;
+        if (!groups[key]) groups[key] = {method:t.canonical_method, dir:t.direction, why:t.why, txs:[], vol:0, fees:0};
+        groups[key].txs.push(t);
+        groups[key].vol  += t.usd_amount;
+        groups[key].fees += t.fee_actual;
+      });
+
+      var html = '';
+      Object.values(groups).forEach(function(g) {
+        var dirBadge = g.dir === 'Deposit'
+          ? '<span class="uc-badge dep">Deposit</span>'
+          : '<span class="uc-badge with">Withdrawal</span>';
+        var whyBadge = g.why === 'no_mapping'
+          ? '<span class="uc-badge nomap" title="No agreement mapped to this processor">No agreement mapped</span>'
+          : '<span class="uc-badge nomap" title="Agreement found but no matching fee rule for this method + direction">No fee rule</span>';
+        html += '<div class="uc-group">';
+        html += '<div class="uc-group-head">';
+        html +=   '<span>' + g.method + ' &nbsp;' + dirBadge + '</span>';
+        html +=   '<span class="uc-group-sub">' + g.txs.length + ' txns &nbsp;·&nbsp; $' + g.vol.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' vol &nbsp;·&nbsp; $' + g.fees.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' actual fee</span>';
+        html += '</div>';
+        html += '<div style="font-size:11px;color:var(--muted);padding:4px 10px 6px;">' + whyBadge + '</div>';
+        // Show individual transactions (max 50 to avoid DOM overload)
+        var show = g.txs.slice(0, 50);
+        html += '<div style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">';
+        html += '<div class="uc-tx" style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:rgba(255,255,255,.02);">';
+        html +=   '<span>TID / Date</span><span style="text-align:right;">Volume USD</span><span style="text-align:right;">Actual Fee</span><span style="text-align:right;">Raw Method</span>';
+        html += '</div>';
+        show.forEach(function(t) {
+          html += '<div class="uc-tx">';
+          html +=   '<div><div class="tid">' + (t.tid || '—') + '</div><div class="ts">' + (t.ts || '') + '</div></div>';
+          html +=   '<div style="text-align:right;">$' + t.usd_amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + '</div>';
+          html +=   '<div style="text-align:right;color:var(--muted);">$' + t.fee_actual.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + '</div>';
+          html +=   '<div style="text-align:right;color:var(--muted);font-family:monospace;font-size:10px;">' + t.payment_method + '</div>';
+          html += '</div>';
+        });
+        if (g.txs.length > 50) {
+          html += '<div style="padding:6px 10px;font-size:11px;color:var(--muted);">… and ' + (g.txs.length - 50) + ' more</div>';
+        }
+        html += '</div></div>';
+      });
+      document.getElementById('ucBody').innerHTML = html;
+    })
+    .catch(function(e){
+      document.getElementById('ucBody').innerHTML = '<div style="color:var(--red);">Request failed: ' + e + '</div>';
+    });
+}
+
+function closeUncovered() {
+  document.getElementById('ucOverlay').classList.remove('open');
+  document.getElementById('ucDrawer').classList.remove('open');
+}
+
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeUncovered(); });
+</script>
 
 {% endblock %}

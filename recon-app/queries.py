@@ -810,6 +810,121 @@ def fee_calculator(date_from=None, date_to=None) -> dict:
     return result
 
 
+def fee_uncovered_transactions(processor: str, date_from=None, date_to=None) -> list:
+    """
+    Return individual Praxis transactions for `processor` that have no matching fee rule.
+    Each item: {tid, ts, direction, payment_method, canonical_method, usd_amount,
+                fee_actual, why}  where why is 'no_mapping' or 'no_rule'.
+    Grouped by canonical_method + direction for easy display.
+    """
+    import datetime as _dt
+    if date_from is None: date_from = _dt.date.today() - _dt.timedelta(days=31)
+    if date_to   is None: date_to   = _dt.date.today() + _dt.timedelta(days=1)
+
+    # ── Same setup as fee_calculator (all cached) ─────────────────────────
+    all_agreements = get_all_agreements()
+    rules_by_id: dict = {}
+    fee_rules_by_psp: dict = {}
+    for agr in all_agreements:
+        rules = get_fee_rules(agr["id"])
+        rules_by_id[agr["id"]] = {"rules": rules, "psp_name": agr["psp_name"]}
+        fee_rules_by_psp[agr["psp_name"].lower()] = {"rules": rules, "psp_name": agr["psp_name"]}
+
+    saved_mappings      = get_processor_mappings()
+    _method_mappings_db = get_method_mappings()
+    _PM_DEFAULTS = {
+        "mobileafrica":"Mobile Money","mobilemoney":"Mobile Money",
+        "mobilemoney_checkout":"Mobile Money","altmobilemoney":"Mobile Money",
+        "tingg":"Mobile Money","payunit":"Mobile Money",
+        "altbankonline":"Electronic Payment","altcrypto":"Crypto","crypto":"Crypto",
+        "ozow":"Electronic Payment","zpay":"Electronic Payment","dusupay":"Mobile Money",
+        "credit card":"Credit Cards","creditcard":"Credit Cards",
+        "virtualpay":"Electronic Payment","paywall":"Electronic Payment",
+        "bank transfer":"Bank Wire","wire":"Bank Wire",
+    }
+    def _translate(pm_raw):
+        s = _method_mappings_db.get(pm_raw)
+        if s: return s["canonical"]
+        return _PM_DEFAULTS.get(pm_raw, pm_raw)
+
+    def _resolve_psp(proc_key):
+        """Return (matched_psp_data, why_prefix) for a processor."""
+        saved = saved_mappings.get(proc_key)
+        if saved and saved.get("agreement_id"):
+            return rules_by_id.get(saved["agreement_id"]), "no_rule"
+        proc_l = proc_key.lower()
+        for psp_key, psp_data in fee_rules_by_psp.items():
+            if psp_key in proc_l or proc_l in psp_key:
+                return psp_data, "no_rule"
+        return None, "no_mapping"
+
+    # ── Fetch individual transactions for this processor ──────────────────
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                cur.execute("""
+                    SELECT
+                        tid,
+                        TO_TIMESTAMP(created_timestamp) AS ts,
+                        payment_method,
+                        session_intent   AS direction,
+                        usd_amount,
+                        fee / 100.0      AS fee_actual
+                    FROM praxis_transactions
+                    WHERE created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)
+                      AND created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)
+                      AND payment_processor  = %s
+                      AND session_intent IN ('payment','withdrawal','payout')
+                    ORDER BY created_timestamp DESC
+                """, (date_from, date_to, processor))
+                return cur.fetchall()
+        rows = _db_retry(_fetch)
+    except Exception:
+        rows = []
+
+    matched_psp, default_why = _resolve_psp(processor)
+
+    uncovered = []
+    for r in rows:
+        pm_raw   = (r["payment_method"] or "").lower().strip()
+        pm_canon = _translate(pm_raw)
+        pm_norm  = pm_canon.lower()
+        dirn     = r["direction"]
+        fee_type = "Deposit" if dirn == "payment" else "Withdrawal"
+        usd      = float(r["usd_amount"] or 0)
+
+        if matched_psp is None:
+            why = "no_mapping"
+        else:
+            # Check if any rule matches this method + direction
+            hit = False
+            for rule in matched_psp["rules"]:
+                if rule.get("fee_type") != fee_type:
+                    continue
+                rule_pm = (rule.get("payment_method") or "").lower()
+                if rule_pm and rule_pm not in pm_norm and pm_norm not in rule_pm:
+                    continue
+                hit = True
+                break
+            if hit:
+                continue   # covered — skip
+            why = "no_rule"
+
+        uncovered.append({
+            "tid":              r["tid"],
+            "ts":               str(r["ts"])[:16] if r["ts"] else None,
+            "direction":        fee_type,
+            "payment_method":   r["payment_method"] or "unknown",
+            "canonical_method": pm_canon,
+            "usd_amount":       round(usd, 2),
+            "fee_actual":       round(float(r["fee_actual"] or 0), 2),
+            "why":              why,
+        })
+
+    return uncovered
+
+
 def equity_report(date_from=None, date_to=None) -> list:
     """
     Per-CID equity statement for a date range. Cached 1 hour.

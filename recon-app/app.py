@@ -818,6 +818,25 @@ def fees_calculator():
                            span_label=span_labels.get(span,span))
 
 
+@app.route("/fees/calculator/uncovered")
+@require_fees_auth
+def fees_calculator_uncovered():
+    import datetime as _dt
+    processor = request.args.get("processor", "").strip()
+    span      = request.args.get("span", "1m")
+    span_map  = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365}
+    today     = _dt.date.today()
+    date_from = today - _dt.timedelta(days=span_map.get(span, 31))
+    date_to   = today + _dt.timedelta(days=1)
+    if not processor:
+        return jsonify({"error": "processor param required"}), 400
+    try:
+        rows = queries.fee_uncovered_transactions(processor, date_from, date_to)
+        return jsonify({"processor": processor, "span": span, "transactions": rows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/fees/db-backup")
 @require_fees_auth
 def fees_db_backup():
