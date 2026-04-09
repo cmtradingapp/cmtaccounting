@@ -47,3 +47,4 @@ db-creds.txt
 putty-creds.txt
 recon-app/.env
 github-pat.txt
+recon-app/fees.db
