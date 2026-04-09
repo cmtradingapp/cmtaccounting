@@ -3,7 +3,7 @@
 import os
 import time
 import psycopg2
-from db import dealio, backoffice, crm, fees_db, FEES_MODE
+from db import dealio, crm, fees_db, FEES_MODE
 
 # True when the fees database is PostgreSQL (FEES_MODE=live)
 _PG = FEES_MODE == "live"
@@ -224,7 +224,7 @@ def mt4_summary(year: int, month: int):
 
 def _load_praxis_account_map() -> dict:
     """
-    Build {session_cid (str) -> [mt4_login (int), ...]} lookup from backoffice.
+    Build {session_cid (str) -> [mt4_login (int), ...]} lookup from Antelope CRM.
     vtiger_trading_accounts.vtigeraccountid == praxis_transactions.session_cid.
     Cached 30 minutes — the mapping rarely changes.
     """
@@ -1561,15 +1561,16 @@ def crm_transaction_list(year: int, month: int) -> list:
     month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
 
     def _fetch():
-        with backoffice() as cur:
+        with crm() as cur:
             cur.execute("""
                 SELECT
                     login, transactiontype, transactionapproval,
                     payment_method, usdamount,
                     confirmation_time, transactionid
-                FROM vtiger_mttransactions
+                FROM report.vtiger_mttransactions
                 WHERE confirmation_time >= %s
                   AND confirmation_time <  %s
+                  AND (deleted IS NULL OR deleted = 0)
                 ORDER BY login, confirmation_time
             """, (month_start, month_end))
             return [dict(r) for r in cur.fetchall()]
@@ -1882,18 +1883,19 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
 def client_crm_detail(login: int, date_from, date_to) -> list:
     """CRM transactions for a login over an arbitrary date range."""
     def _fetch():
-        with backoffice() as cur:
+        with crm() as cur:
             cur.execute("""
                 SELECT
                     transactiontype, payment_method, transactionapproval,
                     COUNT(*)       AS tx_count,
                     SUM(usdamount) AS total_usd,
-                    MIN(confirmation_time::date) AS first_date,
-                    MAX(confirmation_time::date) AS last_date
-                FROM vtiger_mttransactions
+                    MIN(CAST(confirmation_time AS date)) AS first_date,
+                    MAX(CAST(confirmation_time AS date)) AS last_date
+                FROM report.vtiger_mttransactions
                 WHERE login = %s
                   AND confirmation_time >= %s
                   AND confirmation_time <  %s
+                  AND (deleted IS NULL OR deleted = 0)
                 GROUP BY transactiontype, payment_method, transactionapproval
                 ORDER BY transactionapproval, transactiontype, payment_method
             """, (login, date_from, date_to))
@@ -1969,7 +1971,10 @@ def client_praxis_detail(login: int, date_from, date_to) -> list:
 
 def login_detail(year: int, month: int, login: int):
     """All CRM transactions for a specific login in a given month."""
-    with backoffice() as cur:
+    import datetime
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+    with crm() as cur:
         cur.execute("""
             SELECT
                 transactiontype,
@@ -1977,15 +1982,16 @@ def login_detail(year: int, month: int, login: int):
                 transactionapproval,
                 COUNT(*)       AS tx_count,
                 SUM(usdamount) AS total_usd,
-                MIN(confirmation_time::date) AS first_date,
-                MAX(confirmation_time::date) AS last_date
-            FROM vtiger_mttransactions
+                MIN(CAST(confirmation_time AS date)) AS first_date,
+                MAX(CAST(confirmation_time AS date)) AS last_date
+            FROM report.vtiger_mttransactions
             WHERE login = %s
-              AND EXTRACT(YEAR  FROM confirmation_time) = %s
-              AND EXTRACT(MONTH FROM confirmation_time) = %s
+              AND confirmation_time >= %s
+              AND confirmation_time <  %s
+              AND (deleted IS NULL OR deleted = 0)
             GROUP BY transactiontype, payment_method, transactionapproval
             ORDER BY transactionapproval, transactiontype, payment_method
-        """, (login, year, month))
+        """, (login, month_start, month_end))
         rows = cur.fetchall()
 
     result = []
