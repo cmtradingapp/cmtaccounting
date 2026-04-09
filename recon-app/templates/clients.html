@@ -101,7 +101,7 @@
 </div>
 
 <!-- Virtual scroll container: only visible rows are in the DOM -->
-<div id="clScroller" style="overflow-y:auto;max-height:calc(100vh - 260px);border-radius:14px;border:1px solid var(--border);">
+<div id="clScroller" style="overflow-y:auto;height:calc(100vh - 260px);border-radius:14px;border:1px solid var(--border);">
 <table id="clTable" style="width:100%;border-collapse:collapse;">
     <thead>
       <tr>
@@ -210,9 +210,13 @@ function vsRender(force) {
   for (var i = newStart; i < newEnd; i++) frag.appendChild(makeRow(_viewRows[i]));
   tbody.insertBefore(frag, padBot);
 
-  // Calibrate ROW_H from first real row
+  // Calibrate ROW_H from first real row; re-render if estimate was wrong
   var first = tbody.querySelector('tr.clickable');
-  if (first && first.offsetHeight > 0) ROW_H = first.offsetHeight;
+  if (first && first.offsetHeight > 0 && first.offsetHeight !== ROW_H) {
+    ROW_H = first.offsetHeight;
+    _vsEnd = 0;          // force re-render with correct row height
+    vsRender(true);
+  }
 }
 
 // ── Apply filter + sort, then reset virtual scroll ────────────────────────
@@ -314,8 +318,7 @@ function loadData(span) {
       var ageEl = document.getElementById('clCacheAge');
       if (ageEl) ageEl.textContent = age != null ? '· cached ' + age + 's ago' : '';
 
-      // Defer by one rAF so the browser finishes layout (clientHeight) before vsRender reads it
-      requestAnimationFrame(function() { applyView(); });
+      applyView();
     })
     .catch(function(e) {
       document.getElementById('clLoadMsg').textContent = 'Error loading data. Try refreshing.';
