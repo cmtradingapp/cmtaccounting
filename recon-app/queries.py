@@ -349,31 +349,46 @@ _PM_DEFAULTS_GLOBAL = {
 }
 
 
-def _apply_fee_rule(usd_amount, payment_method, fee_type,
+def _compute_tx_fee(usd, processor, payment_method, fee_type,
                     rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db):
     """
-    Return expected fee (float) for a single transaction.
-    Equivalent to the _calc_expected() closure inside fee_calculator(),
-    but callable as a module-level function.
-    """
-    if not usd_amount:
-        return 0.0
-    # Translate method name to canonical form
-    pm_raw   = (payment_method or "").lower().strip()
-    saved_m  = method_mappings_db.get(pm_raw)
-    pm_canon = saved_m["canonical"] if saved_m else _PM_DEFAULTS_GLOBAL.get(pm_raw, pm_raw)
-    pm_norm  = pm_canon.lower()
+    Return expected fee for one transaction given processor + payment_method.
 
-    # This function is called with processor=None for CRM data — use fuzzy PSP match only
-    # (CRM payment_processor IS available but only via a separate per-tx query)
+    Lookup priority:
+    1. Exact processor name  → processor_mappings → agreement → fee rules
+    2. Base processor name   → strip ' - suffix' and retry
+    3. Fuzzy PSP name match  → fee_rules_by_psp keys vs processor base name
+    """
+    if not usd:
+        return 0.0
+
+    usd = float(usd)
+    pm_raw  = (payment_method or "").lower().strip()
+    saved_m = method_mappings_db.get(pm_raw)
+    pm_norm = (saved_m["canonical"] if saved_m else _PM_DEFAULTS_GLOBAL.get(pm_raw, pm_raw)).lower()
+
+    # 1 + 2: processor name lookup
     matched_psp = None
-    for psp_key, psp_data in fee_rules_by_psp.items():
-        if psp_key in pm_norm or pm_norm in psp_key:
-            matched_psp = psp_data
-            break
+    proc = (processor or "").strip()
+    for candidate in [proc, proc.split(' - ')[0].strip()]:
+        saved = saved_mappings.get(candidate)
+        if saved and saved.get("agreement_id"):
+            matched_psp = rules_by_id.get(saved["agreement_id"])
+            if matched_psp:
+                break
+
+    # 3: fuzzy PSP name match against processor base name
+    if not matched_psp:
+        base = proc.split(' - ')[0].strip().lower()
+        for psp_key, psp_data in fee_rules_by_psp.items():
+            if base and (psp_key in base or base in psp_key):
+                matched_psp = psp_data
+                break
+
     if not matched_psp:
         return 0.0
 
+    # Find best rule for this payment method + fee type
     best = None
     for rule in matched_psp["rules"]:
         if rule.get("fee_type") != fee_type:
@@ -381,7 +396,7 @@ def _apply_fee_rule(usd_amount, payment_method, fee_type,
         rule_pm = (rule.get("payment_method") or "").lower()
         if rule_pm and rule_pm not in pm_norm and pm_norm not in rule_pm:
             continue
-        if best is None or rule_pm:
+        if best is None or rule_pm:   # prefer more specific match
             best = rule
     if not best:
         return 0.0
@@ -389,10 +404,9 @@ def _apply_fee_rule(usd_amount, payment_method, fee_type,
     kind = best.get("fee_kind", "percentage")
     pct  = float(best.get("pct_rate") or 0)
     fix  = float(best.get("fixed_amount") or 0)
-    usd  = float(usd_amount or 0)
-    if kind == "percentage":       return round(usd * pct, 4)
-    if kind == "fixed":            return round(fix, 4)
-    if kind == "fixed_plus_pct":   return round(fix + usd * pct, 4)
+    if kind == "percentage":      return round(usd * pct, 4)
+    if kind == "fixed":           return round(fix, 4)
+    if kind == "fixed_plus_pct":  return round(fix + usd * pct, 4)
     if kind == "tiered":
         for tier in sorted(best.get("tiers", []), key=lambda t: t.get("volume_from", 0), reverse=True):
             if usd >= tier.get("volume_from", 0):
@@ -443,26 +457,11 @@ def crm_expected_fees(year: int, month: int) -> dict:
 
     fees_by_login: dict = {}
     for r in txns:
-        login      = r["login"]
-        usd        = float(r["usdamount"] or 0)
-        pm         = r["payment_method"] or ""
-        processor  = r["payment_processor"] or ""
-
-        # Try processor-first lookup (highest precision)
-        fee = 0.0
-        if processor:
-            saved = saved_mappings.get(processor)
-            if saved and saved.get("agreement_id"):
-                matched = rules_by_id.get(saved["agreement_id"])
-                if matched:
-                    fee = _apply_fee_rule(usd, pm, "Deposit",
-                                         {saved["agreement_id"]: matched},
-                                         {}, {}, method_mappings_db)
-        # Fallback: match by payment method name
-        if fee == 0.0:
-            fee = _apply_fee_rule(usd, pm, "Deposit",
-                                  rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db)
-
+        login = r["login"]
+        fee   = _compute_tx_fee(
+            r["usdamount"], r["payment_processor"], r["payment_method"], "Deposit",
+            rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db,
+        )
         if fee > 0:
             fees_by_login[login] = round(fees_by_login.get(login, 0.0) + fee, 4)
 
