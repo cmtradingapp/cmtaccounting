@@ -490,15 +490,14 @@ def reconcile(year: int, month: int):
         crm_cash     = round(c.get("cash_net", 0), 2)
         expected_fee = round(fees.get(login, 0.0), 2)
         diff         = round(mt4_net - crm_cash, 2)
-        # Fee-adjusted difference: MT4 net vs (CRM gross - expected PSP fee)
-        # Should be ~0 for correctly processed transactions
-        fee_adj_diff = round(mt4_net - (crm_cash - expected_fee), 2)
+        # Fee adj is informational only — company pays fees so they don't affect matching
+        fee_adj_diff = round(diff - expected_fee, 2)
 
         if login not in crm:
             status = "mt4_only"
         elif login not in mt4:
             status = "crm_only"
-        elif abs(fee_adj_diff) < 1.0:
+        elif abs(diff) < 1.0:
             status = "matched"
         else:
             status = "discrepancy"
@@ -516,7 +515,7 @@ def reconcile(year: int, month: int):
             "crm_noncash_in":     round(c.get("noncash_in", 0), 2),
             "crm_noncash_out":    round(c.get("noncash_out", 0), 2),
             "difference":         diff,
-            "abs_diff":           abs(fee_adj_diff),
+            "abs_diff":           abs(diff),
             "expected_fees":      expected_fee,
             "fee_adj_diff":       fee_adj_diff,
             "status":             status,
