@@ -661,9 +661,9 @@ var COUNTRIES = [
   {v:'Vietnam',           l:'Vietnam',                i:'vn'},
 ];
 
-/* Build a lookup map for table flags */
+/* Build a lookup map for table flags (keyed lowercase for case-insensitive match) */
 var COUNTRY_ISO = {};
-COUNTRIES.forEach(function(c) { if (c.i) COUNTRY_ISO[c.v] = c.i; });
+COUNTRIES.forEach(function(c) { if (c.i) COUNTRY_ISO[c.v.toLowerCase()] = c.i; });
 
 function flagHtml(iso) {
   return iso ? '<span class="fi fi-' + iso + '"></span>' : '<span style="font-size:14px;">🌍</span>';
@@ -883,7 +883,7 @@ editCountryTS.on('change', function(val) {
 /* ── Add flags to country cells in the rules table ────────── */
 document.querySelectorAll('.country-cell').forEach(function(cell) {
   var name = cell.dataset.country;
-  var iso  = COUNTRY_ISO[name];
+  var iso  = COUNTRY_ISO[(name || '').toLowerCase()];
   cell.innerHTML = '<span class="fi-cell">' + flagHtml(iso) + '<span>' + (name === 'GLOBAL' ? 'Global' : name) + '</span></span>';
 });
 

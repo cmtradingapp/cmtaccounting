@@ -726,7 +726,7 @@ def _call_claude(system_prompt: str, user_msg: str) -> str:
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     message = client.messages.create(
         model=ANTHROPIC_MODEL,
-        max_tokens=8192,
+        max_tokens=16000,
         temperature=0.0,
         system=system_prompt,
         messages=[{"role": "user", "content": user_msg}],
@@ -745,7 +745,7 @@ def _call_claude_with_pdf(file_bytes: bytes, system_prompt: str, user_text: str)
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     message = client.messages.create(
         model=ANTHROPIC_MODEL,
-        max_tokens=8192,
+        max_tokens=16000,
         temperature=0.0,
         system=system_prompt,
         messages=[{
@@ -771,25 +771,40 @@ def _safe_json_loads(raw: str) -> dict:
     """
     Parse JSON from Claude. If the response was truncated (hit max_tokens),
     attempt to recover by closing any open structures before parsing.
+
+    Strategy 1: strip trailing partial string/value then close brackets.
+    Strategy 2: backtrack to last complete '}' then close brackets.
     """
     import re as _re
+    import json as _json
     raw = raw.strip()
     try:
-        return __import__('json').loads(raw)
-    except Exception as e:
-        # Try to repair truncated JSON by closing open arrays/objects
-        # Count unclosed brackets
-        depth_obj = raw.count('{') - raw.count('}')
-        depth_arr = raw.count('[') - raw.count(']')
-        # Remove trailing partial string/value
-        fixed = _re.sub(r',?\s*"[^"]*$', '', raw)   # trailing open string
-        fixed = _re.sub(r',\s*$', '', fixed)          # trailing comma
-        # Close open arrays then objects
-        fixed += ']' * max(0, depth_arr) + '}' * max(0, depth_obj)
+        return _json.loads(raw)
+    except _json.JSONDecodeError as orig_err:
+
+        def _close(s):
+            """Strip trailing garbage and close open brackets."""
+            s = _re.sub(r',?\s*"(?:[^"\\]|\\.)*$', '', s)  # open string (handles escapes)
+            s = _re.sub(r',\s*$', '', s)                     # trailing comma
+            d_obj = s.count('{') - s.count('}')
+            d_arr = s.count('[') - s.count(']')
+            return s + ']' * max(0, d_arr) + '}' * max(0, d_obj)
+
+        # Strategy 1: close from end of raw response
         try:
-            return __import__('json').loads(fixed)
+            return _json.loads(_close(raw))
         except Exception:
-            raise e   # re-raise original error if repair fails
+            pass
+
+        # Strategy 2: backtrack to last complete object '}'
+        last_brace = raw.rfind('}')
+        if last_brace > 0:
+            try:
+                return _json.loads(_close(raw[:last_brace + 1]))
+            except Exception:
+                pass
+
+        raise orig_err
 
 
 def analyze_agreement(text: str, system_prompt: str = None,
