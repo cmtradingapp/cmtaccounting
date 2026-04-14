@@ -1546,7 +1546,8 @@ def client_list(date_from=None, date_to=None) -> list:
         })
 
     rows.sort(key=lambda r: r["company_total"], reverse=True)
-    _cache_set(key, rows)
+    if rows:  # never cache empty results — means dealio query failed
+        _cache_set(key, rows)
     return rows
 
 

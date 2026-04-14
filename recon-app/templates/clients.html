@@ -136,6 +136,7 @@
     <div class="cl-step" id="cl-step-map">Loading CRM account mappings</div>
     <div class="cl-step" id="cl-step-names">Fetching client names</div>
     <div class="cl-step" id="cl-step-build">Building client list</div>
+    <div class="cl-step" id="cl-step-group">Grouping by CID &amp; rendering</div>
   </div>
   <div style="font-size:11px;color:var(--muted);" id="cl-elapsed">0s elapsed</div>
 </div>
@@ -408,7 +409,7 @@ function loadData(span){
   _span=span; document.getElementById('clScroller').style.display='none';
   var overlay=document.getElementById('cl-overlay');
   var elapsedEl=document.getElementById('cl-elapsed');
-  var stepIds=['cl-step-mt4','cl-step-map','cl-step-names','cl-step-build'];
+  var stepIds=['cl-step-mt4','cl-step-map','cl-step-names','cl-step-build','cl-step-group'];
   var curStep=0,t0=Date.now();
   overlay.classList.remove('hidden');
   stepIds.forEach(function(s){document.getElementById(s).className='cl-step';});
@@ -417,24 +418,31 @@ function loadData(span){
   var ticker=setInterval(function(){
     var sec=Math.round((Date.now()-t0)/1000);
     elapsedEl.textContent=sec+'s elapsed';
-    var idx=sec<6?0:sec<12?1:sec<18?2:3;
+    var idx=sec<6?0:sec<12?1:sec<18?2:4;
+    idx=Math.min(idx,3); // don't advance to step 4 (group) until data arrives
     if(idx!==curStep){document.getElementById(stepIds[curStep]).className='cl-step done';curStep=idx;document.getElementById(stepIds[curStep]).className='cl-step active';}
   },500);
   fetch('/clients/data?span='+span)
     .then(function(r){return r.json();})
     .then(function(data){
       clearInterval(ticker);
-      stepIds.forEach(function(s){document.getElementById(s).className='cl-step done';});
-      document.getElementById('cl-load-title').textContent='Grouping by CID\u2026';
-      _allGroups=groupData(data.rows||[]);
-      requestAnimationFrame(function(){
-        applyView();
-        overlay.classList.add('hidden');
-        document.getElementById('clScroller').style.display='';
-        var age=data.cache_age;
-        var ageEl=document.getElementById('clCacheAge');
-        if(ageEl) ageEl.textContent=age!=null?'\u00b7 cached '+age+'s ago':'';
-      });
+      for(var i=0;i<4;i++) document.getElementById(stepIds[i]).className='cl-step done';
+      document.getElementById(stepIds[4]).className='cl-step active';
+      var rows=data.rows||[];
+      document.getElementById('cl-load-title').textContent='Grouping '+rows.length.toLocaleString()+' rows…';
+      setTimeout(function(){
+        _allGroups=groupData(rows);
+        document.getElementById('cl-load-title').textContent='Rendering '+_allGroups.length.toLocaleString()+' clients…';
+        document.getElementById(stepIds[4]).className='cl-step done';
+        requestAnimationFrame(function(){
+          applyView();
+          overlay.classList.add('hidden');
+          document.getElementById('clScroller').style.display='';
+          var age=data.cache_age, ageEl=document.getElementById('clCacheAge');
+          if(ageEl) ageEl.textContent=age!=null?'· cached '+age+'s ago':'';
+          if(!_allGroups.length) document.getElementById('clCount').textContent='No data — click Refresh to retry';
+        });
+      },50);
     })
     .catch(function(e){
       clearInterval(ticker);
