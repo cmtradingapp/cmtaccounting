@@ -46,6 +46,7 @@
 
   /* Table sort arrows */
   th[data-col] { cursor:pointer; user-select:none; white-space:nowrap; transition:color .15s; }
+  #clTable td { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   th[data-col]:hover { color:var(--text); }
   th[data-col]::after { content:''; display:inline-block; margin-left:4px; opacity:.3; font-size:9px; }
   th[data-col].asc::after  { content:'▲'; opacity:1; color:var(--accent); }
@@ -127,7 +128,19 @@
 
 <!-- Virtual scroll container: only visible rows are in the DOM -->
 <div id="clScroller" style="overflow-y:auto;height:calc(100vh - 260px);border-radius:14px;border:1px solid var(--border);">
-<table id="clTable" style="width:100%;border-collapse:collapse;">
+<table id="clTable" style="width:100%;border-collapse:collapse;table-layout:fixed;">
+    <colgroup>
+      <col style="width:100px">
+      <col style="width:auto">
+      <col style="width:80px">
+      <col style="width:125px">
+      <col style="width:125px">
+      <col style="width:115px">
+      <col style="width:110px">
+      <col style="width:115px">
+      <col style="width:40px">
+      <col style="width:90px">
+    </colgroup>
     <thead>
       <tr>
         <th data-col="0">Login</th>
@@ -401,16 +414,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('clScroller').addEventListener('scroll', function() {
     vsRender(false);
   }, {passive: true});
-
-  // Column sort via virtual scroll (override base.html handler for this table)
-  document.querySelectorAll('#clTable th[data-col]').forEach(function(th) {
-    th.addEventListener('click', function() {
-      var c = parseInt(th.getAttribute('data-col'));
-      _sortAsc = (c === _sortCol) ? !_sortAsc : false;
-      _sortCol = c;
-      applyView();
-    });
-  });
 
   loadData(_span);
 });

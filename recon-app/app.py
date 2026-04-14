@@ -234,6 +234,40 @@ def clients():
                            span_label=span_labels.get(span, span))
 
 
+@app.route("/cid/<cid>/floating")
+@require_recon_auth
+def cid_floating(cid):
+    """Live floating P&L for a CID — polled by JS every 30s."""
+    account_map, _ = queries._load_praxis_account_map()
+    logins = account_map.get(str(cid).strip(), [])
+    if not logins:
+        return jsonify({})
+    try:
+        from db import dealio
+        with dealio() as cur:
+            cur.execute("SET statement_timeout = 10000")
+            ph = ",".join(["%s"] * len(logins))
+            cur.execute(f"""
+                SELECT DISTINCT ON (login) login,
+                    convertedfloatingpnl AS floating,
+                    balance, equity, date
+                FROM dealio.daily_profits
+                WHERE login IN ({ph})
+                ORDER BY login, date DESC
+            """, logins)
+            result = {}
+            for r in cur.fetchall():
+                result[str(r["login"])] = {
+                    "floating": round(float(r["floating"] or 0), 2),
+                    "balance":  round(float(r["balance"] or 0), 2),
+                    "equity":   round(float(r["equity"] or 0), 2),
+                    "date":     str(r["date"]) if r["date"] else "",
+                }
+            return jsonify(result)
+    except Exception:
+        return jsonify({})
+
+
 @app.route("/cid/<cid>")
 @require_recon_auth
 def cid_detail(cid):

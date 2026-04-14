@@ -123,11 +123,15 @@
     <div class="hint">Sum of closed trades (USD). Positive = client won.</div>
   </div>
   <div class="cd-stat-sm">
-    <div class="label">Client Floating P&amp;L</div>
-    <div class="value {% if s.client_unrealised_eod > 0 %}pos{% elif s.client_unrealised_eod < 0 %}neg{% endif %}">
+    <div class="label" style="display:flex;align-items:center;gap:6px;">
+      Client Floating P&amp;L
+      <span id="live-dot" style="display:none;width:6px;height:6px;border-radius:50%;
+            background:var(--green);box-shadow:0 0 0 0 rgba(34,197,94,.4);animation:pulse-dot 2s infinite;"></span>
+    </div>
+    <div class="value {% if s.client_unrealised_eod > 0 %}pos{% elif s.client_unrealised_eod < 0 %}neg{% endif %}" id="live-floating">
       {{ "{:+,.2f}".format(s.client_unrealised_eod) if s.client_unrealised_eod != 0 else '—' }}
     </div>
-    <div class="hint">Last EOD unrealised P&amp;L from open positions. Positive = client is winning on open trades.</div>
+    <div class="hint">Unrealised P&amp;L from open positions. Updates every 30s.</div>
   </div>
   <div class="cd-stat-sm">
     <div class="label">Company Trading P&amp;L</div>
@@ -378,6 +382,29 @@
 
 <script>
 /* sort handled by base.html */
+
+/* ── Live floating P&L polling ── */
+(function() {
+  var floatEl = document.getElementById('live-floating');
+  var dotEl   = document.getElementById('live-dot');
+  if (!floatEl) return;
+
+  function update() {
+    fetch('/cid/{{ cid }}/floating')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var total = 0;
+        Object.values(data).forEach(function(v) { total += v.floating || 0; });
+        floatEl.textContent = (total >= 0 ? '+' : '') +
+          total.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        floatEl.className = 'value ' + (total > 0 ? 'pos' : total < 0 ? 'neg' : '');
+        if (dotEl) { dotEl.style.display = ''; dotEl.title = 'Updated ' + new Date().toLocaleTimeString(); }
+      })
+      .catch(function() {});
+  }
+  update();
+  setInterval(update, 30000);
+})();
 </script>
 
 {% endblock %}
