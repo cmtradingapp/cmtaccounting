@@ -123,11 +123,18 @@
     <div class="hint">Sum of closed trades (USD). Positive = client won.</div>
   </div>
   <div class="cd-stat-sm">
+    <div class="label">Client Floating P&amp;L</div>
+    <div class="value {% if s.client_unrealised_eod > 0 %}pos{% elif s.client_unrealised_eod < 0 %}neg{% endif %}">
+      {{ "{:+,.2f}".format(s.client_unrealised_eod) if s.client_unrealised_eod != 0 else '—' }}
+    </div>
+    <div class="hint">Last EOD unrealised P&amp;L from open positions. Positive = client is winning on open trades.</div>
+  </div>
+  <div class="cd-stat-sm">
     <div class="label">Company Trading P&amp;L</div>
     <div class="value {% if s.company_trading_pnl > 0 %}pos{% elif s.company_trading_pnl < 0 %}neg{% endif %}">
       {{ "{:+,.2f}".format(s.company_trading_pnl) if s.company_trading_pnl != 0 else '—' }}
     </div>
-    <div class="hint">= −Client P&amp;L. Positive = company profited from this client's trading.</div>
+    <div class="hint">= −Client Realised P&amp;L. Positive = company profited from closed trades.</div>
   </div>
   <div class="cd-stat-sm">
     <div class="label">Net Deposit (CRM)</div>
@@ -142,7 +149,7 @@
          style="font-size:22px;">
       {{ "{:+,.2f}".format(s.company_total_value) if s.company_total_value != 0 else '—' }}
     </div>
-    <div class="hint">Trading P&amp;L + Net Deposit. Overall value this client generated for the company.</div>
+    <div class="hint">Net Deposit − Realised P&amp;L − Floating P&amp;L. True company exposure including open positions.</div>
   </div>
 </div>
 

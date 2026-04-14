@@ -135,16 +135,17 @@
         <th data-col="2" style="font-family:monospace;">CID</th>
         <th data-col="3" class="num desc">Company Total (USD)</th>
         <th data-col="4" class="num">Co. Trading P&amp;L (USD)</th>
-        <th data-col="5" class="num">Net Deposit (USD)</th>
-        <th data-col="6" class="num">Client P&amp;L (USD)</th>
-        <th data-col="7">Ccy</th>
-        <th data-col="8">Last Active</th>
+        <th data-col="5" class="num" title="Last end-of-day unrealised P&L from open positions (negative = client is winning, company exposed)">Floating P&amp;L (USD)</th>
+        <th data-col="6" class="num">Net Deposit (USD)</th>
+        <th data-col="7" class="num">Client P&amp;L (USD)</th>
+        <th data-col="8">Ccy</th>
+        <th data-col="9">Last Active</th>
       </tr>
     </thead>
     <!-- spacer rows for virtual scroll -->
     <tbody id="clTbody">
-      <tr id="clPadTop"   style="height:0"><td colspan="9"></td></tr>
-      <tr id="clPadBot"   style="height:0"><td colspan="9"></td></tr>
+      <tr id="clPadTop"   style="height:0"><td colspan="10"></td></tr>
+      <tr id="clPadBot"   style="height:0"><td colspan="10"></td></tr>
     </tbody>
   </table>
 </div>
@@ -192,6 +193,7 @@ function makeRow(r) {
     '</td>' +
     '<td class="num fw ' + clr(r.company_total)       + '">' + fmt(r.company_total)       + '</td>' +
     '<td class="num '    + clr(r.company_trading_pnl)  + '">' + fmt(r.company_trading_pnl)  + '</td>' +
+    '<td class="num '    + clr(-(r.client_floating_eod||0))  + '" title="Unrealised (open positions)">' + fmt(-(r.client_floating_eod||0)) + '</td>' +
     '<td class="num">'                                          + fmt(r.net_deposit)          + '</td>' +
     '<td class="num '    + clr(r.client_realised_pnl)  + '">' + fmt(r.client_realised_pnl)  + '</td>' +
     '<td>' + (r.currency || '—') + '</td>' +
@@ -259,7 +261,7 @@ function applyView() {
 
   var col = _sortCol, asc = _sortAsc;
   var keys = ['login','name','cid','company_total','company_trading_pnl',
-              'net_deposit','client_realised_pnl','currency','last_active'];
+              'client_floating_eod','net_deposit','client_realised_pnl','currency','last_active'];
   var key  = keys[col];
   _viewRows.sort(function(a,b) {
     var va = a[key], vb = b[key];

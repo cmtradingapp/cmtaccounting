@@ -1429,17 +1429,28 @@ def client_list(date_from=None, date_to=None) -> list:
     def _fetch_mt4():
         with dealio() as cur:
             cur.execute("SET statement_timeout = 30000")
+            # CTE grabs the last day's floating P&L alongside the grouped sums.
             cur.execute("""
+                WITH last_day AS (
+                    SELECT DISTINCT ON (login)
+                        login,
+                        convertedfloatingpnl AS client_floating_eod
+                    FROM dealio.daily_profits
+                    WHERE date >= %s AND date < %s
+                    ORDER BY login, date DESC
+                )
                 SELECT
-                    login,
-                    SUM(convertednetdeposit)  AS net_deposit,
-                    SUM(convertedclosedpnl)   AS client_realised_pnl,
-                    MAX(groupcurrency)        AS currency,
-                    MAX(date)                 AS last_active
-                FROM dealio.daily_profits
-                WHERE date >= %s AND date < %s
-                GROUP BY login
-            """, (date_from, date_to))
+                    g.login,
+                    SUM(g.convertednetdeposit) AS net_deposit,
+                    SUM(g.convertedclosedpnl)  AS client_realised_pnl,
+                    MAX(g.groupcurrency)        AS currency,
+                    MAX(g.date)                 AS last_active,
+                    l.client_floating_eod
+                FROM dealio.daily_profits g
+                LEFT JOIN last_day l ON l.login = g.login
+                WHERE g.date >= %s AND g.date < %s
+                GROUP BY g.login, l.client_floating_eod
+            """, (date_from, date_to, date_from, date_to))
             return {r["login"]: dict(r) for r in cur.fetchall()}
     try:
         mt4 = _db_retry(_fetch_mt4)
@@ -1501,29 +1512,32 @@ def client_list(date_from=None, date_to=None) -> list:
     # 4. Build result rows
     rows = []
     for login, m in mt4.items():
-        net_dep   = float(m["net_deposit"] or 0)
-        client_pnl= float(m["client_realised_pnl"] or 0)
-        co_trading= round(-client_pnl, 2)
-        co_total  = round(co_trading + net_dep, 2)
+        net_dep    = float(m["net_deposit"] or 0)
+        client_pnl = float(m["client_realised_pnl"] or 0)
+        floating   = float(m.get("client_floating_eod") or 0)  # last EOD unrealised P&L
+        co_trading = round(-client_pnl, 2)
+        # company_total: what company nets if client closed everything now
+        # = net_deposit (money in) − client_realised − client_floating
+        co_total   = round(co_trading + net_dep - floating, 2)
 
         cid        = login_to_cid.get(login, "")
         praxis_info= praxis_names.get(cid, {})
         crm_info   = crm_names.get(cid, {})
-        # Prefer Praxis name (has first+last), fall back to CRM vtiger_account
         name  = praxis_info.get("name") or crm_info.get("name") or ""
         email = praxis_info.get("email") or crm_info.get("email") or ""
 
         rows.append({
-            "login":               login,
-            "cid":                 cid,
-            "name":                name,
-            "email":               email,
-            "net_deposit":         round(net_dep, 2),
-            "client_realised_pnl": round(client_pnl, 2),
-            "company_trading_pnl": co_trading,
-            "company_total":       co_total,
-            "currency":            m.get("currency") or "USD",
-            "last_active":         str(m.get("last_active") or ""),
+            "login":                login,
+            "cid":                  cid,
+            "name":                 name,
+            "email":                email,
+            "net_deposit":          round(net_dep, 2),
+            "client_realised_pnl":  round(client_pnl, 2),
+            "client_floating_eod":  round(floating, 2),
+            "company_trading_pnl":  co_trading,
+            "company_total":        co_total,
+            "currency":             m.get("currency") or "USD",
+            "last_active":          str(m.get("last_active") or ""),
         })
 
     rows.sort(key=lambda r: r["company_total"], reverse=True)
@@ -2085,9 +2099,9 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
             "client_realised_pnl":  round(client_realised_pnl, 2),
             "client_unrealised_eod":round(client_unrealised_eod, 2),
             "company_trading_pnl":  company_trading_pnl,
-            # Total company value from client = trading profit + net deposit margin
-            # (money deposited but never withdrawn stays with the company)
-            "company_total_value":  round(company_trading_pnl + net_deposit, 2),
+            # Total company value: net_deposit − client_realised − client_floating
+            # (includes unrealised exposure from open positions)
+            "company_total_value":  round(company_trading_pnl + net_deposit - client_unrealised_eod, 2),
         }
     }
     _cache_set(key, result)
