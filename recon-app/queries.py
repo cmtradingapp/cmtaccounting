@@ -1452,25 +1452,28 @@ def client_list(date_from=None, date_to=None) -> list:
     except Exception:
         praxis_names = {}
 
-    # Fallback: Antelope CRM name keyed by login (covers clients with no Praxis activity)
-    def _fetch_crm_names():
-        with crm() as cur:
-            cur.execute("""
-                SELECT ta.login,
-                       RTRIM(a.first_name + ' ' + a.last_name) AS name,
-                       a.email
-                FROM report.vtiger_trading_accounts ta
-                JOIN report.vtiger_account a ON a.accountid = ta.vtigeraccountid
-                WHERE (ta.deleted IS NULL OR ta.deleted = 0)
-                  AND ta.login IS NOT NULL
-                  AND a.first_name IS NOT NULL AND a.first_name != ''
-            """)
-            return {r["login"]: {"name": (r["name"] or "").strip(), "email": r["email"] or ""}
-                    for r in cur.fetchall()}
-    try:
-        crm_names = _db_retry(_fetch_crm_names)
-    except Exception:
-        crm_names = {}
+    # Fallback names: batch-fetch from vtiger_account using the CIDs we already have.
+    # vtiger_account.accountid = Praxis CID (26xxx/27xxx range) — correct match.
+    # The old vtiger_trading_accounts JOIN was using wrong ID ranges and caused 60s hangs.
+    crm_names: dict = {}   # {cid: {"name": ..., "email": ...}}
+    cids_needed = [cid for cid in set(login_to_cid.values()) if cid]
+    if cids_needed:
+        try:
+            def _fetch_crm_names():
+                with crm() as cur:
+                    ph = ",".join(["%s"] * len(cids_needed))
+                    cur.execute(
+                        f"SELECT CAST(accountid AS VARCHAR(20)) AS cid,"
+                        f" RTRIM(first_name + ' ' + last_name) AS name, email"
+                        f" FROM report.vtiger_account WHERE accountid IN ({ph})",
+                        [int(c) for c in cids_needed]
+                    )
+                    return {(r["cid"] or "").strip(): {"name": (r["name"] or "").strip(),
+                                                        "email": r["email"] or ""}
+                            for r in cur.fetchall()}
+            crm_names = _db_retry(_fetch_crm_names)
+        except Exception:
+            crm_names = {}
 
     # 4. Build result rows
     rows = []
@@ -1482,10 +1485,10 @@ def client_list(date_from=None, date_to=None) -> list:
 
         cid        = login_to_cid.get(login, "")
         praxis_info= praxis_names.get(cid, {})
-        dealio_info= crm_names.get(login, {})
+        crm_info   = crm_names.get(cid, {})
         # Prefer Praxis name (has first+last), fall back to CRM vtiger_account
-        name  = praxis_info.get("name") or dealio_info.get("name") or ""
-        email = praxis_info.get("email") or dealio_info.get("email") or ""
+        name  = praxis_info.get("name") or crm_info.get("name") or ""
+        email = praxis_info.get("email") or crm_info.get("email") or ""
 
         rows.append({
             "login":               login,
