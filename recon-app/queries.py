@@ -2,8 +2,20 @@
 
 import os
 import time
+import threading
 import psycopg2
 from db import dealio, crm, fees_db, FEES_MODE
+
+# Per-cache-key locks prevent thundering herd on cold start:
+# only ONE thread runs each expensive query while others wait for it to finish.
+_CACHE_LOCKS: dict = {}
+_CACHE_LOCKS_LOCK = threading.Lock()
+
+def _get_cache_lock(key: str) -> threading.Lock:
+    with _CACHE_LOCKS_LOCK:
+        if key not in _CACHE_LOCKS:
+            _CACHE_LOCKS[key] = threading.Lock()
+        return _CACHE_LOCKS[key]
 
 # True when the fees database is PostgreSQL (FEES_MODE=live)
 _PG = FEES_MODE == "live"
@@ -112,6 +124,11 @@ def available_months():
     cached = _cache_get("available_months", _TTL_MONTHS)
     if cached is not None:
         return cached
+
+    with _get_cache_lock("available_months"):
+        cached = _cache_get("available_months", _TTL_MONTHS)  # re-check after acquiring lock
+        if cached is not None:
+            return cached
 
     def _fetch():
         with crm() as cur:
@@ -236,6 +253,11 @@ def _load_praxis_account_map() -> dict:
     cached = _cache_get(key, 1800)
     if cached is not None:
         return cached
+
+    with _get_cache_lock(key):
+        cached = _cache_get(key, 1800)
+        if cached is not None:
+            return cached
 
     try:
         def _fetch():
@@ -568,6 +590,12 @@ def _load_trading_account_fallback() -> tuple:
     cached = _cache_get(key, 1800)
     if cached is not None:
         return cached
+
+    with _get_cache_lock(key):
+        cached = _cache_get(key, 1800)
+        if cached is not None:
+            return cached
+
     try:
         def _fetch():
             with crm() as cur:
