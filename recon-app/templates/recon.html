@@ -347,18 +347,27 @@
 })();
 
 /* ── Custom column tooltip — works on real + fixed ghost header ── */
-(function () {
+var _colTip = (function () {
   var tip = document.createElement('div');
   tip.id = 'col-tip';
   document.body.appendChild(tip);
-
   var hideTimer;
 
+  function position(e) {
+    var x = e.clientX + 14, y = e.clientY + 20;
+    if (x + 340 > window.innerWidth)  x = e.clientX - 344;
+    if (y + 120 > window.innerHeight) y = e.clientY - 90;
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
+  }
+
   function attachTip(el) {
-    var text = el.getAttribute('data-tip') || el.title;
-    if (!text) return;
-    // Move title to data-tip so browser doesn't show its own tooltip
-    if (el.title) { el.setAttribute('data-tip', el.title); el.removeAttribute('title'); }
+    // Read from data-tip first (already migrated), then title
+    if (!el.getAttribute('data-tip') && el.title) {
+      el.setAttribute('data-tip', el.title);
+      el.removeAttribute('title');
+    }
+    if (!el.getAttribute('data-tip')) return;
 
     el.addEventListener('mouseenter', function (e) {
       clearTimeout(hideTimer);
@@ -368,30 +377,23 @@
     });
     el.addEventListener('mousemove', position);
     el.addEventListener('mouseleave', function () {
-      hideTimer = setTimeout(function () { tip.style.display = 'none'; }, 80);
+      hideTimer = setTimeout(function () { tip.style.display = 'none'; }, 100);
     });
   }
 
-  function position(e) {
-    var x = e.clientX + 14, y = e.clientY + 18;
-    if (x + 340 > window.innerWidth) x = e.clientX - 344;
-    if (y + 100 > window.innerHeight) y = e.clientY - 80;
-    tip.style.left = x + 'px';
-    tip.style.top  = y + 'px';
-  }
+  return { attachTip: attachTip };
+})();
 
-  // Attach to real header
-  document.querySelectorAll('.recon-table thead th').forEach(attachTip);
+// Attach to real header immediately (script is below the table in DOM)
+document.querySelectorAll('.recon-table thead th').forEach(_colTip.attachTip);
 
-  // Attach to ghost header whenever it's rebuilt
-  var origSync = window._reconSyncGhost;
+// Attach to ghost header cells whenever syncGhost rebuilds them
+(function () {
   var ghostRow = document.getElementById('stickyReconRow');
-  if (ghostRow) {
-    var obs = new MutationObserver(function () {
-      ghostRow.querySelectorAll('th').forEach(attachTip);
-    });
-    obs.observe(ghostRow, { childList: true });
-  }
+  if (!ghostRow) return;
+  new MutationObserver(function () {
+    ghostRow.querySelectorAll('th').forEach(_colTip.attachTip);
+  }).observe(ghostRow, { childList: true });
 })();
 
 function toggleGroup(cid) {
