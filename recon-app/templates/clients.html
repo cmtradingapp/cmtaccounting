@@ -26,6 +26,24 @@
   .cl-search input { background:none; border:none; outline:none; color:var(--text); font-size:13px; flex:1; }
   .cl-search svg { color:var(--muted); flex-shrink:0; }
 
+  /* Loading overlay */
+  #cl-overlay {
+    position:fixed; inset:0; z-index:500; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:20px;
+    background:rgba(15,17,23,.85); backdrop-filter:blur(3px);
+  }
+  #cl-overlay.hidden { display:none; }
+  .cl-spinner { width:44px;height:44px;border:3px solid rgba(79,142,247,.2);
+    border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .cl-load-steps { display:flex;flex-direction:column;gap:5px;align-items:flex-start; }
+  .cl-step { font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px; }
+  .cl-step.active { color:var(--text);font-weight:600; }
+  .cl-step.done { color:var(--green); }
+  .cl-step::before { content:'·';display:inline-block;width:12px;text-align:center; }
+  .cl-step.active::before { content:'›';color:var(--accent); }
+  .cl-step.done::before { content:'✓'; }
+
   /* Table sort arrows */
   th[data-col] { cursor:pointer; user-select:none; white-space:nowrap; transition:color .15s; }
   th[data-col]:hover { color:var(--text); }
@@ -93,12 +111,19 @@
      class="btn" style="margin-left:auto;white-space:nowrap;">↓ Equity Report</a>
 </div>
 
-<!-- Loading overlay -->
-<div id="clLoading" style="display:none;text-align:center;padding:48px;color:var(--muted);">
-  <div style="width:32px;height:32px;border:2px solid rgba(79,142,247,.2);border-top-color:var(--accent);
-              border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px;"></div>
-  <div style="font-size:13px;" id="clLoadMsg">Loading…</div>
+<!-- Loading overlay (replaces the old minimal one) -->
+<div id="cl-overlay">
+  <div class="cl-spinner"></div>
+  <div style="font-size:15px;font-weight:600;color:var(--text);" id="cl-load-title">Loading client data…</div>
+  <div class="cl-load-steps">
+    <div class="cl-step" id="cl-step-mt4">Fetching MT4 trading data</div>
+    <div class="cl-step" id="cl-step-map">Loading CRM account mappings</div>
+    <div class="cl-step" id="cl-step-names">Fetching client names</div>
+    <div class="cl-step" id="cl-step-build">Building client list</div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);" id="cl-elapsed">0s elapsed</div>
 </div>
+<div id="clLoading" style="display:none;"><div id="clLoadMsg"></div></div>
 
 <!-- Virtual scroll container: only visible rows are in the DOM -->
 <div id="clScroller" style="overflow-y:auto;height:calc(100vh - 260px);border-radius:14px;border:1px solid var(--border);">
@@ -303,25 +328,51 @@ document.querySelectorAll('#clTable th[data-col]').forEach(function(th) {
 // ── Fetch data from JSON endpoint ──────────────────────────────────────────
 function loadData(span) {
   _span = span;
-  document.getElementById('clLoading').style.display = 'block';
   document.getElementById('clScroller').style.display = 'none';
-  document.getElementById('clLoadMsg').textContent = 'Loading' + (span==='all' ? ' all-time data (may take ~10s)…' : '…');
+
+  // Animate the overlay
+  var overlay   = document.getElementById('cl-overlay');
+  var elapsedEl = document.getElementById('cl-elapsed');
+  var stepIds   = ['cl-step-mt4','cl-step-map','cl-step-names','cl-step-build'];
+  var curStep   = 0;
+  var t0        = Date.now();
+  overlay.classList.remove('hidden');
+  stepIds.forEach(function(s){ document.getElementById(s).className='cl-step'; });
+  document.getElementById(stepIds[0]).className = 'cl-step active';
+  document.getElementById('cl-load-title').textContent =
+    span === 'all' ? 'Loading all-time data…' : 'Loading client data…';
+
+  var ticker = setInterval(function() {
+    var sec = Math.round((Date.now() - t0) / 1000);
+    elapsedEl.textContent = sec + 's elapsed';
+    var idx = sec < 6 ? 0 : sec < 12 ? 1 : sec < 18 ? 2 : 3;
+    if (idx !== curStep) {
+      document.getElementById(stepIds[curStep]).className = 'cl-step done';
+      curStep = idx;
+      document.getElementById(stepIds[curStep]).className = 'cl-step active';
+    }
+  }, 500);
 
   fetch('/clients/data?span=' + span)
     .then(function(r) { return r.json(); })
     .then(function(data) {
+      clearInterval(ticker);
+      stepIds.forEach(function(s){ document.getElementById(s).className='cl-step done'; });
+      document.getElementById('cl-load-title').textContent = 'Rendering…';
       _allRows = data.rows || [];
-      document.getElementById('clLoading').style.display = 'none';
-      document.getElementById('clScroller').style.display = '';
-
-      var age = data.cache_age;
-      var ageEl = document.getElementById('clCacheAge');
-      if (ageEl) ageEl.textContent = age != null ? '· cached ' + age + 's ago' : '';
-
-      applyView();
+      requestAnimationFrame(function() {
+        applyView();
+        overlay.classList.add('hidden');
+        document.getElementById('clScroller').style.display = '';
+        var age = data.cache_age;
+        var ageEl = document.getElementById('clCacheAge');
+        if (ageEl) ageEl.textContent = age != null ? '· cached ' + age + 's ago' : '';
+      });
     })
     .catch(function(e) {
-      document.getElementById('clLoadMsg').textContent = 'Error loading data. Try refreshing.';
+      clearInterval(ticker);
+      document.getElementById('cl-load-title').textContent = 'Error loading data. Try refreshing.';
+      document.getElementById('cl-load-title').style.color = 'var(--red)';
     });
 }
 
