@@ -150,36 +150,46 @@
       </tr>
     </thead>
     <tbody>
+      {%- macro num_cell(val, cls='') %}
+        <td class="num {{ cls }}">{{ "{:,.2f}".format(val) if val else '—' }}</td>
+      {%- endmacro %}
+
       {% if groups %}
         {%- for g in groups %}
         {%- set a = g.agg %}
-        {%- set cid_safe = g.cid | replace(' ','_') %}
-        {%- if g.multi %}
-        {# ── Multi-login group: show aggregate row with toggle ── #}
-        <tr class="group-row" id="grp-{{ cid_safe }}">
+        {%- set cid_safe = 'cid' ~ (g.cid if g.cid else loop.index|string) %}
+
+        {# ── Group header row (always shown) ── #}
+        <tr class="group-row">
           <td>
+            {%- if g.multi %}
             <button class="toggle-btn" id="tog-{{ cid_safe }}"
                     onclick="toggleGroup('{{ cid_safe }}')"
-                    title="{% if g.expanded %}Collapse{% else %}Expand{% endif %} logins">
-              {% if g.expanded %}▾{% else %}▸{% endif %}
+                    title="{{ 'Collapse' if g.expanded else 'Expand' }} logins">
+              {{ '▾' if g.expanded else '▸' }}
             </button>
-            {% if g.cid %}
+            {%- else %}
+            <span style="display:inline-block;width:16px;"></span>
+            {%- endif %}
+            {%- if g.cid %}
               <a href="/cid/{{ g.cid }}?ref={{ month }}" class="cid-link">{{ g.cid }}</a>
-            {% else %}
+            {%- else %}
               <span class="cid-label">—</span>
-            {% endif %}
+            {%- endif %}
+            {%- if g.multi %}
             <span style="font-size:10px;color:var(--muted);margin-left:5px;">{{ g.logins|length }} accounts</span>
+            {%- endif %}
           </td>
           <td class="num">{{ "{:,.2f}".format(a.mt4_net) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(a.crm_cash_dep) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(a.crm_cash_with) }}</td>
           <td class="num cash-col fw">{{ "{:,.2f}".format(a.crm_cash_net) }}</td>
-          <td class="num noncash-col">{% if a.crm_noncash_in %}{{ "{:,.2f}".format(a.crm_noncash_in) }}{% else %}—{% endif %}</td>
-          <td class="num noncash-col">{% if a.crm_noncash_out %}{{ "{:,.2f}".format(a.crm_noncash_out) }}{% else %}—{% endif %}</td>
-          <td class="num {% if a.difference > 1 %}pos{% elif a.difference < -1 %}neg{% endif %}">
+          <td class="num noncash-col">{{ "{:,.2f}".format(a.crm_noncash_in) if a.crm_noncash_in else '—' }}</td>
+          <td class="num noncash-col">{{ "{:,.2f}".format(a.crm_noncash_out) if a.crm_noncash_out else '—' }}</td>
+          <td class="num {{ 'pos' if a.difference > 1 else ('neg' if a.difference < -1 else '') }}">
             {{ "{:+,.2f}".format(a.difference) if a.abs_diff >= 0.01 else '—' }}
           </td>
-          <td class="num {% if a.fee_adj_diff > 1 %}pos{% elif a.fee_adj_diff < -1 %}neg{% else %}muted{% endif %}"
+          <td class="num {{ 'pos' if a.fee_adj_diff > 1 else ('neg' if a.fee_adj_diff < -1 else 'muted') }}"
               title="Expected fees: ${{ '{:,.2f}'.format(a.expected_fees) }}">
             {{ "{:+,.2f}".format(a.fee_adj_diff) if a.expected_fees else '—' }}
           </td>
@@ -189,23 +199,25 @@
           <td class="num">{{ a.tx_count or '—' }}</td>
           <td>{{ a.currency }}</td>
         </tr>
+
+        {# ── Login sub-rows (always rendered; hidden when collapsed) ── #}
         {%- for r in g.logins %}
         <tr class="login-row login-row-{{ cid_safe }}"
-            style="{{ '' if g.expanded else 'display:none;' }}">
+            style="{{ '' if (not g.multi or g.expanded) else 'display:none;' }}">
           <td>
-            <span class="login-prefix">└</span>
+            <span class="login-prefix" style="padding-left:16px;">└</span>
             <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}">{{ r.login }}</a>
           </td>
           <td class="num">{{ "{:,.2f}".format(r.mt4_net) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_dep) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_with) }}</td>
           <td class="num cash-col fw">{{ "{:,.2f}".format(r.crm_cash_net) }}</td>
-          <td class="num noncash-col">{% if r.crm_noncash_in %}{{ "{:,.2f}".format(r.crm_noncash_in) }}{% else %}—{% endif %}</td>
-          <td class="num noncash-col">{% if r.crm_noncash_out %}{{ "{:,.2f}".format(r.crm_noncash_out) }}{% else %}—{% endif %}</td>
-          <td class="num {% if r.difference > 1 %}pos{% elif r.difference < -1 %}neg{% endif %}">
+          <td class="num noncash-col">{{ "{:,.2f}".format(r.crm_noncash_in) if r.crm_noncash_in else '—' }}</td>
+          <td class="num noncash-col">{{ "{:,.2f}".format(r.crm_noncash_out) if r.crm_noncash_out else '—' }}</td>
+          <td class="num {{ 'pos' if r.difference > 1 else ('neg' if r.difference < -1 else '') }}">
             {{ "{:+,.2f}".format(r.difference) if r.abs_diff >= 0.01 or r.difference else '—' }}
           </td>
-          <td class="num {% if r.fee_adj_diff > 1 %}pos{% elif r.fee_adj_diff < -1 %}neg{% else %}muted{% endif %}"
+          <td class="num {{ 'pos' if r.fee_adj_diff > 1 else ('neg' if r.fee_adj_diff < -1 else 'muted') }}"
               title="Expected fees: ${{ '{:,.2f}'.format(r.expected_fees) }}">
             {{ "{:+,.2f}".format(r.fee_adj_diff) if r.expected_fees else '—' }}
           </td>
@@ -216,37 +228,6 @@
           <td>{{ r.currency }}</td>
         </tr>
         {%- endfor %}
-        {%- else %}
-        {# ── Single-login group: plain row showing CID + login ── #}
-        {%- set r = g.logins[0] %}
-        <tr class="group-row">
-          <td>
-            {% if g.cid %}
-              <a href="/cid/{{ g.cid }}?ref={{ month }}" class="cid-link">{{ g.cid }}</a>
-              <span style="color:var(--muted);margin:0 3px;font-size:10px;">·</span>
-            {% endif %}
-            <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}">{{ r.login }}</a>
-          </td>
-          <td class="num">{{ "{:,.2f}".format(r.mt4_net) }}</td>
-          <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_dep) }}</td>
-          <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_with) }}</td>
-          <td class="num cash-col fw">{{ "{:,.2f}".format(r.crm_cash_net) }}</td>
-          <td class="num noncash-col">{% if r.crm_noncash_in %}{{ "{:,.2f}".format(r.crm_noncash_in) }}{% else %}—{% endif %}</td>
-          <td class="num noncash-col">{% if r.crm_noncash_out %}{{ "{:,.2f}".format(r.crm_noncash_out) }}{% else %}—{% endif %}</td>
-          <td class="num {% if r.difference > 1 %}pos{% elif r.difference < -1 %}neg{% endif %}">
-            {{ "{:+,.2f}".format(r.difference) if r.abs_diff >= 0.01 or r.difference else '—' }}
-          </td>
-          <td class="num {% if r.fee_adj_diff > 1 %}pos{% elif r.fee_adj_diff < -1 %}neg{% else %}muted{% endif %}"
-              title="Expected fees: ${{ '{:,.2f}'.format(r.expected_fees) }}">
-            {{ "{:+,.2f}".format(r.fee_adj_diff) if r.expected_fees else '—' }}
-          </td>
-          <td class="num praxis-col">{{ "{:,.2f}".format(r.praxis_net) if r.praxis_net else '—' }}</td>
-          <td><span class="badge {{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
-          <td class="methods" title="{{ r.payment_methods }}">{{ r.cash_methods or '—' }}</td>
-          <td class="num">{{ r.tx_count or '—' }}</td>
-          <td>{{ r.currency }}</td>
-        </tr>
-        {%- endif %}
         {%- endfor %}
       {% else %}
         <tr><td colspan="14" class="empty">No results for this filter.</td></tr>
