@@ -55,6 +55,21 @@
   tbody tr.profit-row:hover td { background:rgba(34,197,94,.04); }
   tbody tr.loss-row td { background:rgba(239,68,68,.03); }
   tbody tr.loss-row:hover td { background:rgba(239,68,68,.07); }
+
+  /* CID group rows */
+  .cl-group-row td { font-weight:600; background:rgba(255,255,255,.02); border-top:1px solid rgba(255,255,255,.06); }
+  .cl-group-row:hover td { background:rgba(255,255,255,.04) !important; }
+  .cl-login-row td { border-top:none; font-weight:400; }
+  .cl-login-row td:first-child { padding-left:30px; color:var(--muted); }
+  .cl-toggle { background:none; border:none; color:var(--muted); cursor:pointer; font-size:11px;
+               padding:0 4px 0 0; line-height:1; vertical-align:middle; }
+  .cl-toggle:hover { color:var(--text); }
+  .cl-cid-link { font-family:monospace; font-size:12px; color:var(--text-2); text-decoration:none; font-weight:700; }
+  .cl-cid-link:hover { color:var(--accent); }
+  .cl-name-sub { font-size:11px; color:var(--muted); font-weight:400; margin-top:1px; overflow:hidden; text-overflow:ellipsis; }
+  .cl-no-cid { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+               color:var(--muted); background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
+               border-radius:3px; padding:1px 5px; vertical-align:middle; }
 </style>
 
 <div class="page-header" style="margin-bottom:var(--sp-3);">
@@ -130,291 +145,317 @@
 <div id="clScroller" style="overflow-y:auto;height:calc(100vh - 260px);border-radius:14px;border:1px solid var(--border);">
 <table id="clTable" style="width:100%;border-collapse:collapse;table-layout:fixed;">
     <colgroup>
-      <col style="width:100px">
+      <col style="width:120px">
       <col style="width:auto">
-      <col style="width:80px">
-      <col style="width:125px">
-      <col style="width:125px">
+      <col style="width:130px">
+      <col style="width:130px">
+      <col style="width:120px">
       <col style="width:115px">
-      <col style="width:110px">
-      <col style="width:115px">
-      <col style="width:40px">
+      <col style="width:120px">
+      <col style="width:45px">
       <col style="width:90px">
     </colgroup>
     <thead>
       <tr>
-        <th data-col="0">Login</th>
+        <th data-col="0">CID / Login</th>
         <th data-col="1">Name</th>
-        <th data-col="2" style="font-family:monospace;">CID</th>
-        <th data-col="3" class="num desc">Company Total (USD)</th>
-        <th data-col="4" class="num">Co. Trading P&amp;L (USD)</th>
-        <th data-col="5" class="num" title="Last end-of-day unrealised P&L from open positions (negative = client is winning, company exposed)">Floating P&amp;L (USD)</th>
-        <th data-col="6" class="num">Net Deposit (USD)</th>
-        <th data-col="7" class="num">Client P&amp;L (USD)</th>
-        <th data-col="8">Ccy</th>
-        <th data-col="9">Last Active</th>
+        <th data-col="2" class="num desc">Company Total (USD)</th>
+        <th data-col="3" class="num">Co. Trading P&amp;L (USD)</th>
+        <th data-col="4" class="num" title="Last EOD unrealised P&L from open positions">Floating P&amp;L (USD)</th>
+        <th data-col="5" class="num">Net Deposit (USD)</th>
+        <th data-col="6" class="num">Client P&amp;L (USD)</th>
+        <th data-col="7">Ccy</th>
+        <th data-col="8">Last Active</th>
       </tr>
     </thead>
     <!-- spacer rows for virtual scroll -->
     <tbody id="clTbody">
-      <tr id="clPadTop"   style="height:0"><td colspan="10"></td></tr>
-      <tr id="clPadBot"   style="height:0"><td colspan="10"></td></tr>
+      <tr id="clPadTop" style="height:0"><td colspan="9"></td></tr>
+      <tr id="clPadBot" style="height:0"><td colspan="9"></td></tr>
     </tbody>
   </table>
 </div>
 
 <script>
-var _allRows  = [];
-var _viewRows = [];
-var _filter   = 'all';
-var _search   = '';
-var _sortCol  = 3;
-var _sortAsc  = false;
-var _span     = '{{ span }}';
+// State
+var _allGroups  = [];
+var _viewGroups = [];
+var _flatItems  = [];
+var _filter     = 'all';
+var _search     = '';
+var _sortCol    = 2;
+var _sortAsc    = false;
+var _span       = '{{ span }}';
 
-// ── Virtual scroll state ────────────────────────────────────────────────────
-var ROW_H   = 48;    // estimated row height px — recalibrated after first render
-var OVERSCAN = 5;    // extra rows above/below viewport
-var _vsStart = 0;    // first rendered data-row index
-var _vsEnd   = 0;    // last rendered data-row index (exclusive)
+// Virtual scroll state
+var ROW_H    = 48;
+var OVERSCAN = 5;
+var _vsStart = 0;
+var _vsEnd   = 0;
 
-// ── Format helpers ─────────────────────────────────────────────────────────
+// Format helpers
 function fmt(n) {
-  if (n == null) return '—';
+  if (n == null || n === '') return '\u2014';
   var s = Math.abs(n).toLocaleString('en', {maximumFractionDigits:0});
-  return (n >= 0 ? '+' : '−') + s;
+  return (n >= 0 ? '+' : '\u2212') + s;
 }
-function clr(n) {
-  return n > 1 ? 'pos' : n < -1 ? 'neg' : '';
+function clr(n) { return n > 1 ? 'pos' : n < -1 ? 'neg' : ''; }
+
+// Group flat rows by CID
+function groupData(rows) {
+  var map = {}, order = [];
+  rows.forEach(function(r) {
+    var key = r.cid ? r.cid : '__' + r.login;
+    if (!map[key]) {
+      map[key] = {cid: r.cid||'', name:'', logins:[], expanded:false,
+                  agg:{company_total:0, company_trading_pnl:0, client_floating_eod:0,
+                       net_deposit:0, client_realised_pnl:0, currency:'', last_active:''}};
+      order.push(key);
+    }
+    var g = map[key];
+    if (!g.name && r.name) g.name = r.name;
+    g.logins.push(r);
+    ['company_total','company_trading_pnl','client_floating_eod','net_deposit','client_realised_pnl']
+      .forEach(function(f){ g.agg[f] = +(g.agg[f] + (r[f]||0)).toFixed(2); });
+    if (!g.agg.currency)     g.agg.currency = r.currency || '';
+    if (!g.agg.last_active || r.last_active > g.agg.last_active) g.agg.last_active = r.last_active || '';
+  });
+  return order.map(function(k){ var g=map[k]; g.multi=g.logins.length>1; return g; });
 }
 
-// ── Build a single TR ───────────────────────────────────────────────────────
-function makeRow(r) {
-  var last_ym = (r.last_active || '').slice(0,7);
-  var url = r.cid
-    ? '/cid/'    + r.cid   + '?span=' + _span + (last_ym ? '&last=' + last_ym : '')
-    : '/client/' + r.login + '?span=' + _span + (last_ym ? '&last=' + last_ym : '');
-  var cls = r.company_total > 1 ? 'profit-row' : r.company_total < -1 ? 'loss-row' : '';
-  var tr = document.createElement('tr');
-  tr.className = 'clickable ' + cls;
-  tr.onclick = function() { window.location = url; };
+// Flatten groups into virtual scroll items
+function rebuildFlat(groups) {
+  var flat = [];
+  groups.forEach(function(g) {
+    flat.push({type:'group', g:g});
+    if (g.expanded) g.logins.forEach(function(r){ flat.push({type:'login',g:g,r:r}); });
+  });
+  return flat;
+}
+
+// Build group header row
+function makeGroupRow(g) {
+  var agg = g.agg;
+  var cls = 'cl-group-row ' + (agg.company_total > 1 ? 'profit-row' : agg.company_total < -1 ? 'loss-row' : '');
+  var tr  = document.createElement('tr');
+  tr.className = cls;
+  var cidSafe = 'cg' + (g.cid || g.logins[0].login);
+
+  var firstCell = '';
+  if (g.multi) {
+    firstCell = '<button class="cl-toggle" id="tog-'+cidSafe+'" onclick="event.stopPropagation();toggleGroup(\''+cidSafe+'\')">'+(g.expanded?'\u25be':'\u25b8')+'</button>';
+  } else {
+    firstCell = '<span style="display:inline-block;width:16px;"></span>';
+  }
+  if (g.cid) {
+    var last_ym = (agg.last_active||'').slice(0,7);
+    var cidUrl = '/cid/'+g.cid+'?span='+_span+(last_ym?'&last='+last_ym:'');
+    firstCell += '<a href="'+cidUrl+'" class="cl-cid-link" onclick="event.stopPropagation()">'+g.cid+'</a>';
+    if (g.multi) firstCell += '<span style="font-size:10px;color:var(--muted);margin-left:6px;">'+g.logins.length+' accts</span>';
+  } else {
+    firstCell += '<span class="cl-no-cid">no CID</span>';
+  }
+  if (g.name) firstCell += '<div class="cl-name-sub">'+g.name+'</div>';
+
+  if (!g.multi && g.cid) {
+    var last_ym2=(agg.last_active||'').slice(0,7);
+    var rowUrl='/cid/'+g.cid+'?span='+_span+(last_ym2?'&last='+last_ym2:'');
+    tr.style.cursor='pointer'; tr.onclick=function(){window.location=rowUrl;};
+  } else if (!g.multi && !g.cid) {
+    var r0=g.logins[0], last0=(r0.last_active||'').slice(0,7);
+    var rowUrl0='/client/'+r0.login+'?span='+_span+(last0?'&last='+last0:'');
+    tr.style.cursor='pointer'; tr.onclick=function(){window.location=rowUrl0;};
+  } else {
+    tr.style.cursor='pointer';
+    tr.onclick=function(e){if(!e.target.closest('a,button'))toggleGroup(cidSafe);};
+  }
+
   tr.innerHTML =
-    '<td><a href="' + url + '" style="color:var(--accent)" onclick="event.stopPropagation()">' + r.login + '</a></td>' +
-    '<td>' + (r.name || '—') + '</td>' +
-    '<td style="font-family:monospace;font-size:11px;color:var(--muted)">' +
-      (r.cid ? '<a href="' + url + '" style="color:var(--muted)" onclick="event.stopPropagation()">' + r.cid + '</a>' : '—') +
-    '</td>' +
-    '<td class="num fw ' + clr(r.company_total)       + '">' + fmt(r.company_total)       + '</td>' +
-    '<td class="num '    + clr(r.company_trading_pnl)  + '">' + fmt(r.company_trading_pnl)  + '</td>' +
-    '<td class="num '    + clr(-(r.client_floating_eod||0))  + '" title="Unrealised (open positions)">' + fmt(-(r.client_floating_eod||0)) + '</td>' +
-    '<td class="num">'                                          + fmt(r.net_deposit)          + '</td>' +
-    '<td class="num '    + clr(r.client_realised_pnl)  + '">' + fmt(r.client_realised_pnl)  + '</td>' +
-    '<td>' + (r.currency || '—') + '</td>' +
-    '<td style="color:var(--muted)">' + (r.last_active || '—') + '</td>';
+    '<td style="line-height:1.3">'+firstCell+'</td>'+
+    '<td>'+(g.name||'\u2014')+'</td>'+
+    '<td class="num fw '+clr(agg.company_total)+'">'+fmt(agg.company_total)+'</td>'+
+    '<td class="num '+clr(agg.company_trading_pnl)+'">'+fmt(agg.company_trading_pnl)+'</td>'+
+    '<td class="num '+clr(-(agg.client_floating_eod||0))+'">'+fmt(-(agg.client_floating_eod||0))+'</td>'+
+    '<td class="num">'+fmt(agg.net_deposit)+'</td>'+
+    '<td class="num '+clr(agg.client_realised_pnl)+'">'+fmt(agg.client_realised_pnl)+'</td>'+
+    '<td>'+(agg.currency||'\u2014')+'</td>'+
+    '<td style="color:var(--muted)">'+(agg.last_active||'\u2014')+'</td>';
   return tr;
 }
 
-// ── Virtual scroll render — only rows visible in scroller are in DOM ─────────
+// Build login sub-row
+function makeLoginRow(g, r) {
+  var last_ym=(r.last_active||'').slice(0,7);
+  var url='/client/'+r.login+'?span='+_span+(last_ym?'&last='+last_ym:'');
+  var tr=document.createElement('tr');
+  tr.className='cl-login-row'; tr.style.cursor='pointer';
+  tr.onclick=function(){window.location=url;};
+  tr.innerHTML=
+    '<td><span style="color:rgba(255,255,255,.2);font-size:10px;margin-right:3px;">\u2514</span>'+
+    '<a href="'+url+'" style="color:var(--accent)" onclick="event.stopPropagation()">'+r.login+'</a></td>'+
+    '<td style="color:var(--muted);font-size:11px;">'+(r.name||'\u2014')+'</td>'+
+    '<td class="num fw '+clr(r.company_total)+'">'+fmt(r.company_total)+'</td>'+
+    '<td class="num '+clr(r.company_trading_pnl)+'">'+fmt(r.company_trading_pnl)+'</td>'+
+    '<td class="num '+clr(-(r.client_floating_eod||0))+'">'+fmt(-(r.client_floating_eod||0))+'</td>'+
+    '<td class="num">'+fmt(r.net_deposit)+'</td>'+
+    '<td class="num '+clr(r.client_realised_pnl)+'">'+fmt(r.client_realised_pnl)+'</td>'+
+    '<td>'+(r.currency||'\u2014')+'</td>'+
+    '<td style="color:var(--muted)">'+(r.last_active||'\u2014')+'</td>';
+  return tr;
+}
+
+// Toggle expand/collapse
+function toggleGroup(cidSafe) {
+  var g=_viewGroups.find(function(g){return 'cg'+(g.cid||g.logins[0].login)===cidSafe;});
+  if(!g) return;
+  g.expanded=!g.expanded;
+  var tog=document.getElementById('tog-'+cidSafe);
+  if(tog) tog.textContent=g.expanded?'\u25be':'\u25b8';
+  _flatItems=rebuildFlat(_viewGroups); _vsStart=0; _vsEnd=0; vsRender(true);
+}
+
+// Virtual scroll
 function vsRender(force) {
-  var scroller = document.getElementById('clScroller');
-  var n        = _viewRows.length;
-  if (!n) {
-    document.getElementById('clPadTop').style.height = '0';
-    document.getElementById('clPadBot').style.height = '0';
-    // Remove any data rows
-    var tbody = document.getElementById('clTbody');
-    Array.from(tbody.querySelectorAll('tr.clickable')).forEach(function(r){r.remove();});
+  var scroller=document.getElementById('clScroller');
+  var n=_flatItems.length;
+  var tbody=document.getElementById('clTbody');
+  var padTop=document.getElementById('clPadTop');
+  var padBot=document.getElementById('clPadBot');
+  if(!n){
+    padTop.style.height='0'; padBot.style.height='0';
+    Array.from(tbody.querySelectorAll('tr:not(#clPadTop):not(#clPadBot)')).forEach(function(r){r.remove();});
     return;
   }
-
-  var scrollTop  = scroller.scrollTop;
-  var viewH      = scroller.clientHeight || 600;
-  var newStart   = Math.max(0,     Math.floor(scrollTop / ROW_H) - OVERSCAN);
-  var newEnd     = Math.min(n, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN);
-
-  if (!force && newStart === _vsStart && newEnd === _vsEnd) return;
-  _vsStart = newStart; _vsEnd = newEnd;
-
-  var tbody   = document.getElementById('clTbody');
-  var padTop  = document.getElementById('clPadTop');
-  var padBot  = document.getElementById('clPadBot');
-
-  padTop.style.height = (newStart * ROW_H) + 'px';
-  padBot.style.height = Math.max(0, (n - newEnd) * ROW_H) + 'px';
-
-  // Remove old data rows
-  Array.from(tbody.querySelectorAll('tr.clickable')).forEach(function(r){r.remove();});
-
-  // Insert new visible rows before padBot
-  var frag = document.createDocumentFragment();
-  for (var i = newStart; i < newEnd; i++) frag.appendChild(makeRow(_viewRows[i]));
-  tbody.insertBefore(frag, padBot);
-
-  // Calibrate ROW_H from first real row; re-render if estimate was wrong
-  var first = tbody.querySelector('tr.clickable');
-  if (first && first.offsetHeight > 0 && first.offsetHeight !== ROW_H) {
-    ROW_H = first.offsetHeight;
-    _vsEnd = 0;          // force re-render with correct row height
-    vsRender(true);
+  var scrollTop=scroller.scrollTop, viewH=scroller.clientHeight||600;
+  var newStart=Math.max(0,Math.floor(scrollTop/ROW_H)-OVERSCAN);
+  var newEnd=Math.min(n,Math.ceil((scrollTop+viewH)/ROW_H)+OVERSCAN);
+  if(!force && newStart===_vsStart && newEnd===_vsEnd) return;
+  _vsStart=newStart; _vsEnd=newEnd;
+  padTop.style.height=(newStart*ROW_H)+'px';
+  padBot.style.height=Math.max(0,(n-newEnd)*ROW_H)+'px';
+  Array.from(tbody.querySelectorAll('tr:not(#clPadTop):not(#clPadBot)')).forEach(function(r){r.remove();});
+  var frag=document.createDocumentFragment();
+  for(var i=newStart;i<newEnd;i++){
+    var item=_flatItems[i];
+    frag.appendChild(item.type==='group'?makeGroupRow(item.g):makeLoginRow(item.g,item.r));
   }
+  tbody.insertBefore(frag,padBot);
+  var first=tbody.querySelector('tr.cl-group-row,tr.cl-login-row');
+  if(first&&first.offsetHeight>0&&first.offsetHeight!==ROW_H){ROW_H=first.offsetHeight;_vsEnd=0;vsRender(true);}
 }
 
-// ── Apply filter + sort, then reset virtual scroll ────────────────────────
+// Apply filter + sort
 function applyView() {
-  var q = _search;
-  _viewRows = _allRows.filter(function(r) {
-    var fok = _filter==='all'
-           || (_filter==='profit' && r.company_total >  1)
-           || (_filter==='loss'   && r.company_total < -1);
-    if (!fok) return false;
-    if (!q)   return true;
-    return (String(r.login) + ' ' + (r.name||'').toLowerCase() + ' ' +
-            (r.email||'').toLowerCase() + ' ' + (r.cid||'')).indexOf(q) !== -1;
+  var q=_search.toLowerCase().trim();
+  var keys=['cid','name','company_total','company_trading_pnl','client_floating_eod','net_deposit','client_realised_pnl','currency','last_active'];
+  var sortKey=keys[_sortCol]||'company_total';
+  _viewGroups=_allGroups.filter(function(g){
+    var agg=g.agg;
+    var fok=_filter==='all'||(_filter==='profit'&&agg.company_total>1)||(_filter==='loss'&&agg.company_total<-1);
+    if(!fok) return false;
+    if(!q) return true;
+    return g.logins.some(function(r){
+      return (String(r.login)+' '+(r.name||'').toLowerCase()+' '+(r.email||'').toLowerCase()+' '+(r.cid||'')).indexOf(q)!==-1;
+    });
   });
-
-  var col = _sortCol, asc = _sortAsc;
-  var keys = ['login','name','cid','company_total','company_trading_pnl',
-              'client_floating_eod','net_deposit','client_realised_pnl','currency','last_active'];
-  var key  = keys[col];
-  _viewRows.sort(function(a,b) {
-    var va = a[key], vb = b[key];
-    if (va == null) va = asc ? Infinity : -Infinity;
-    if (vb == null) vb = asc ? Infinity : -Infinity;
-    if (typeof va === 'number' && typeof vb === 'number') return asc ? va-vb : vb-va;
-    return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  var asc=_sortAsc;
+  _viewGroups.sort(function(a,b){
+    var va=sortKey==='cid'?a.cid:sortKey==='name'?a.name:a.agg[sortKey];
+    var vb=sortKey==='cid'?b.cid:sortKey==='name'?b.name:b.agg[sortKey];
+    if(va==null) va=asc?Infinity:-Infinity;
+    if(vb==null) vb=asc?Infinity:-Infinity;
+    if(typeof va==='number'&&typeof vb==='number') return asc?va-vb:vb-va;
+    return asc?String(va||'').localeCompare(String(vb||'')):String(vb||'').localeCompare(String(va||''));
   });
-
-  document.querySelectorAll('#clTable th[data-col]').forEach(function(th) {
+  document.querySelectorAll('#clTable th[data-col]').forEach(function(th){
     th.classList.remove('asc','desc');
-    if (parseInt(th.getAttribute('data-col')) === col)
-      th.classList.add(asc ? 'asc' : 'desc');
+    if(parseInt(th.getAttribute('data-col'))===_sortCol) th.classList.add(asc?'asc':'desc');
   });
-
-  // Reset scroll to top and re-render
-  var scroller = document.getElementById('clScroller');
-  scroller.scrollTop = 0;
-  _vsStart = 0; _vsEnd = 0;
-  vsRender(true);
-
-  var tot = _allRows.length;
-  document.getElementById('clCount').textContent =
-    _viewRows.length === tot ? tot.toLocaleString() + ' clients'
-                             : _viewRows.length.toLocaleString() + ' of ' + tot.toLocaleString() + ' clients';
-
-  // Update summary cards
-  var profitable = 0, losing = 0, tv = 0;
-  _viewRows.forEach(function(r) {
-    if (r.company_total >  1) profitable++;
-    if (r.company_total < -1) losing++;
-    tv += r.company_total;
+  _flatItems=rebuildFlat(_viewGroups);
+  document.getElementById('clScroller').scrollTop=0; _vsStart=0; _vsEnd=0; vsRender(true);
+  var profitable=0,losing=0,tv=0;
+  _viewGroups.forEach(function(g){
+    if(g.agg.company_total>1)profitable++;
+    if(g.agg.company_total<-1)losing++;
+    tv+=g.agg.company_total;
   });
-  document.getElementById('clStatTotal').textContent     = _viewRows.length.toLocaleString();
-  document.getElementById('clStatProfit').textContent    = profitable.toLocaleString();
-  document.getElementById('clStatLoss').textContent      = losing.toLocaleString();
-  document.getElementById('clStatWinrate').textContent   = _viewRows.length ? (profitable/_viewRows.length*100).toFixed(1)+'%' : '—';
-  document.getElementById('clStatValue').textContent     = (tv>=0?'+':'')+Math.round(tv).toLocaleString();
-  document.getElementById('clStatValue').className       = 'value ' + clr(tv);
+  var tot=_allGroups.length;
+  document.getElementById('clCount').textContent=_viewGroups.length===tot?tot.toLocaleString()+' clients':_viewGroups.length.toLocaleString()+' of '+tot.toLocaleString()+' clients';
+  document.getElementById('clStatTotal').textContent=_viewGroups.length.toLocaleString();
+  document.getElementById('clStatProfit').textContent=profitable.toLocaleString();
+  document.getElementById('clStatLoss').textContent=losing.toLocaleString();
+  document.getElementById('clStatWinrate').textContent=_viewGroups.length?(profitable/_viewGroups.length*100).toFixed(1)+'%':'\u2014';
+  document.getElementById('clStatValue').textContent=(tv>=0?'+':'')+Math.round(tv).toLocaleString();
+  document.getElementById('clStatValue').className='value '+clr(tv);
 }
 
-function setFilter(f, btn) {
-  _filter = f;
+function setFilter(f,btn){
+  _filter=f;
   document.querySelectorAll('[data-filter]').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');
-  // Reset sort to show most extreme values first for each filter mode
-  _sortCol = 3;  // company_total
-  _sortAsc = (f === 'loss');  // loss: ascending (most negative first); profit/all: descending
-  applyView();
+  _sortCol=2; _sortAsc=(f==='loss'); applyView();
 }
-function filterClients(q) {
-  _search = q.toLowerCase().trim();
-  applyView();
-}
+function filterClients(q){_search=q;applyView();}
 
-// Column sort (overrides base.html for this page)
-document.querySelectorAll('#clTable th[data-col]').forEach(function(th) {
-  th.addEventListener('click', function() {
-    var c = parseInt(th.getAttribute('data-col'));
-    _sortAsc = (c === _sortCol) ? !_sortAsc : false;
-    _sortCol = c;
-    applyView();
+document.querySelectorAll('#clTable th[data-col]').forEach(function(th){
+  th.addEventListener('click',function(){
+    var c=parseInt(th.getAttribute('data-col'));
+    _sortAsc=(c===_sortCol)?!_sortAsc:false; _sortCol=c; applyView();
   });
 });
 
-// ── Fetch data from JSON endpoint ──────────────────────────────────────────
-function loadData(span) {
-  _span = span;
-  document.getElementById('clScroller').style.display = 'none';
-
-  // Animate the overlay
-  var overlay   = document.getElementById('cl-overlay');
-  var elapsedEl = document.getElementById('cl-elapsed');
-  var stepIds   = ['cl-step-mt4','cl-step-map','cl-step-names','cl-step-build'];
-  var curStep   = 0;
-  var t0        = Date.now();
+function loadData(span){
+  _span=span; document.getElementById('clScroller').style.display='none';
+  var overlay=document.getElementById('cl-overlay');
+  var elapsedEl=document.getElementById('cl-elapsed');
+  var stepIds=['cl-step-mt4','cl-step-map','cl-step-names','cl-step-build'];
+  var curStep=0,t0=Date.now();
   overlay.classList.remove('hidden');
-  stepIds.forEach(function(s){ document.getElementById(s).className='cl-step'; });
-  document.getElementById(stepIds[0]).className = 'cl-step active';
-  document.getElementById('cl-load-title').textContent =
-    span === 'all' ? 'Loading all-time data…' : 'Loading client data…';
-
-  var ticker = setInterval(function() {
-    var sec = Math.round((Date.now() - t0) / 1000);
-    elapsedEl.textContent = sec + 's elapsed';
-    var idx = sec < 6 ? 0 : sec < 12 ? 1 : sec < 18 ? 2 : 3;
-    if (idx !== curStep) {
-      document.getElementById(stepIds[curStep]).className = 'cl-step done';
-      curStep = idx;
-      document.getElementById(stepIds[curStep]).className = 'cl-step active';
-    }
-  }, 500);
-
-  fetch('/clients/data?span=' + span)
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+  stepIds.forEach(function(s){document.getElementById(s).className='cl-step';});
+  document.getElementById(stepIds[0]).className='cl-step active';
+  document.getElementById('cl-load-title').textContent=span==='all'?'Loading all-time data\u2026':'Loading client data\u2026';
+  var ticker=setInterval(function(){
+    var sec=Math.round((Date.now()-t0)/1000);
+    elapsedEl.textContent=sec+'s elapsed';
+    var idx=sec<6?0:sec<12?1:sec<18?2:3;
+    if(idx!==curStep){document.getElementById(stepIds[curStep]).className='cl-step done';curStep=idx;document.getElementById(stepIds[curStep]).className='cl-step active';}
+  },500);
+  fetch('/clients/data?span='+span)
+    .then(function(r){return r.json();})
+    .then(function(data){
       clearInterval(ticker);
-      stepIds.forEach(function(s){ document.getElementById(s).className='cl-step done'; });
-      document.getElementById('cl-load-title').textContent = 'Rendering…';
-      _allRows = data.rows || [];
-      requestAnimationFrame(function() {
+      stepIds.forEach(function(s){document.getElementById(s).className='cl-step done';});
+      document.getElementById('cl-load-title').textContent='Grouping by CID\u2026';
+      _allGroups=groupData(data.rows||[]);
+      requestAnimationFrame(function(){
         applyView();
         overlay.classList.add('hidden');
-        document.getElementById('clScroller').style.display = '';
-        var age = data.cache_age;
-        var ageEl = document.getElementById('clCacheAge');
-        if (ageEl) ageEl.textContent = age != null ? '· cached ' + age + 's ago' : '';
+        document.getElementById('clScroller').style.display='';
+        var age=data.cache_age;
+        var ageEl=document.getElementById('clCacheAge');
+        if(ageEl) ageEl.textContent=age!=null?'\u00b7 cached '+age+'s ago':'';
       });
     })
-    .catch(function(e) {
+    .catch(function(e){
       clearInterval(ticker);
-      document.getElementById('cl-load-title').textContent = 'Error loading data. Try refreshing.';
-      document.getElementById('cl-load-title').style.color = 'var(--red)';
+      document.getElementById('cl-load-title').textContent='Error loading data. Try refreshing.';
+      document.getElementById('cl-load-title').style.color='var(--red)';
     });
 }
 
-function downloadEquityReport() {
-  var btn = document.getElementById('clEquityBtn');
-  btn.textContent = '⏳ Generating…';
-  btn.style.pointerEvents = 'none';
-  window.location = '/clients/equity-report?span=' + _span;
-  setTimeout(function() {
-    btn.textContent = '↓ Equity Report';
-    btn.style.pointerEvents = '';
-  }, 3000);
+function downloadEquityReport(){
+  var btn=document.getElementById('clEquityBtn');
+  btn.textContent='\u23f3 Generating\u2026'; btn.style.pointerEvents='none';
+  window.location='/clients/equity-report?span='+_span;
+  setTimeout(function(){btn.textContent='\u2193 Equity Report';btn.style.pointerEvents='';},3000);
 }
-
-function switchSpan(s, btn) {
+function switchSpan(s,btn){
   document.querySelectorAll('.cl-span-btn').forEach(function(b){b.classList.remove('active');});
-  btn.classList.add('active');
-  history.replaceState(null, '', '/clients?span=' + s);
-  loadData(s);
+  btn.classList.add('active'); history.replaceState(null,'','/clients?span='+s); loadData(s);
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-  // Virtual scroll: re-render on scroll
-  document.getElementById('clScroller').addEventListener('scroll', function() {
-    vsRender(false);
-  }, {passive: true});
-
+document.addEventListener('DOMContentLoaded',function(){
+  document.getElementById('clScroller').addEventListener('scroll',function(){vsRender(false);},{passive:true});
   loadData(_span);
 });
 </script>
