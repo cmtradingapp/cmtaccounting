@@ -105,9 +105,9 @@
 </div>
 
 <div class="legend">
-  <span class="legend-item cash">Cash</span> Wire, External/Praxis, CreditCard, Electronic, Crypto
+  <span class="legend-item cash">Real funds</span> Wire, External/Praxis, CreditCard, Electronic, Crypto
   &nbsp;·&nbsp;
-  <span class="legend-item noncash">Non-cash</span> Bonus, Commission, Transfer, Credit, Fee — visible but excluded from match
+  <span class="legend-item noncash">Internal</span> Bonus, Commission, Transfer, Credit, Fee — visible but excluded from match
 </div>
 
 {% set nc = '1' if hide_noncash else '0' %}
@@ -138,11 +138,11 @@
       <tr>
         <th title="Praxis CID (client) — expand to see individual MT4 logins">CID / Login</th>
         <th class="num">MT4 Net</th>
-        <th class="num th-cash">Cash Dep.</th>
-        <th class="num th-cash">Cash With.</th>
-        <th class="num th-cash">Cash Net</th>
-        <th class="num th-noncash">Non-Cash In</th>
-        <th class="num th-noncash">Non-Cash Out</th>
+        <th class="num th-cash" title="Real client deposits — wire, card, Praxis, crypto">Deposits</th>
+        <th class="num th-cash" title="Real client withdrawals">Withdrawals</th>
+        <th class="num th-cash">Net</th>
+        <th class="num th-noncash" title="Internal credits — bonuses, commissions, transfers in">Internal Credit</th>
+        <th class="num th-noncash" title="Internal debits — bonus clawbacks, credit-out">Internal Debit</th>
         <th class="num" title="MT4 net minus CRM cash net. Under $1 = auto-matched (FX rounding on foreign currency deposits).">Difference</th>
         <th class="num" title="Difference minus expected PSP fees (informational only — fees paid by company)">Fee Cost</th>
         <th class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Praxis net deposits (USD)">Praxis Net</th>
