@@ -599,17 +599,24 @@ function toggleGroup(cid) {
     clearTimeout(hideTimer);
     activeLogin = login;
 
-    var rect = el.getBoundingClientRect();
-    pop.style.left = Math.min(rect.left, window.innerWidth - 400) + 'px';
-    pop.style.top  = (rect.bottom + 6) + 'px';
-    if (rect.bottom + 350 > window.innerHeight) pop.style.top = (rect.top - 350) + 'px';
     pop.style.display = 'block';
-
-    if (cache[login]) { render(login, cache[login]); return; }
     pop.innerHTML = '<div id="crm-pop-head">Loading\u2026</div>';
+
+    function positionPop() {
+      var rect = el.getBoundingClientRect();
+      var ph   = pop.offsetHeight;
+      var left = Math.min(rect.left, window.innerWidth - 400);
+      var top  = rect.bottom + 6;
+      if (top + ph > window.innerHeight) top = Math.max(4, rect.top - ph - 6);
+      pop.style.left = left + 'px';
+      pop.style.top  = top  + 'px';
+    }
+    positionPop();
+
+    if (cache[login]) { render(login, cache[login]); positionPop(); return; }
     fetch('/recon/' + _reconMonth + '/crm-txns/' + login)
       .then(function(r) { return r.json(); })
-      .then(function(data) { cache[login] = data; if (activeLogin === login) render(login, data); })
+      .then(function(data) { cache[login] = data; if (activeLogin === login) { render(login, data); positionPop(); } })
       .catch(function() { pop.innerHTML = '<div id="crm-pop-head">Error loading</div>'; });
   }
 
