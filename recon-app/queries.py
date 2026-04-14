@@ -540,6 +540,85 @@ def reconcile(year: int, month: int):
     return rows
 
 
+def reconcile_grouped(year: int, month: int) -> list:
+    """
+    Group reconcile() rows by Praxis CID (vtigeraccountid).
+
+    Returns a list of group dicts, sorted by aggregate abs_diff descending:
+    {
+        "cid":      str,   # Praxis CID, or "" if unmapped
+        "logins":   [...], # list of individual reconcile row dicts
+        "agg":      {...}, # aggregated totals across all logins in the group
+        "expanded": bool,  # True when any login has a non-matched status
+    }
+
+    Single-login groups are flagged with multi=False so the template
+    can render them as plain rows without a toggle.
+    """
+    rows        = reconcile(year, month)   # cached
+    account_map = _load_praxis_account_map()   # {cid: [login, ...]} cached 30 min
+    login_to_cid = {}
+    for cid, logins in account_map.items():
+        for login in logins:
+            if login not in login_to_cid:
+                login_to_cid[login] = cid
+
+    STATUS_PRIORITY = {"discrepancy": 3, "crm_only": 2, "mt4_only": 2, "matched": 1}
+
+    groups_dict: dict = {}
+    for r in rows:
+        cid = login_to_cid.get(r["login"], "")
+        key = cid if cid else f"__login_{r['login']}"
+        if key not in groups_dict:
+            groups_dict[key] = {"cid": cid, "logins": []}
+        groups_dict[key]["logins"].append({**r, "cid": cid})
+
+    groups = []
+    for g in groups_dict.values():
+        logins = g["logins"]
+        agg = {
+            "mt4_net":        round(sum(r["mt4_net"]        for r in logins), 2),
+            "crm_cash_dep":   round(sum(r["crm_cash_dep"]   for r in logins), 2),
+            "crm_cash_with":  round(sum(r["crm_cash_with"]  for r in logins), 2),
+            "crm_cash_net":   round(sum(r["crm_cash_net"]   for r in logins), 2),
+            "crm_noncash_in": round(sum(r["crm_noncash_in"] for r in logins), 2),
+            "crm_noncash_out":round(sum(r["crm_noncash_out"]for r in logins), 2),
+            "difference":     round(sum(r["difference"]     for r in logins), 2),
+            "expected_fees":  round(sum(r["expected_fees"]  for r in logins), 2),
+            "praxis_net":     round(sum(r["praxis_net"]     for r in logins), 2),
+            "praxis_deposits":round(sum(r["praxis_deposits"]for r in logins), 2),
+            "praxis_withdrawals":round(sum(r["praxis_withdrawals"]for r in logins),2),
+            "praxis_tx_count":sum(r["praxis_tx_count"]      for r in logins),
+            "tx_count":       sum(r["tx_count"]             for r in logins),
+            "currency":       logins[0]["currency"],
+        }
+        agg["abs_diff"] = abs(agg["difference"])
+        agg["fee_adj_diff"] = round(agg["difference"] - agg["expected_fees"], 2)
+        agg["status"] = max(
+            (r["status"] for r in logins),
+            key=lambda s: STATUS_PRIORITY.get(s, 0)
+        )
+        # Collect unique cash payment methods across all logins
+        methods = set()
+        for r in logins:
+            for m in (r.get("cash_methods") or "").split(","):
+                m = m.strip()
+                if m:
+                    methods.add(m)
+        agg["cash_methods"] = ", ".join(sorted(methods)) or None
+
+        groups.append({
+            "cid":      g["cid"],
+            "logins":   logins,
+            "agg":      agg,
+            "multi":    len(logins) > 1,
+            "expanded": agg["status"] != "matched",
+        })
+
+    groups.sort(key=lambda g: g["agg"]["abs_diff"], reverse=True)
+    return groups
+
+
 # ── FX Rate queries (dealio.ticks) ────────────────────────────────────────
 
 _TTL_FX_LIVE      = 5    # 5 seconds  — live rate display (uses live_ticks, small hot table)

@@ -108,7 +108,7 @@ def recon(month):
     except (ValueError, IndexError):
         abort(400)
     try:
-        rows = queries.reconcile(year, mon)
+        rows   = queries.reconcile(year, mon)          # flat, for stats
         months = queries.available_months()
         cache_age = queries.cache_age(year, mon)
     except Exception as e:
@@ -126,13 +126,31 @@ def recon(month):
     stats = queries.summary_stats(rows)
 
     status_filter = request.args.get("status", "all")
+
+    # Grouped view — filter applied at the group level
+    try:
+        groups = queries.reconcile_grouped(year, mon)
+    except Exception:
+        groups = []
+
+    if hide_noncash:
+        groups = [
+            {**g, "logins": [r for r in g["logins"] if not (
+                r["crm_cash_dep"] == 0 and r["crm_cash_with"] == 0
+                and (r["crm_noncash_in"] or r["crm_noncash_out"])
+            )]}
+            for g in groups
+        ]
+        groups = [g for g in groups if g["logins"]]
+
     if status_filter != "all":
-        rows = [r for r in rows if r["status"] == status_filter]
+        groups = [g for g in groups if g["agg"]["status"] == status_filter]
 
     return render_template(
         "recon.html",
         month=month,
         rows=rows,
+        groups=groups,
         stats=stats,
         months=months,
         status_filter=status_filter,
