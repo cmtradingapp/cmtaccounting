@@ -8,6 +8,29 @@
   th[data-reconSort]::after { content:''; display:inline-block; margin-left:4px; opacity:.2; font-size:9px; }
   th[data-reconSort].asc::after  { content:'▲'; opacity:1; color:var(--accent); }
   th[data-reconSort].desc::after { content:'▼'; opacity:1; color:var(--accent); }
+  /* CRM transaction popover on TXNS hover */
+  #crm-pop {
+    position: fixed; z-index: 9998; display: none;
+    width: 380px; max-height: 340px; overflow-y: auto;
+    background: rgba(22,25,32,.97); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    padding: 0; font-size: 12px;
+  }
+  #crm-pop-head {
+    padding: 10px 14px 8px; border-bottom: 1px solid rgba(255,255,255,.06);
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted);
+  }
+  #crm-pop table { width: 100%; border-collapse: collapse; }
+  #crm-pop th { font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted); padding: 6px 10px; text-align: left; }
+  #crm-pop th.r { text-align: right; }
+  #crm-pop td { padding: 5px 10px; border-top: 1px solid rgba(255,255,255,.04); font-size: 12px; }
+  #crm-pop td.r { text-align: right; font-variant-numeric: tabular-nums; }
+  #crm-pop tr.cash td { color: var(--text); }
+  #crm-pop tr.noncash td { color: var(--muted); font-style: italic; }
+  .txns-trigger { cursor: pointer; border-bottom: 1px dashed rgba(255,255,255,.15); }
+  .txns-trigger:hover { color: var(--accent); border-bottom-color: var(--accent); }
   /* Internal-offset difference annotation */
   .diff-cell { line-height: 1.25; }
   .via-internal {
@@ -197,7 +220,7 @@
           <td class="num praxis-col">{{ "{:,.2f}".format(r.praxis_net) if r.praxis_net else '—' }}</td>
           <td><span class="badge {{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
           <td class="methods" title="{{ r.payment_methods }}">{{ r.cash_methods or '—' }}</td>
-          <td class="num">{{ r.tx_count or '—' }}</td>
+          <td class="num"><span class="txns-trigger" data-login="{{ r.login }}">{{ r.tx_count or '—' }}</span></td>
           <td>{{ r.currency }}</td>
       {%- endmacro %}
 
@@ -476,7 +499,7 @@ function _buildCells(a) {
     '<td class="num praxis-col">' + (a.praxis_net ? _fmtP(a.praxis_net) : '—') + '</td>',
     '<td><span class="badge ' + a.status + '">' + a.status.replace('_',' ') + '</span></td>',
     '<td class="methods">' + (a.cash_methods || '—') + '</td>',
-    '<td class="num">' + (a.tx_count || '—') + '</td>',
+    '<td class="num">' + (a.login ? '<span class="txns-trigger" data-login="' + a.login + '">' + (a.tx_count || '—') + '</span>' : (a.tx_count || '—')) + '</td>',
     '<td>' + (a.currency || '') + '</td>',
   ].join('');
 }
@@ -561,6 +584,61 @@ function toggleGroup(cid) {
   rows.forEach(function(r) { r.style.display = open ? 'none' : ''; });
   if (tog) tog.textContent = open ? '▸' : '▾';
 }
+
+/* ── CRM transaction popover ──────────────────────── */
+(function () {
+  var pop = document.createElement('div');
+  pop.id = 'crm-pop';
+  document.body.appendChild(pop);
+
+  var hideTimer, activeLogin = null, cache = {};
+
+  function show(el) {
+    var login = el.getAttribute('data-login');
+    if (!login) return;
+    clearTimeout(hideTimer);
+    activeLogin = login;
+
+    var rect = el.getBoundingClientRect();
+    pop.style.left = Math.min(rect.left, window.innerWidth - 400) + 'px';
+    pop.style.top  = (rect.bottom + 6) + 'px';
+    if (rect.bottom + 350 > window.innerHeight) pop.style.top = (rect.top - 350) + 'px';
+    pop.style.display = 'block';
+
+    if (cache[login]) { render(login, cache[login]); return; }
+    pop.innerHTML = '<div id="crm-pop-head">Loading\u2026</div>';
+    fetch('/recon/' + _reconMonth + '/crm-txns/' + login)
+      .then(function(r) { return r.json(); })
+      .then(function(data) { cache[login] = data; if (activeLogin === login) render(login, data); })
+      .catch(function() { pop.innerHTML = '<div id="crm-pop-head">Error loading</div>'; });
+  }
+
+  function render(login, rows) {
+    var h = '<div id="crm-pop-head">CRM Transactions \u2014 ' + login + ' (' + rows.reduce(function(s,r){return s+r.count;},0) + ')</div>';
+    h += '<table><thead><tr><th>Type</th><th>Method</th><th>Status</th><th class="r">Txns</th><th class="r">USD</th></tr></thead><tbody>';
+    rows.forEach(function(r) {
+      var cls = r.is_cash ? 'cash' : 'noncash';
+      var usd = parseFloat(r.usd || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+      h += '<tr class="' + cls + '"><td>' + r.type + '</td><td>' + r.method + '</td><td>' + r.approval + '</td><td class="r">' + r.count + '</td><td class="r">$' + usd + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    pop.innerHTML = h;
+  }
+
+  function hide() { hideTimer = setTimeout(function() { pop.style.display = 'none'; activeLogin = null; }, 200); }
+
+  // Delegate hover on .txns-trigger (works after sort re-render)
+  document.addEventListener('mouseover', function(e) {
+    var t = e.target.closest('.txns-trigger');
+    if (t) show(t);
+  });
+  document.addEventListener('mouseout', function(e) {
+    var t = e.target.closest('.txns-trigger');
+    if (t) hide();
+  });
+  pop.addEventListener('mouseenter', function() { clearTimeout(hideTimer); });
+  pop.addEventListener('mouseleave', hide);
+})();
 </script>
 
 {% endblock %}
