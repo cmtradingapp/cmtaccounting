@@ -304,6 +304,15 @@
       // Copy data-tip (title already moved to data-tip by custom tooltip init)
       var tip = th.getAttribute('data-tip') || th.title;
       if (tip) g.setAttribute('data-tip', tip);
+      // Copy sort attribute and forward clicks to reconSort()
+      var sortIdx = th.getAttribute('data-reconSort');
+      if (sortIdx !== null) {
+        g.setAttribute('data-reconSort', sortIdx);
+        g.style.cursor = 'pointer';
+        (function(idx) {
+          g.addEventListener('click', function() { reconSort(parseInt(idx)); });
+        })(sortIdx);
+      }
       // Use the real cell's rendered width
       g.style.width = th.offsetWidth + 'px';
       g.style.minWidth = th.offsetWidth + 'px';
