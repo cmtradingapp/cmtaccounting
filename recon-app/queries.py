@@ -1429,29 +1429,33 @@ def client_list(date_from=None, date_to=None) -> list:
     def _fetch_mt4():
         with dealio() as cur:
             cur.execute("SET statement_timeout = 30000")
-            # CTE grabs the last day's floating P&L alongside the grouped sums.
+            # Query 1: aggregate sums per login
             cur.execute("""
-                WITH last_day AS (
-                    SELECT DISTINCT ON (login)
-                        login,
-                        convertedfloatingpnl AS client_floating_eod
-                    FROM dealio.daily_profits
-                    WHERE date >= %s AND date < %s
-                    ORDER BY login, date DESC
-                )
                 SELECT
-                    g.login,
-                    SUM(g.convertednetdeposit) AS net_deposit,
-                    SUM(g.convertedclosedpnl)  AS client_realised_pnl,
-                    MAX(g.groupcurrency)        AS currency,
-                    MAX(g.date)                 AS last_active,
-                    l.client_floating_eod
-                FROM dealio.daily_profits g
-                LEFT JOIN last_day l ON l.login = g.login
-                WHERE g.date >= %s AND g.date < %s
-                GROUP BY g.login, l.client_floating_eod
-            """, (date_from, date_to, date_from, date_to))
-            return {r["login"]: dict(r) for r in cur.fetchall()}
+                    login,
+                    SUM(convertednetdeposit)  AS net_deposit,
+                    SUM(convertedclosedpnl)   AS client_realised_pnl,
+                    MAX(groupcurrency)        AS currency,
+                    MAX(date)                 AS last_active
+                FROM dealio.daily_profits
+                WHERE date >= %s AND date < %s
+                GROUP BY login
+            """, (date_from, date_to))
+            rows = {r["login"]: dict(r) for r in cur.fetchall()}
+
+            # Query 2: last-day floating P&L per login (separate query avoids CTE issues with TimescaleDB)
+            cur.execute("""
+                SELECT DISTINCT ON (login)
+                    login,
+                    convertedfloatingpnl AS client_floating_eod
+                FROM dealio.daily_profits
+                WHERE date >= %s AND date < %s
+                ORDER BY login, date DESC
+            """, (date_from, date_to))
+            for r in cur.fetchall():
+                if r["login"] in rows:
+                    rows[r["login"]]["client_floating_eod"] = r["client_floating_eod"]
+            return rows
     try:
         mt4 = _db_retry(_fetch_mt4)
     except Exception:
