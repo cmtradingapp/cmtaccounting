@@ -557,6 +557,44 @@ def reconcile(year: int, month: int):
     return rows
 
 
+def _load_trading_account_fallback() -> tuple:
+    """
+    Secondary CID mapping from vtiger_trading_accounts.
+    Cached independently (30 min) so slowness here never blocks other hot paths.
+    Returns (mapping: {cid: [login, ...]}, fallback_cids: set).
+    Only used in reconcile_grouped() for display grouping — NOT for Praxis matching.
+    """
+    key = "trading_account_fallback"
+    cached = _cache_get(key, 1800)
+    if cached is not None:
+        return cached
+    try:
+        def _fetch():
+            with crm() as cur:
+                cur.execute("""
+                    SELECT login, CAST(vtigeraccountid AS VARCHAR(20)) AS cid
+                    FROM report.vtiger_trading_accounts
+                    WHERE login IS NOT NULL
+                      AND vtigeraccountid IS NOT NULL
+                      AND (deleted IS NULL OR deleted = 0)
+                """)
+                m: dict = {}
+                cids: set = set()
+                for r in cur.fetchall():
+                    cid = (r["cid"] or "").strip()
+                    lg  = r["login"]
+                    if cid and lg:
+                        if int(lg) not in m.get(cid, []):
+                            m.setdefault(cid, []).append(int(lg))
+                        cids.add(cid)
+                return m, cids
+        result = _db_retry(_fetch)
+    except Exception:
+        result = ({}, set())
+    _cache_set(key, result)
+    return result
+
+
 def reconcile_grouped(year: int, month: int) -> list:
     """
     Group reconcile() rows by Praxis CID (vtigeraccountid).
@@ -573,12 +611,21 @@ def reconcile_grouped(year: int, month: int) -> list:
     can render them as plain rows without a toggle.
     """
     rows        = reconcile(year, month)   # cached
-    account_map, fallback_cids = _load_praxis_account_map()   # {cid: [login, ...]} cached 30 min
-    login_to_cid = {}
+    account_map, fallback_cids = _load_praxis_account_map()   # primary: vtiger_mttransactions
+    fb_map, fb_cids = _load_trading_account_fallback()        # secondary: vtiger_trading_accounts
+
+    # Build login→cid: primary wins, fallback fills gaps
+    login_to_cid: dict = {}
     for cid, logins in account_map.items():
         for login in logins:
             if login not in login_to_cid:
                 login_to_cid[login] = cid
+    primary_logins = set(login_to_cid)
+    for cid, logins in fb_map.items():
+        for login in logins:
+            if login not in primary_logins:
+                login_to_cid[login] = cid
+    fallback_cids = fb_cids  # cids that came from trading_accounts fallback
 
     STATUS_PRIORITY = {"discrepancy": 3, "crm_only": 2, "mt4_only": 2, "matched": 1}
 
