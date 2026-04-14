@@ -2,6 +2,12 @@
 {% block title %} — {{ month }}{% endblock %}
 {% block content %}
 <style>
+  /* Sortable column headers */
+  th[data-reconSort] { cursor: pointer; user-select: none; }
+  th[data-reconSort]:hover { color: var(--text); }
+  th[data-reconSort]::after { content:''; display:inline-block; margin-left:4px; opacity:.2; font-size:9px; }
+  th[data-reconSort].asc::after  { content:'▲'; opacity:1; color:var(--accent); }
+  th[data-reconSort].desc::after { content:'▼'; opacity:1; color:var(--accent); }
   /* Custom column-header tooltip (works on both real and ghost fixed headers) */
   #col-tip {
     position: fixed; z-index: 9999; pointer-events: none;
@@ -145,20 +151,20 @@
   <table class="recon-table">
     <thead>
       <tr>
-        <th title="Praxis CID (client) — expand ▸ to see individual MT4 accounts">CID / Login</th>
-        <th class="num" title="MT4 net deposit for the month — sum of convertednetdeposit from daily_profits. This is the amount that actually settled into the trading account.">MT4 Net</th>
-        <th class="num th-cash" title="Real client deposits — wire transfers, card payments, Praxis/External, crypto. Money sent by the client.">Deposits</th>
-        <th class="num th-cash" title="Real client withdrawals — money paid out to the client.">Withdrawals</th>
-        <th class="num th-cash" title="Net real funds movement: Deposits minus Withdrawals. Compared against MT4 Net to find discrepancies.">Net</th>
-        <th class="num th-noncash" title="Internal credits that are NOT real client deposits — bonuses, commissions, transfer-in, credit-in. Shown for visibility but excluded from the match calculation.">Internal Credit</th>
-        <th class="num th-noncash" title="Internal debits that are NOT real withdrawals — bonus clawbacks, credit-out, transfer-out. Shown for visibility but excluded from the match calculation.">Internal Debit</th>
-        <th class="num" title="MT4 Net minus CRM Net. Should be ~0 for correctly processed transactions. Differences under $1 are auto-matched (FX rounding on ZAR/NGN/KES deposits).">Difference</th>
-        <th class="num" title="Expected PSP fee for this login's deposits, computed from fee agreements. Informational only — the company pays these fees directly, they don't affect the match status.">Fee Cost</th>
-        <th class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Net Praxis deposits for this CID (deposits minus withdrawals). Only populated when the CID maps to exactly one MT4 account — ambiguous multi-account CIDs are excluded.">Praxis Net</th>
-        <th title="matched = difference under $1 · discrepancy = real gap between MT4 and CRM · crm only = CRM has transactions but MT4 shows no deposit · mt4 only = MT4 shows a deposit but no CRM record">Status</th>
-        <th title="Payment methods used for real (non-internal) transactions this month">Methods</th>
-        <th class="num" title="Total number of approved CRM transactions for this login (all types including internal)">CRM Txns</th>
-        <th title="Account currency from MT4">Ccy</th>
+        <th data-reconSort="0" title="Praxis CID (client) — expand ▸ to see individual MT4 accounts">CID / Login</th>
+        <th data-reconSort="1" class="num" title="MT4 net deposit for the month — sum of convertednetdeposit from daily_profits. This is the amount that actually settled into the trading account.">MT4 Net</th>
+        <th data-reconSort="2" class="num th-cash" title="Real client deposits — wire transfers, card payments, Praxis/External, crypto. Money sent by the client.">Deposits</th>
+        <th data-reconSort="3" class="num th-cash" title="Real client withdrawals — money paid out to the client.">Withdrawals</th>
+        <th data-reconSort="4" class="num th-cash" title="Net real funds movement: Deposits minus Withdrawals. Compared against MT4 Net to find discrepancies.">Net</th>
+        <th data-reconSort="5" class="num th-noncash" title="Internal credits that are NOT real client deposits — bonuses, commissions, transfer-in, credit-in. Shown for visibility but excluded from the match calculation.">Internal Credit</th>
+        <th data-reconSort="6" class="num th-noncash" title="Internal debits that are NOT real withdrawals — bonus clawbacks, credit-out, transfer-out. Shown for visibility but excluded from the match calculation.">Internal Debit</th>
+        <th data-reconSort="7" class="num" title="MT4 Net minus CRM Net. Should be ~0 for correctly processed transactions. Differences under $1 are auto-matched (FX rounding on ZAR/NGN/KES deposits).">Difference</th>
+        <th data-reconSort="8" class="num" title="Expected PSP fee for this login's deposits, computed from fee agreements. Informational only — the company pays these fees directly, they don't affect the match status.">Fee Cost</th>
+        <th data-reconSort="9" class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Net Praxis deposits for this CID (deposits minus withdrawals). Only populated when the CID maps to exactly one MT4 account — ambiguous multi-account CIDs are excluded.">Praxis Net</th>
+        <th data-reconSort="10" title="matched = difference under $1 · discrepancy = real gap between MT4 and CRM · crm only = CRM has transactions but MT4 shows no deposit · mt4 only = MT4 shows a deposit but no CRM record">Status</th>
+        <th data-reconSort="11" title="Payment methods used for real (non-internal) transactions this month">Methods</th>
+        <th data-reconSort="12" class="num" title="Total number of approved CRM transactions for this login (all types including internal)">CRM Txns</th>
+        <th data-reconSort="13" title="Account currency from MT4">Ccy</th>
       </tr>
     </thead>
     <tbody>
@@ -395,6 +401,122 @@ document.querySelectorAll('.recon-table thead th').forEach(_colTip.attachTip);
     ghostRow.querySelectorAll('th').forEach(_colTip.attachTip);
   }).observe(ghostRow, { childList: true });
 })();
+
+/* ── Sortable columns ─────────────────────────────────────────── */
+var _reconGroups = {{ groups | tojson }};
+var _reconMonth  = '{{ month }}';
+var _reconSortCol = null, _reconSortAsc = false;
+var _reconKeys = ['cid','mt4_net','crm_cash_dep','crm_cash_with','crm_cash_net',
+  'crm_noncash_in','crm_noncash_out','difference','fee_adj_diff','praxis_net',
+  'status','cash_methods','tx_count','currency'];
+
+function _fmt(n) {
+  if (n == null || n === '') return '—';
+  return (n >= 0 ? '+' : '') + parseFloat(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function _fmtP(n) {  // plain positive-only
+  if (!n) return '—';
+  return parseFloat(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function _numCls(v, thresh) {
+  thresh = thresh || 1;
+  return v > thresh ? 'pos' : (v < -thresh ? 'neg' : '');
+}
+
+function _buildCells(d, isAgg) {
+  var a = isAgg ? d.agg : d;
+  var absDiff = Math.abs(a.difference || 0);
+  return [
+    '<td class="num">' + _fmtP(a.mt4_net) + '</td>',
+    '<td class="num cash-col">' + _fmtP(a.crm_cash_dep) + '</td>',
+    '<td class="num cash-col">' + _fmtP(a.crm_cash_with) + '</td>',
+    '<td class="num cash-col fw">' + _fmtP(a.crm_cash_net) + '</td>',
+    '<td class="num noncash-col">' + (a.crm_noncash_in ? _fmtP(a.crm_noncash_in) : '—') + '</td>',
+    '<td class="num noncash-col">' + (a.crm_noncash_out ? _fmtP(a.crm_noncash_out) : '—') + '</td>',
+    '<td class="num ' + _numCls(a.difference) + '">' + (absDiff >= 0.01 || a.difference ? _fmt(a.difference) : '—') + '</td>',
+    '<td class="num ' + (a.fee_adj_diff > 1 ? 'pos' : a.fee_adj_diff < -1 ? 'neg' : 'muted') + '" title="Expected fees: $' + _fmtP(a.expected_fees) + '">' + (a.expected_fees ? _fmt(a.fee_adj_diff) : '—') + '</td>',
+    '<td class="num praxis-col">' + (a.praxis_net ? _fmtP(a.praxis_net) : '—') + '</td>',
+    '<td><span class="badge ' + a.status + '">' + a.status.replace('_',' ') + '</span></td>',
+    '<td class="methods">' + (a.cash_methods || '—') + '</td>',
+    '<td class="num">' + (a.tx_count || '—') + '</td>',
+    '<td>' + (a.currency || '') + '</td>',
+  ].join('');
+}
+
+function _buildGroup(g, idx) {
+  var cidSafe = 'cid' + (g.cid || idx);
+  var html = '';
+  if (g.multi) {
+    html += '<tr class="group-row">';
+    html += '<td><button class="toggle-btn" id="tog-' + cidSafe + '" onclick="toggleGroup(\'' + cidSafe + '\')" title="' + (g.expanded ? 'Collapse' : 'Expand') + ' accounts">' + (g.expanded ? '▾' : '▸') + '</button>';
+    html += '<a href="/cid/' + g.cid + '?ref=' + _reconMonth + '" class="cid-link">' + g.cid + '</a>';
+    html += '<span style="font-size:10px;color:var(--muted);margin-left:6px;">' + g.logins.length + ' accounts</span></td>';
+    html += _buildCells(g, true) + '</tr>';
+    g.logins.forEach(function(r) {
+      html += '<tr class="login-row login-row-' + cidSafe + '" style="' + (g.expanded ? '' : 'display:none;') + '">';
+      html += '<td><span class="login-prefix">└</span><a class="login-link" href="/client/' + r.login + '?ref=' + _reconMonth + '">' + r.login + '</a></td>';
+      html += _buildCells(r, false) + '</tr>';
+    });
+  } else if (g.cid) {
+    var r = g.logins[0];
+    html += '<tr class="group-row"><td>';
+    html += '<a href="/cid/' + g.cid + '?ref=' + _reconMonth + '" class="cid-link">' + g.cid + '</a>';
+    html += '<span style="color:rgba(255,255,255,.15);margin:0 5px;font-size:10px;">|</span>';
+    html += '<a class="login-link" href="/client/' + r.login + '?ref=' + _reconMonth + '" style="font-weight:400;font-size:12px;">' + r.login + '</a></td>';
+    html += _buildCells(r, false) + '</tr>';
+  } else {
+    var r = g.logins[0];
+    html += '<tr class="group-row"><td>';
+    html += '<span class="no-cid-badge" title="No linked CRM account">no CID</span>';
+    html += '<a class="login-link" href="/client/' + r.login + '?ref=' + _reconMonth + '" style="margin-left:6px;">' + r.login + '</a></td>';
+    html += _buildCells(r, false) + '</tr>';
+  }
+  return html;
+}
+
+function reconRender() {
+  var tbody = document.querySelector('.recon-table tbody');
+  if (!tbody) return;
+  var html = '';
+  _reconGroups.forEach(function(g, i) { html += _buildGroup(g, i); });
+  tbody.innerHTML = html || '<tr><td colspan="14" class="empty">No results for this filter.</td></tr>';
+  // Re-attach custom tooltip to any new ghost header ths
+  document.querySelectorAll('.recon-table thead th').forEach(_colTip.attachTip);
+}
+
+function reconSort(colIdx) {
+  // Toggle or set direction (numeric cols default desc, text cols default asc)
+  if (_reconSortCol === colIdx) {
+    _reconSortAsc = !_reconSortAsc;
+  } else {
+    _reconSortCol = colIdx;
+    _reconSortAsc = (colIdx === 0 || colIdx >= 10);  // CID/status/methods/ccy: asc; numbers: desc
+  }
+  // Update header indicators
+  document.querySelectorAll('th[data-reconSort]').forEach(function(th) {
+    th.classList.remove('asc', 'desc');
+    if (parseInt(th.getAttribute('data-reconSort')) === colIdx) {
+      th.classList.add(_reconSortAsc ? 'asc' : 'desc');
+    }
+  });
+  var key = _reconKeys[colIdx];
+  _reconGroups.sort(function(a, b) {
+    var va = colIdx === 0 ? (a.cid || '') : (a.agg[key] != null ? a.agg[key] : null);
+    var vb = colIdx === 0 ? (b.cid || '') : (b.agg[key] != null ? b.agg[key] : null);
+    if (va == null) va = _reconSortAsc ? '\uFFFF' : -Infinity;
+    if (vb == null) vb = _reconSortAsc ? '\uFFFF' : -Infinity;
+    if (typeof va === 'number' && typeof vb === 'number') return _reconSortAsc ? va - vb : vb - va;
+    return _reconSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+  reconRender();
+}
+
+// Attach click handlers to all sortable headers
+document.querySelectorAll('th[data-reconSort]').forEach(function(th) {
+  th.addEventListener('click', function() {
+    reconSort(parseInt(th.getAttribute('data-reconSort')));
+  });
+});
 
 function toggleGroup(cid) {
   var rows = document.querySelectorAll('.login-row-' + cid);
