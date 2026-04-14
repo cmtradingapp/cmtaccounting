@@ -10,7 +10,7 @@ services:
       - DEALIO_DB=dealio
       - DEALIO_USER=dealio_rep
       - DEALIO_PASS=;tnACp*BSIXZ2%mOHTfP
-- FLASK_SECRET=cmt-recon-2026
+      - FLASK_SECRET=cmt-recon-2026
       - RECON_USER=CMTRecon
       - RECON_PASS=5UvJIBkmEeulzmiRG9dFMg
       - FEES_USER=CMTFeeProcessor
