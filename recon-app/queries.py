@@ -1246,7 +1246,7 @@ def equity_report(date_from=None, date_to=None) -> list:
     except Exception:
         praxis_names = {}
 
-    # CRM name fallback (vtiger_account joined to trading_accounts)
+    # CRM name fallback (vtiger_account) — covers clients with no Praxis activity
     try:
         def _fetch_du():
             with crm() as cur:
@@ -1260,14 +1260,14 @@ def equity_report(date_from=None, date_to=None) -> list:
                       AND ta.login IS NOT NULL
                 """)
                 return {r["login"]: (r["name"] or "").strip() for r in cur.fetchall()}
-        dealio_names = _db_retry(_fetch_du)
+        crm_names = _db_retry(_fetch_du)
     except Exception:
-        dealio_names = {}
+        crm_names = {}
 
     rows = []
     for login, a in agg.items():
         cid   = login_to_cid.get(login, "")
-        name  = praxis_names.get(cid) or dealio_names.get(login) or ""
+        name  = praxis_names.get(cid) or crm_names.get(login) or ""
         o     = open_snap.get(login,  {})
         c     = close_snap.get(login, {})
         rows.append({
@@ -1339,7 +1339,7 @@ def client_list(date_from=None, date_to=None) -> list:
             if login not in login_to_cid:
                 login_to_cid[login] = cid_str
 
-    # 3. Names: Praxis (preferred) then dealio_users fallback
+    # 3. Names: Praxis (preferred) then CRM (vtiger_account) fallback
     try:
         from db import praxis as praxis_ctx
         def _fetch_praxis_names():
@@ -1361,7 +1361,7 @@ def client_list(date_from=None, date_to=None) -> list:
         praxis_names = {}
 
     # Fallback: Antelope CRM name keyed by login (covers clients with no Praxis activity)
-    def _fetch_dealio_names():
+    def _fetch_crm_names():
         with crm() as cur:
             cur.execute("""
                 SELECT ta.login,
@@ -1376,9 +1376,9 @@ def client_list(date_from=None, date_to=None) -> list:
             return {r["login"]: {"name": (r["name"] or "").strip(), "email": r["email"] or ""}
                     for r in cur.fetchall()}
     try:
-        dealio_names = _db_retry(_fetch_dealio_names)
+        crm_names = _db_retry(_fetch_crm_names)
     except Exception:
-        dealio_names = {}
+        crm_names = {}
 
     # 4. Build result rows
     rows = []
@@ -1390,8 +1390,8 @@ def client_list(date_from=None, date_to=None) -> list:
 
         cid        = login_to_cid.get(login, "")
         praxis_info= praxis_names.get(cid, {})
-        dealio_info= dealio_names.get(login, {})
-        # Prefer Praxis name (has first+last), fall back to dealio_users
+        dealio_info= crm_names.get(login, {})
+        # Prefer Praxis name (has first+last), fall back to CRM vtiger_account
         name  = praxis_info.get("name") or dealio_info.get("name") or ""
         email = praxis_info.get("email") or dealio_info.get("email") or ""
 

@@ -10,12 +10,7 @@ services:
       - DEALIO_DB=dealio
       - DEALIO_USER=dealio_rep
       - DEALIO_PASS=;tnACp*BSIXZ2%mOHTfP
-      - BACKOFFICE_HOST=client-call-manager_postgres_1
-      - BACKOFFICE_PORT=5432
-      - BACKOFFICE_DB=backoffice
-      - BACKOFFICE_USER=backoffice
-      - BACKOFFICE_PASS=Hdtkfvi12345
-      - FLASK_SECRET=cmt-recon-2026
+- FLASK_SECRET=cmt-recon-2026
       - RECON_USER=CMTRecon
       - RECON_PASS=5UvJIBkmEeulzmiRG9dFMg
       - FEES_USER=CMTFeeProcessor
