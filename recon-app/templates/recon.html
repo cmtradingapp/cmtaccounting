@@ -2,6 +2,23 @@
 {% block title %} — {{ month }}{% endblock %}
 {% block content %}
 <style>
+  /* Loading overlay */
+  #recon-overlay {
+    position:fixed; inset:0; z-index:500; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:20px;
+    background:rgba(15,17,23,.85); backdrop-filter:blur(3px);
+  }
+  #recon-overlay.hidden { display:none; }
+  .recon-spinner { width:44px;height:44px;border:3px solid rgba(79,142,247,.2);
+    border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .recon-load-steps { display:flex;flex-direction:column;gap:5px;align-items:center; }
+  .recon-step { font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px; }
+  .recon-step.active { color:var(--text); font-weight:600; }
+  .recon-step.done { color:var(--green); }
+  .recon-step.done::before { content:'✓'; }
+  .recon-step.active::before { content:'›'; color:var(--accent); }
+  .recon-step:not(.done):not(.active)::before { content:'·'; }
   /* Sortable column headers */
   th[data-reconSort] { cursor: pointer; user-select: none; }
   th[data-reconSort]:hover { color: var(--text); }
@@ -117,6 +134,19 @@
   td.diff-cell { font-weight: 600; }
 </style>
 
+<!-- Loading overlay -->
+<div id="recon-overlay">
+  <div class="recon-spinner"></div>
+  <div style="font-size:15px;font-weight:600;color:var(--text);" id="recon-load-msg">Loading…</div>
+  <div class="recon-load-steps">
+    <div class="recon-step" id="step-crm">Fetching CRM data</div>
+    <div class="recon-step" id="step-mt4">Fetching MT4 data</div>
+    <div class="recon-step" id="step-groups">Building client groups</div>
+    <div class="recon-step" id="step-render">Rendering table</div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);" id="recon-elapsed">0s</div>
+</div>
+
 {% set parts = month.split('-') %}
 {% set mon_names = ['January','February','March','April','May','June','July','August','September','October','November','December'] %}
 {% set mon_label = mon_names[(parts[1]|int) - 1] + ' ' + parts[0] %}
@@ -128,7 +158,7 @@
     </div>
     <div class="page-title">{{ mon_label }}</div>
     <div style="font-size:13px;color:var(--muted);margin-top:4px;">
-      MT4 net deposits vs CRM cash transactions &middot; {{ stats.total }} clients
+      MT4 net deposits vs CRM cash transactions &middot; <span id="stat-clients">—</span> clients
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -145,12 +175,8 @@
       <button type="submit" class="btn" title="Force re-query from DB">↺ Refresh</button>
     </form>
   </div>
-  {% if cache_age is not none %}
-  <div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:right;">
-    Cached
-    {% if cache_age < 60 %}{{ cache_age }}s ago
-    {% else %}{{ (cache_age // 60) }}m {{ cache_age % 60 }}s ago{% endif %}
-    &middot; refreshes automatically after 5 min
+  <div id="cache-age-bar" style="font-size:11px;color:var(--muted);margin-top:6px;text-align:right;display:none;">
+    Cached <span id="cache-age-txt"></span> &middot; refreshes automatically after 5 min
   </div>
   {% endif %}
 </div>
@@ -158,27 +184,27 @@
 <div class="stats-grid">
   <div class="stat-card green">
     <div class="label">Matched</div>
-    <div class="value">{{ stats.matched }}</div>
+    <div class="value" id="stat-matched">—</div>
   </div>
   <div class="stat-card red">
     <div class="label">Discrepancy</div>
-    <div class="value">{{ stats.discrepancy }}</div>
+    <div class="value" id="stat-disc">—</div>
   </div>
   <div class="stat-card yellow">
     <div class="label">MT4 Only</div>
-    <div class="value">{{ stats.mt4_only }}</div>
+    <div class="value" id="stat-mt4">—</div>
   </div>
   <div class="stat-card">
     <div class="label">CRM Only</div>
-    <div class="value">{{ stats.crm_only }}</div>
+    <div class="value" id="stat-crm">—</div>
   </div>
-  <div class="stat-card {% if stats.total_diff < -1 %}red{% elif stats.total_diff > 1 %}yellow{% else %}green{% endif %}">
+  <div class="stat-card" id="stat-diff-card">
     <div class="label">Net Discrepancy (USD)</div>
-    <div class="value">${{ "{:,.0f}".format(stats.total_diff) }}</div>
+    <div class="value" id="stat-diff">—</div>
   </div>
   <div class="stat-card green">
     <div class="label">Match Rate</div>
-    <div class="value">{{ stats.match_rate }}%</div>
+    <div class="value" id="stat-rate">—</div>
   </div>
 </div>
 
@@ -503,7 +529,7 @@ document.querySelectorAll('.recon-table thead th').forEach(_colTip.attachTip);
 })();
 
 /* ── Sortable columns ─────────────────────────────────────────── */
-var _reconGroups = {{ groups | tojson }};
+var _reconGroups = [];   // populated by AJAX from /recon/<month>/groups
 var _reconMonth  = '{{ month }}';
 var _reconSortCol = null, _reconSortAsc = false;
 var _reconKeys = ['cid','mt4_net','crm_cash_dep','crm_cash_with','crm_cash_net',
@@ -630,6 +656,83 @@ document.querySelectorAll('th[data-reconSort]').forEach(function(th) {
     reconSort(parseInt(th.getAttribute('data-reconSort')));
   });
 });
+
+/* ── AJAX data load with animated overlay ─────────────────────── */
+(function () {
+  var overlay  = document.getElementById('recon-overlay');
+  var elapsed  = document.getElementById('recon-elapsed');
+  var steps    = ['step-crm','step-mt4','step-groups','step-render'];
+  var stepIdx  = 0;
+  var t0       = Date.now();
+
+  // Tick elapsed timer and cycle step indicators
+  var ticker = setInterval(function () {
+    var sec = Math.round((Date.now() - t0) / 1000);
+    elapsed.textContent = sec + 's';
+    // Approximate progress steps by time
+    var newIdx = sec < 4 ? 0 : sec < 8 ? 1 : sec < 13 ? 2 : 3;
+    if (newIdx !== stepIdx) {
+      document.getElementById(steps[stepIdx]).className = 'recon-step done';
+      stepIdx = newIdx;
+      document.getElementById(steps[stepIdx]).className = 'recon-step active';
+    }
+  }, 500);
+  document.getElementById(steps[0]).className = 'recon-step active';
+
+  function updateStats(stats) {
+    if (!stats) return;
+    var el = function(id) { return document.getElementById(id); };
+    el('stat-matched').textContent  = (stats.matched  || 0).toLocaleString();
+    el('stat-disc').textContent     = (stats.discrepancy || 0).toLocaleString();
+    el('stat-mt4').textContent      = (stats.mt4_only || 0).toLocaleString();
+    el('stat-crm').textContent      = (stats.crm_only || 0).toLocaleString();
+    el('stat-clients').textContent  = (stats.total    || 0).toLocaleString();
+    el('stat-rate').textContent     = (stats.match_rate || 0) + '%';
+    var diff = stats.total_diff || 0;
+    el('stat-diff').textContent = '$' + Math.round(Math.abs(diff)).toLocaleString();
+    var card = el('stat-diff-card');
+    card.className = 'stat-card ' + (diff < -1 ? 'red' : diff > 1 ? 'yellow' : 'green');
+  }
+
+  function updateCacheAge(age) {
+    var bar = document.getElementById('cache-age-bar');
+    var txt = document.getElementById('cache-age-txt');
+    if (age == null) return;
+    txt.textContent = age < 60 ? age + 's ago' : Math.floor(age/60) + 'm ' + (age%60) + 's ago';
+    bar.style.display = '';
+  }
+
+  var qs = new URLSearchParams(window.location.search);
+  var url = window.location.pathname + '/groups?' + qs.toString();
+
+  fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      clearInterval(ticker);
+      if (d.error) {
+        document.getElementById('recon-load-msg').textContent = 'Error: ' + d.error;
+        document.getElementById('recon-load-msg').style.color = 'var(--red)';
+        return;
+      }
+      _reconGroups = d.groups || [];
+      _reconMonth  = '{{ month }}';
+      steps.forEach(function(s) {
+        document.getElementById(s).className = 'recon-step done';
+      });
+      document.getElementById('recon-load-msg').textContent = 'Rendering…';
+      requestAnimationFrame(function () {
+        reconRender();
+        updateStats(d.stats);
+        updateCacheAge(d.cache_age);
+        overlay.classList.add('hidden');
+      });
+    })
+    .catch(function(e) {
+      clearInterval(ticker);
+      document.getElementById('recon-load-msg').textContent = 'Failed to load: ' + e;
+      document.getElementById('recon-load-msg').style.color = 'var(--red)';
+    });
+})();
 
 function toggleGroup(cid) {
   var rows = document.querySelectorAll('.login-row-' + cid);

@@ -122,7 +122,7 @@ def _conn_dealio():
         dbname=os.environ["DEALIO_DB"],
         user=os.environ["DEALIO_USER"],
         password=os.environ["DEALIO_PASS"],
-        connect_timeout=10,
+        connect_timeout=30,
         **_ssl,
     )
 

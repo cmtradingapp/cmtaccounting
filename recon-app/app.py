@@ -103,60 +103,64 @@ def index():
 @app.route("/recon/<month>")
 @require_recon_auth
 def recon(month):
+    """Returns page shell immediately; data is loaded via /recon/<month>/groups."""
+    try:
+        int(month[:4]); int(month[5:7])
+    except (ValueError, IndexError):
+        abort(400)
+    try:
+        months = queries.available_months()
+    except Exception as e:
+        return render_template("index.html", months=[], error=str(e))
+    status_filter = request.args.get("status", "all")
+    hide_noncash  = request.args.get("hide_noncash") == "1"
+    return render_template("recon.html", month=month, months=months,
+                           status_filter=status_filter, hide_noncash=hide_noncash,
+                           rows=[], groups=[], stats=None, cache_age=None)
+
+
+@app.route("/recon/<month>/groups")
+@require_recon_auth
+def recon_groups(month):
+    """Heavy JSON endpoint — called by JS after page shell has loaded."""
     try:
         year, mon = int(month[:4]), int(month[5:7])
     except (ValueError, IndexError):
         abort(400)
+
+    hide_noncash  = request.args.get("hide_noncash") == "1"
+    status_filter = request.args.get("status", "all")
+
     try:
-        rows   = queries.reconcile(year, mon)          # flat, for stats
-        months = queries.available_months()
+        rows      = queries.reconcile(year, mon)
         cache_age = queries.cache_age(year, mon)
     except Exception as e:
-        return render_template("index.html", months=[], error=str(e))
+        return jsonify({"error": str(e)}), 500
 
-    # Filter out rows that have ONLY non-cash CRM activity (no real cash deposits/withdrawals)
-    hide_noncash = request.args.get("hide_noncash") == "1"
     if hide_noncash:
         rows = [r for r in rows if not (
             r["crm_cash_dep"] == 0 and r["crm_cash_with"] == 0
             and (r["crm_noncash_in"] or r["crm_noncash_out"])
         )]
 
-    # Stats computed after non-cash filter so cards reflect what's shown
     stats = queries.summary_stats(rows)
 
-    status_filter = request.args.get("status", "all")
-
-    # Grouped view — filter applied at the group level
     try:
         groups = queries.reconcile_grouped(year, mon)
     except Exception:
         groups = []
 
     if hide_noncash:
-        groups = [
-            {**g, "logins": [r for r in g["logins"] if not (
-                r["crm_cash_dep"] == 0 and r["crm_cash_with"] == 0
-                and (r["crm_noncash_in"] or r["crm_noncash_out"])
-            )]}
-            for g in groups
-        ]
+        groups = [{**g, "logins": [r for r in g["logins"] if not (
+            r["crm_cash_dep"] == 0 and r["crm_cash_with"] == 0
+            and (r["crm_noncash_in"] or r["crm_noncash_out"])
+        )]} for g in groups]
         groups = [g for g in groups if g["logins"]]
 
     if status_filter != "all":
         groups = [g for g in groups if g["agg"]["status"] == status_filter]
 
-    return render_template(
-        "recon.html",
-        month=month,
-        rows=rows,
-        groups=groups,
-        stats=stats,
-        months=months,
-        status_filter=status_filter,
-        hide_noncash=hide_noncash,
-        cache_age=cache_age,
-    )
+    return jsonify({"groups": groups, "stats": stats, "cache_age": cache_age})
 
 
 @app.route("/clients/equity-report")
