@@ -126,23 +126,21 @@ def available_months():
         return cached
 
     with _get_cache_lock("available_months"):
-        cached = _cache_get("available_months", _TTL_MONTHS)  # re-check after acquiring lock
+        cached = _cache_get("available_months", _TTL_MONTHS)
         if cached is not None:
             return cached
-
-    def _fetch():
-        with crm() as cur:
-            cur.execute("""
-                SELECT DISTINCT TOP 36 FORMAT(confirmation_time, 'yyyy-MM') AS month
-                FROM report.vtiger_mttransactions
-                WHERE transactionapproval = 'Approved'
-                  AND confirmation_time IS NOT NULL
-                ORDER BY month DESC
-            """)
-            return [r["month"] for r in cur.fetchall()]
-
-    result = _db_retry(_fetch)
-    _cache_set("available_months", result)
+        def _fetch():
+            with crm() as cur:
+                cur.execute("""
+                    SELECT DISTINCT TOP 36 FORMAT(confirmation_time, 'yyyy-MM') AS month
+                    FROM report.vtiger_mttransactions
+                    WHERE transactionapproval = 'Approved'
+                      AND confirmation_time IS NOT NULL
+                    ORDER BY month DESC
+                """)
+                return [r["month"] for r in cur.fetchall()]
+        result = _db_retry(_fetch)
+        _cache_set("available_months", result)
     return result
 
 
@@ -258,33 +256,31 @@ def _load_praxis_account_map() -> dict:
         cached = _cache_get(key, 1800)
         if cached is not None:
             return cached
-
-    try:
-        def _fetch():
-            with crm() as cur:
-                cur.execute("""
-                    SELECT DISTINCT login, vtigeraccountid
-                    FROM report.vtiger_mttransactions
-                    WHERE login IS NOT NULL
-                      AND vtigeraccountid IS NOT NULL
-                      AND vtigeraccountid > 1000000
-                      AND (deleted IS NULL OR deleted = 0)
-                """)
-                m: dict = {}
-                for r in cur.fetchall():
-                    cid = str(r["vtigeraccountid"]).strip()
-                    lg  = r["login"]
-                    if cid and lg:
-                        if int(lg) not in m.get(cid, []):
-                            m.setdefault(cid, []).append(int(lg))
-                return m
-        mapping = _db_retry(_fetch)
-    except Exception:
-        mapping = {}
-
-    fallback_cids: set = set()   # vtiger_trading_accounts fallback removed (was too slow)
-    _cache_set(key, (mapping, fallback_cids))
-    return mapping, fallback_cids
+        try:
+            def _fetch():
+                with crm() as cur:
+                    cur.execute("""
+                        SELECT DISTINCT login, vtigeraccountid
+                        FROM report.vtiger_mttransactions
+                        WHERE login IS NOT NULL
+                          AND vtigeraccountid IS NOT NULL
+                          AND vtigeraccountid > 1000000
+                          AND (deleted IS NULL OR deleted = 0)
+                    """)
+                    m: dict = {}
+                    for r in cur.fetchall():
+                        cid = str(r["vtigeraccountid"]).strip()
+                        lg  = r["login"]
+                        if cid and lg:
+                            if int(lg) not in m.get(cid, []):
+                                m.setdefault(cid, []).append(int(lg))
+                    return m
+            mapping = _db_retry(_fetch)
+        except Exception:
+            mapping = {}
+        fallback_cids: set = set()
+        _cache_set(key, (mapping, fallback_cids))
+    return _cache_get(key, 1800) or (mapping, fallback_cids)
 
 
 def praxis_summary(year: int, month: int) -> dict:
@@ -595,32 +591,31 @@ def _load_trading_account_fallback() -> tuple:
         cached = _cache_get(key, 1800)
         if cached is not None:
             return cached
-
-    try:
-        def _fetch():
-            with crm() as cur:
-                cur.execute("""
-                    SELECT login, CAST(vtigeraccountid AS VARCHAR(20)) AS cid
-                    FROM report.vtiger_trading_accounts
-                    WHERE login IS NOT NULL
-                      AND vtigeraccountid IS NOT NULL
-                      AND (deleted IS NULL OR deleted = 0)
-                """)
-                m: dict = {}
-                cids: set = set()
-                for r in cur.fetchall():
-                    cid = (r["cid"] or "").strip()
-                    lg  = r["login"]
-                    if cid and lg:
-                        if int(lg) not in m.get(cid, []):
-                            m.setdefault(cid, []).append(int(lg))
-                        cids.add(cid)
-                return m, cids
-        result = _db_retry(_fetch)
-    except Exception:
-        result = ({}, set())
-    _cache_set(key, result)
-    return result
+        try:
+            def _fetch():
+                with crm() as cur:
+                    cur.execute("""
+                        SELECT login, CAST(vtigeraccountid AS VARCHAR(20)) AS cid
+                        FROM report.vtiger_trading_accounts
+                        WHERE login IS NOT NULL
+                          AND vtigeraccountid IS NOT NULL
+                          AND (deleted IS NULL OR deleted = 0)
+                    """)
+                    m: dict = {}
+                    cids: set = set()
+                    for r in cur.fetchall():
+                        cid = (r["cid"] or "").strip()
+                        lg  = r["login"]
+                        if cid and lg:
+                            if int(lg) not in m.get(cid, []):
+                                m.setdefault(cid, []).append(int(lg))
+                            cids.add(cid)
+                    return m, cids
+            result = _db_retry(_fetch)
+        except Exception:
+            result = ({}, set())
+        _cache_set(key, result)
+    return _cache_get(key, 1800) or result
 
 
 def reconcile_grouped(year: int, month: int) -> list:
@@ -1484,7 +1479,7 @@ def client_list(date_from=None, date_to=None) -> list:
     # vtiger_account.accountid = Praxis CID (26xxx/27xxx range) — correct match.
     # The old vtiger_trading_accounts JOIN was using wrong ID ranges and caused 60s hangs.
     crm_names: dict = {}   # {cid: {"name": ..., "email": ...}}
-    cids_needed = [cid for cid in set(login_to_cid.values()) if cid]
+    cids_needed = list({login_to_cid[l] for l in mt4 if l in login_to_cid and login_to_cid[l]})
     if cids_needed:
         try:
             def _fetch_crm_names():
