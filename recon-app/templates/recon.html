@@ -136,20 +136,20 @@
   <table class="recon-table">
     <thead>
       <tr>
-        <th title="Praxis CID (client) — expand to see individual MT4 logins">CID / Login</th>
-        <th class="num">MT4 Net</th>
-        <th class="num th-cash" title="Real client deposits — wire, card, Praxis, crypto">Deposits</th>
-        <th class="num th-cash" title="Real client withdrawals">Withdrawals</th>
-        <th class="num th-cash">Net</th>
-        <th class="num th-noncash" title="Internal credits — bonuses, commissions, transfers in">Internal Credit</th>
-        <th class="num th-noncash" title="Internal debits — bonus clawbacks, credit-out">Internal Debit</th>
-        <th class="num" title="MT4 net minus CRM cash net. Under $1 = auto-matched (FX rounding on foreign currency deposits).">Difference</th>
-        <th class="num" title="Difference minus expected PSP fees (informational only — fees paid by company)">Fee Cost</th>
-        <th class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Praxis net deposits (USD)">Praxis Net</th>
-        <th>Status</th>
-        <th>Methods</th>
-        <th class="num" title="Total CRM approved transactions (all types) for this login">CRM Txns</th>
-        <th>Ccy</th>
+        <th title="Praxis CID (client) — expand ▸ to see individual MT4 accounts">CID / Login</th>
+        <th class="num" title="MT4 net deposit for the month — sum of convertednetdeposit from daily_profits. This is the amount that actually settled into the trading account.">MT4 Net</th>
+        <th class="num th-cash" title="Real client deposits — wire transfers, card payments, Praxis/External, crypto. Money sent by the client.">Deposits</th>
+        <th class="num th-cash" title="Real client withdrawals — money paid out to the client.">Withdrawals</th>
+        <th class="num th-cash" title="Net real funds movement: Deposits minus Withdrawals. Compared against MT4 Net to find discrepancies.">Net</th>
+        <th class="num th-noncash" title="Internal credits that are NOT real client deposits — bonuses, commissions, transfer-in, credit-in. Shown for visibility but excluded from the match calculation.">Internal Credit</th>
+        <th class="num th-noncash" title="Internal debits that are NOT real withdrawals — bonus clawbacks, credit-out, transfer-out. Shown for visibility but excluded from the match calculation.">Internal Debit</th>
+        <th class="num" title="MT4 Net minus CRM Net. Should be ~0 for correctly processed transactions. Differences under $1 are auto-matched (FX rounding on ZAR/NGN/KES deposits).">Difference</th>
+        <th class="num" title="Expected PSP fee for this login's deposits, computed from fee agreements. Informational only — the company pays these fees directly, they don't affect the match status.">Fee Cost</th>
+        <th class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Net Praxis deposits for this CID (deposits minus withdrawals). Only populated when the CID maps to exactly one MT4 account — ambiguous multi-account CIDs are excluded.">Praxis Net</th>
+        <th title="matched = difference under $1 · discrepancy = real gap between MT4 and CRM · crm only = CRM has transactions but MT4 shows no deposit · mt4 only = MT4 shows a deposit but no CRM record">Status</th>
+        <th title="Payment methods used for real (non-internal) transactions this month">Methods</th>
+        <th class="num" title="Total number of approved CRM transactions for this login (all types including internal)">CRM Txns</th>
+        <th title="Account currency from MT4">Ccy</th>
       </tr>
     </thead>
     <tbody>
@@ -286,6 +286,7 @@
       var g = document.createElement('th');
       g.textContent = th.textContent;
       g.className   = th.className;
+      if (th.title) g.title = th.title;
       // Use the real cell's rendered width
       g.style.width = th.offsetWidth + 'px';
       g.style.minWidth = th.offsetWidth + 'px';
