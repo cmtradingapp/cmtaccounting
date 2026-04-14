@@ -225,7 +225,11 @@ def mt4_summary(year: int, month: int):
 def _load_praxis_account_map() -> dict:
     """
     Build {session_cid (str) -> [mt4_login (int), ...]} lookup from Antelope CRM.
-    vtiger_trading_accounts.vtigeraccountid == praxis_transactions.session_cid.
+
+    Source: vtiger_mttransactions.vtigeraccountid — this column stores the CRM
+    account ID which equals the Praxis session_cid (26xxx/27xxx range).
+    vtiger_trading_accounts.vtigeraccountid is a legacy vtiger record ID (~1000xxx)
+    that does NOT match Praxis session_cid.
     Cached 30 minutes — the mapping rarely changes.
     """
     key = "praxis_account_map"
@@ -234,15 +238,23 @@ def _load_praxis_account_map() -> dict:
         return cached
 
     try:
-        mapping: dict = {}
         def _fetch():
             with crm() as cur:
-                cur.execute("SELECT login, vtigeraccountid FROM report.vtiger_trading_accounts WHERE (deleted IS NULL OR deleted = 0)")
+                cur.execute("""
+                    SELECT DISTINCT login, vtigeraccountid
+                    FROM report.vtiger_mttransactions
+                    WHERE login IS NOT NULL
+                      AND vtigeraccountid IS NOT NULL
+                      AND vtigeraccountid > 1000000
+                      AND (deleted IS NULL OR deleted = 0)
+                """)
                 m: dict = {}
                 for r in cur.fetchall():
                     cid = str(r["vtigeraccountid"]).strip()
-                    if cid:
-                        m.setdefault(cid, []).append(int(r["login"]))
+                    lg  = r["login"]
+                    if cid and lg:
+                        if lg not in m.get(cid, []):
+                            m.setdefault(cid, []).append(int(lg))
                 return m
         mapping = _db_retry(_fetch)
     except Exception:
@@ -492,12 +504,16 @@ def reconcile(year: int, month: int):
         diff         = round(mt4_net - crm_cash, 2)
         # Fee adj is informational only — company pays fees so they don't affect matching
         fee_adj_diff = round(diff - expected_fee, 2)
+        # Full adj: MT4 vs (cash + internal credits/debits from bonuses etc.)
+        # Bonuses are credited to MT4 by the company; they show as noncash in CRM
+        noncash_net = round(c.get("noncash_in", 0) - c.get("noncash_out", 0), 2)
+        adj_diff    = round(diff - noncash_net, 2)
 
         if login not in crm:
             status = "mt4_only"
         elif login not in mt4:
             status = "crm_only"
-        elif abs(diff) < 1.0:
+        elif abs(adj_diff) < 1.0:
             status = "matched"
         else:
             status = "discrepancy"
