@@ -240,6 +240,7 @@ def _load_praxis_account_map() -> dict:
     try:
         def _fetch():
             with crm() as cur:
+                # Primary: vtiger_mttransactions gives Praxis-compatible CIDs (26xxx/27xxx)
                 cur.execute("""
                     SELECT DISTINCT login, vtigeraccountid
                     FROM report.vtiger_mttransactions
@@ -249,10 +250,27 @@ def _load_praxis_account_map() -> dict:
                       AND (deleted IS NULL OR deleted = 0)
                 """)
                 m: dict = {}
+                primary_logins: set = set()
                 for r in cur.fetchall():
                     cid = str(r["vtigeraccountid"]).strip()
                     lg  = r["login"]
                     if cid and lg:
+                        if lg not in m.get(cid, []):
+                            m.setdefault(cid, []).append(int(lg))
+                        primary_logins.add(int(lg))
+
+                # Fallback: vtiger_trading_accounts for logins not covered above
+                cur.execute("""
+                    SELECT login, CAST(vtigeraccountid AS VARCHAR(20)) AS cid
+                    FROM report.vtiger_trading_accounts
+                    WHERE login IS NOT NULL
+                      AND vtigeraccountid IS NOT NULL
+                      AND (deleted IS NULL OR deleted = 0)
+                """)
+                for r in cur.fetchall():
+                    lg  = r["login"]
+                    cid = (r["cid"] or "").strip()
+                    if cid and lg and int(lg) not in primary_logins:
                         if lg not in m.get(cid, []):
                             m.setdefault(cid, []).append(int(lg))
                 return m
