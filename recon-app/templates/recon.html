@@ -8,6 +8,12 @@
   th[data-reconSort]::after { content:''; display:inline-block; margin-left:4px; opacity:.2; font-size:9px; }
   th[data-reconSort].asc::after  { content:'▲'; opacity:1; color:var(--accent); }
   th[data-reconSort].desc::after { content:'▼'; opacity:1; color:var(--accent); }
+  /* Internal-offset difference annotation */
+  .diff-cell { line-height: 1.25; }
+  .via-internal {
+    font-size: 10px; color: rgba(167,139,250,.7); font-weight: 400;
+    white-space: nowrap; margin-top: 1px;
+  }
   /* Custom column-header tooltip (works on both real and ghost fixed headers) */
   #col-tip {
     position: fixed; z-index: 9999; pointer-events: none;
@@ -169,14 +175,20 @@
     </thead>
     <tbody>
       {%- macro login_cells(r) %}
+          {%- set noncash_net = (r.crm_noncash_in or 0) - (r.crm_noncash_out or 0) %}
+          {%- set via_int = noncash_net != 0 and (r.difference - noncash_net) | abs < 1 %}
           <td class="num">{{ "{:,.2f}".format(r.mt4_net) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_dep) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_with) }}</td>
           <td class="num cash-col fw">{{ "{:,.2f}".format(r.crm_cash_net) }}</td>
           <td class="num noncash-col">{{ "{:,.2f}".format(r.crm_noncash_in) if r.crm_noncash_in else '—' }}</td>
           <td class="num noncash-col">{{ "{:,.2f}".format(r.crm_noncash_out) if r.crm_noncash_out else '—' }}</td>
-          <td class="num {{ 'pos' if r.difference > 1 else ('neg' if r.difference < -1 else '') }}">
-            {{ "{:+,.2f}".format(r.difference) if r.abs_diff >= 0.01 or r.difference else '—' }}
+          <td class="num diff-cell {{ '' if via_int else ('pos' if r.difference > 1 else ('neg' if r.difference < -1 else '')) }}"
+              {% if via_int %}style="color:var(--muted)"{% endif %}>
+            {% if r.abs_diff >= 0.01 or r.difference %}
+              {{ "{:+,.2f}".format(r.difference) }}
+              {% if via_int %}<div class="via-internal" title="{{ '{:+,.2f}'.format(r.difference) }} offset by {{ '{:,.0f}'.format(noncash_net | abs) }} internal → net 0">{{ '−' if noncash_net > 0 else '+' }}{{ '{:,.0f}'.format(noncash_net | abs) }} internal → 0</div>{% endif %}
+            {% else %}—{% endif %}
           </td>
           <td class="num {{ 'pos' if r.fee_adj_diff > 1 else ('neg' if r.fee_adj_diff < -1 else 'muted') }}"
               title="Expected fees: ${{ '{:,.2f}'.format(r.expected_fees) }}">
@@ -196,8 +208,14 @@
           <td class="num cash-col fw">{{ "{:,.2f}".format(a.crm_cash_net) }}</td>
           <td class="num noncash-col">{{ "{:,.2f}".format(a.crm_noncash_in) if a.crm_noncash_in else '—' }}</td>
           <td class="num noncash-col">{{ "{:,.2f}".format(a.crm_noncash_out) if a.crm_noncash_out else '—' }}</td>
-          <td class="num {{ 'pos' if a.difference > 1 else ('neg' if a.difference < -1 else '') }}">
-            {{ "{:+,.2f}".format(a.difference) if a.abs_diff >= 0.01 else '—' }}
+          {%- set agg_noncash_net = (a.crm_noncash_in or 0) - (a.crm_noncash_out or 0) %}
+          {%- set agg_via_int = agg_noncash_net != 0 and (a.difference - agg_noncash_net) | abs < 1 %}
+          <td class="num diff-cell {{ '' if agg_via_int else ('pos' if a.difference > 1 else ('neg' if a.difference < -1 else '')) }}"
+              {% if agg_via_int %}style="color:var(--muted)"{% endif %}>
+            {% if a.abs_diff >= 0.01 %}
+              {{ "{:+,.2f}".format(a.difference) }}
+              {% if agg_via_int %}<div class="via-internal" title="{{ '{:+,.2f}'.format(a.difference) }} offset by {{ '{:,.0f}'.format(agg_noncash_net | abs) }} internal → net 0">{{ '−' if agg_noncash_net > 0 else '+' }}{{ '{:,.0f}'.format(agg_noncash_net | abs) }} internal → 0</div>{% endif %}
+            {% else %}—{% endif %}
           </td>
           <td class="num {{ 'pos' if a.fee_adj_diff > 1 else ('neg' if a.fee_adj_diff < -1 else 'muted') }}"
               title="Expected fees: ${{ '{:,.2f}'.format(a.expected_fees) }}">
@@ -434,7 +452,18 @@ function _numCls(v, thresh) {
 }
 
 function _buildCells(a) {
-  var absDiff = Math.abs(a.difference || 0);
+  var absDiff    = Math.abs(a.difference || 0);
+  var noncashNet = (a.crm_noncash_in || 0) - (a.crm_noncash_out || 0);
+  var adjDiff    = (a.difference || 0) - noncashNet;
+  var viaInt     = noncashNet !== 0 && Math.abs(adjDiff) < 1;
+  var diffStr = absDiff >= 0.01 || a.difference ? _fmt(a.difference) : '—';
+  if (viaInt && (absDiff >= 0.01 || a.difference)) {
+    var sign  = noncashNet > 0 ? '−' : '+';
+    var label = sign + Math.round(Math.abs(noncashNet)).toLocaleString('en-US') + ' internal → 0';
+    diffStr += '<div class="via-internal" title="' + _fmt(a.difference) + ' offset by ' + Math.round(Math.abs(noncashNet)).toLocaleString('en-US') + ' internal → net 0">' + label + '</div>';
+  }
+  var diffCls  = viaInt ? 'diff-cell' : 'diff-cell ' + _numCls(a.difference);
+  var diffStyle= viaInt ? ' style="color:var(--muted)"' : '';
   return [
     '<td class="num">' + _fmtP(a.mt4_net) + '</td>',
     '<td class="num cash-col">' + _fmtP(a.crm_cash_dep) + '</td>',
@@ -442,7 +471,7 @@ function _buildCells(a) {
     '<td class="num cash-col fw">' + _fmtP(a.crm_cash_net) + '</td>',
     '<td class="num noncash-col">' + (a.crm_noncash_in ? _fmtP(a.crm_noncash_in) : '—') + '</td>',
     '<td class="num noncash-col">' + (a.crm_noncash_out ? _fmtP(a.crm_noncash_out) : '—') + '</td>',
-    '<td class="num ' + _numCls(a.difference) + '">' + (absDiff >= 0.01 || a.difference ? _fmt(a.difference) : '—') + '</td>',
+    '<td class="num ' + diffCls + '"' + diffStyle + '>' + diffStr + '</td>',
     '<td class="num ' + (a.fee_adj_diff > 1 ? 'pos' : a.fee_adj_diff < -1 ? 'neg' : 'muted') + '" title="Expected fees: $' + _fmtP(a.expected_fees) + '">' + (a.expected_fees ? _fmt(a.fee_adj_diff) : '—') + '</td>',
     '<td class="num praxis-col">' + (a.praxis_net ? _fmtP(a.praxis_net) : '—') + '</td>',
     '<td><span class="badge ' + a.status + '">' + a.status.replace('_',' ') + '</span></td>',
