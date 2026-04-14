@@ -368,7 +368,7 @@ var _colTip = (function () {
   }
 
   function attachTip(el) {
-    // Read from data-tip first (already migrated), then title
+    if (el._tipAttached) return;  // guard: don't add duplicate listeners
     if (!el.getAttribute('data-tip') && el.title) {
       el.setAttribute('data-tip', el.title);
       el.removeAttribute('title');
@@ -385,6 +385,7 @@ var _colTip = (function () {
     el.addEventListener('mouseleave', function () {
       hideTimer = setTimeout(function () { tip.style.display = 'none'; }, 100);
     });
+    el._tipAttached = true;
   }
 
   return { attachTip: attachTip };
@@ -414,8 +415,8 @@ function _fmt(n) {
   if (n == null || n === '') return '—';
   return (n >= 0 ? '+' : '') + parseFloat(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
-function _fmtP(n) {  // plain positive-only
-  if (!n) return '—';
+function _fmtP(n) {  // plain, no sign — zero shows as 0.00
+  if (n == null || n === '') return '—';
   return parseFloat(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 function _numCls(v, thresh) {
@@ -423,8 +424,7 @@ function _numCls(v, thresh) {
   return v > thresh ? 'pos' : (v < -thresh ? 'neg' : '');
 }
 
-function _buildCells(d, isAgg) {
-  var a = isAgg ? d.agg : d;
+function _buildCells(a) {
   var absDiff = Math.abs(a.difference || 0);
   return [
     '<td class="num">' + _fmtP(a.mt4_net) + '</td>',
@@ -451,11 +451,11 @@ function _buildGroup(g, idx) {
     html += '<td><button class="toggle-btn" id="tog-' + cidSafe + '" onclick="toggleGroup(\'' + cidSafe + '\')" title="' + (g.expanded ? 'Collapse' : 'Expand') + ' accounts">' + (g.expanded ? '▾' : '▸') + '</button>';
     html += '<a href="/cid/' + g.cid + '?ref=' + _reconMonth + '" class="cid-link">' + g.cid + '</a>';
     html += '<span style="font-size:10px;color:var(--muted);margin-left:6px;">' + g.logins.length + ' accounts</span></td>';
-    html += _buildCells(g, true) + '</tr>';
+    html += _buildCells(g.agg) + '</tr>';
     g.logins.forEach(function(r) {
       html += '<tr class="login-row login-row-' + cidSafe + '" style="' + (g.expanded ? '' : 'display:none;') + '">';
       html += '<td><span class="login-prefix">└</span><a class="login-link" href="/client/' + r.login + '?ref=' + _reconMonth + '">' + r.login + '</a></td>';
-      html += _buildCells(r, false) + '</tr>';
+      html += _buildCells(r) + '</tr>';
     });
   } else if (g.cid) {
     var r = g.logins[0];
@@ -463,13 +463,13 @@ function _buildGroup(g, idx) {
     html += '<a href="/cid/' + g.cid + '?ref=' + _reconMonth + '" class="cid-link">' + g.cid + '</a>';
     html += '<span style="color:rgba(255,255,255,.15);margin:0 5px;font-size:10px;">|</span>';
     html += '<a class="login-link" href="/client/' + r.login + '?ref=' + _reconMonth + '" style="font-weight:400;font-size:12px;">' + r.login + '</a></td>';
-    html += _buildCells(r, false) + '</tr>';
+    html += _buildCells(r) + '</tr>';
   } else {
     var r = g.logins[0];
     html += '<tr class="group-row"><td>';
     html += '<span class="no-cid-badge" title="No linked CRM account">no CID</span>';
     html += '<a class="login-link" href="/client/' + r.login + '?ref=' + _reconMonth + '" style="margin-left:6px;">' + r.login + '</a></td>';
-    html += _buildCells(r, false) + '</tr>';
+    html += _buildCells(r) + '</tr>';
   }
   return html;
 }
@@ -480,8 +480,6 @@ function reconRender() {
   var html = '';
   _reconGroups.forEach(function(g, i) { html += _buildGroup(g, i); });
   tbody.innerHTML = html || '<tr><td colspan="14" class="empty">No results for this filter.</td></tr>';
-  // Re-attach custom tooltip to any new ghost header ths
-  document.querySelectorAll('.recon-table thead th').forEach(_colTip.attachTip);
 }
 
 function reconSort(colIdx) {
