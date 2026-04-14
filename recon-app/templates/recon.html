@@ -2,6 +2,15 @@
 {% block title %} — {{ month }}{% endblock %}
 {% block content %}
 <style>
+  /* Custom column-header tooltip (works on both real and ghost fixed headers) */
+  #col-tip {
+    position: fixed; z-index: 9999; pointer-events: none;
+    max-width: 320px; padding: 7px 11px;
+    background: rgba(22,25,32,.97); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 6px; font-size: 12px; line-height: 1.5; color: var(--text-2);
+    box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    display: none; white-space: normal;
+  }
   /* Tighter table for the wider recon layout */
   .recon-table-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--border); }
   .recon-table { border-collapse: collapse; }
@@ -286,7 +295,9 @@
       var g = document.createElement('th');
       g.textContent = th.textContent;
       g.className   = th.className;
-      if (th.title) g.title = th.title;
+      // Copy data-tip (title already moved to data-tip by custom tooltip init)
+      var tip = th.getAttribute('data-tip') || th.title;
+      if (tip) g.setAttribute('data-tip', tip);
       // Use the real cell's rendered width
       g.style.width = th.offsetWidth + 'px';
       g.style.minWidth = th.offsetWidth + 'px';
@@ -333,6 +344,54 @@
   window.addEventListener('resize', function () {
     if (shown) syncGhost();
   });
+})();
+
+/* ── Custom column tooltip — works on real + fixed ghost header ── */
+(function () {
+  var tip = document.createElement('div');
+  tip.id = 'col-tip';
+  document.body.appendChild(tip);
+
+  var hideTimer;
+
+  function attachTip(el) {
+    var text = el.getAttribute('data-tip') || el.title;
+    if (!text) return;
+    // Move title to data-tip so browser doesn't show its own tooltip
+    if (el.title) { el.setAttribute('data-tip', el.title); el.removeAttribute('title'); }
+
+    el.addEventListener('mouseenter', function (e) {
+      clearTimeout(hideTimer);
+      tip.textContent = el.getAttribute('data-tip');
+      tip.style.display = 'block';
+      position(e);
+    });
+    el.addEventListener('mousemove', position);
+    el.addEventListener('mouseleave', function () {
+      hideTimer = setTimeout(function () { tip.style.display = 'none'; }, 80);
+    });
+  }
+
+  function position(e) {
+    var x = e.clientX + 14, y = e.clientY + 18;
+    if (x + 340 > window.innerWidth) x = e.clientX - 344;
+    if (y + 100 > window.innerHeight) y = e.clientY - 80;
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
+  }
+
+  // Attach to real header
+  document.querySelectorAll('.recon-table thead th').forEach(attachTip);
+
+  // Attach to ghost header whenever it's rebuilt
+  var origSync = window._reconSyncGhost;
+  var ghostRow = document.getElementById('stickyReconRow');
+  if (ghostRow) {
+    var obs = new MutationObserver(function () {
+      ghostRow.querySelectorAll('th').forEach(attachTip);
+    });
+    obs.observe(ghostRow, { childList: true });
+  }
 })();
 
 function toggleGroup(cid) {
