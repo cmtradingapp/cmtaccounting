@@ -1286,7 +1286,7 @@ def equity_report(date_from=None, date_to=None) -> list:
     # Opening snapshot (first day per login in range)
     def _fetch_open():
         with dealio() as cur:
-            cur.execute("SET statement_timeout = 30000")
+            cur.execute("SET statement_timeout = 120000")
             cur.execute("""
                 SELECT DISTINCT ON (login)
                     login,
@@ -1302,7 +1302,7 @@ def equity_report(date_from=None, date_to=None) -> list:
     # Closing snapshot (last day per login in range)
     def _fetch_close():
         with dealio() as cur:
-            cur.execute("SET statement_timeout = 30000")
+            cur.execute("SET statement_timeout = 120000")
             cur.execute("""
                 SELECT DISTINCT ON (login)
                     login,
@@ -1319,7 +1319,7 @@ def equity_report(date_from=None, date_to=None) -> list:
     # Aggregate deposits / withdrawals / P&L
     def _fetch_agg():
         with dealio() as cur:
-            cur.execute("SET statement_timeout = 30000")
+            cur.execute("SET statement_timeout = 120000")
             cur.execute("""
                 SELECT
                     login,
@@ -1428,7 +1428,7 @@ def client_list(date_from=None, date_to=None) -> list:
     # SET statement_timeout inline so the replica doesn't kill us mid-scan.
     def _fetch_mt4():
         with dealio() as cur:
-            cur.execute("SET statement_timeout = 30000")
+            cur.execute("SET statement_timeout = 120000")
             # Query 1: aggregate sums per login
             cur.execute("""
                 SELECT
@@ -1443,7 +1443,8 @@ def client_list(date_from=None, date_to=None) -> list:
             """, (date_from, date_to))
             rows = {r["login"]: dict(r) for r in cur.fetchall()}
 
-            # Query 2: last-day floating P&L per login (separate query avoids CTE issues with TimescaleDB)
+            # Query 2: last-day floating P&L — new connection avoids any stale SSL state
+            cur.execute("SET statement_timeout = 120000")
             cur.execute("""
                 SELECT DISTINCT ON (login)
                     login,
