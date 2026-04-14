@@ -9,14 +9,17 @@
   .group-row td { background: rgba(255,255,255,.02); font-weight: 600; border-top: 1px solid rgba(255,255,255,.07); }
   .group-row:first-child td { border-top: none; }
   .toggle-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px;
-                padding: 0 5px 0 0; line-height: 1; vertical-align: middle; }
+                padding: 0 4px 0 0; line-height: 1; vertical-align: middle; }
   .toggle-btn:hover { color: var(--text); }
-  .login-row td { border-top: none; }
-  .login-row td:first-child { padding-left: 28px; }
-  .login-prefix { color: var(--muted); font-size: 10px; margin-right: 4px; }
-  .cid-label { font-family: monospace; font-size: 11px; color: var(--muted); }
-  .cid-link  { font-family: monospace; font-size: 11px; color: var(--muted); text-decoration: none; }
+  .login-row td { border-top: none; background: transparent; font-weight: 400; }
+  .login-row td:first-child { padding-left: 32px; }
+  .login-prefix { color: rgba(255,255,255,.2); font-size: 10px; margin-right: 4px; }
+  .cid-link  { font-family: monospace; font-size: 12px; color: var(--text-2); text-decoration: none; font-weight: 700; }
   .cid-link:hover { color: var(--accent); }
+  .no-cid-login { display:inline-flex; align-items:center; gap:6px; }
+  .no-cid-badge { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+                  color:var(--muted); background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
+                  border-radius:3px; padding:1px 5px; vertical-align:middle; }
   /* Ghost header — mirrors real column widths via JS, shown when real thead scrolls out of view */
   #stickyReconHead {
     position: fixed; top: 56px; left: 0; right: 0;
@@ -150,64 +153,7 @@
       </tr>
     </thead>
     <tbody>
-      {%- macro num_cell(val, cls='') %}
-        <td class="num {{ cls }}">{{ "{:,.2f}".format(val) if val else '—' }}</td>
-      {%- endmacro %}
-
-      {% if groups %}
-        {%- for g in groups %}
-        {%- set a = g.agg %}
-        {%- set cid_safe = 'cid' ~ (g.cid if g.cid else loop.index|string) %}
-
-        {# ── Group header row (always shown) ── #}
-        <tr class="group-row">
-          <td>
-            {%- if g.multi %}
-            <button class="toggle-btn" id="tog-{{ cid_safe }}"
-                    onclick="toggleGroup('{{ cid_safe }}')"
-                    title="{{ 'Collapse' if g.expanded else 'Expand' }} logins">
-              {{ '▾' if g.expanded else '▸' }}
-            </button>
-            {%- else %}
-            <span style="display:inline-block;width:16px;"></span>
-            {%- endif %}
-            {%- if g.cid %}
-              <a href="/cid/{{ g.cid }}?ref={{ month }}" class="cid-link">{{ g.cid }}</a>
-            {%- else %}
-              <span class="cid-label">—</span>
-            {%- endif %}
-            {%- if g.multi %}
-            <span style="font-size:10px;color:var(--muted);margin-left:5px;">{{ g.logins|length }} accounts</span>
-            {%- endif %}
-          </td>
-          <td class="num">{{ "{:,.2f}".format(a.mt4_net) }}</td>
-          <td class="num cash-col">{{ "{:,.2f}".format(a.crm_cash_dep) }}</td>
-          <td class="num cash-col">{{ "{:,.2f}".format(a.crm_cash_with) }}</td>
-          <td class="num cash-col fw">{{ "{:,.2f}".format(a.crm_cash_net) }}</td>
-          <td class="num noncash-col">{{ "{:,.2f}".format(a.crm_noncash_in) if a.crm_noncash_in else '—' }}</td>
-          <td class="num noncash-col">{{ "{:,.2f}".format(a.crm_noncash_out) if a.crm_noncash_out else '—' }}</td>
-          <td class="num {{ 'pos' if a.difference > 1 else ('neg' if a.difference < -1 else '') }}">
-            {{ "{:+,.2f}".format(a.difference) if a.abs_diff >= 0.01 else '—' }}
-          </td>
-          <td class="num {{ 'pos' if a.fee_adj_diff > 1 else ('neg' if a.fee_adj_diff < -1 else 'muted') }}"
-              title="Expected fees: ${{ '{:,.2f}'.format(a.expected_fees) }}">
-            {{ "{:+,.2f}".format(a.fee_adj_diff) if a.expected_fees else '—' }}
-          </td>
-          <td class="num praxis-col">{{ "{:,.2f}".format(a.praxis_net) if a.praxis_net else '—' }}</td>
-          <td><span class="badge {{ a.status }}">{{ a.status.replace('_',' ') }}</span></td>
-          <td class="methods">{{ a.cash_methods or '—' }}</td>
-          <td class="num">{{ a.tx_count or '—' }}</td>
-          <td>{{ a.currency }}</td>
-        </tr>
-
-        {# ── Login sub-rows (always rendered; hidden when collapsed) ── #}
-        {%- for r in g.logins %}
-        <tr class="login-row login-row-{{ cid_safe }}"
-            style="{{ '' if (not g.multi or g.expanded) else 'display:none;' }}">
-          <td>
-            <span class="login-prefix" style="padding-left:16px;">└</span>
-            <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}">{{ r.login }}</a>
-          </td>
+      {%- macro login_cells(r) %}
           <td class="num">{{ "{:,.2f}".format(r.mt4_net) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_dep) }}</td>
           <td class="num cash-col">{{ "{:,.2f}".format(r.crm_cash_with) }}</td>
@@ -226,8 +172,82 @@
           <td class="methods" title="{{ r.payment_methods }}">{{ r.cash_methods or '—' }}</td>
           <td class="num">{{ r.tx_count or '—' }}</td>
           <td>{{ r.currency }}</td>
+      {%- endmacro %}
+
+      {%- macro agg_cells(a) %}
+          <td class="num">{{ "{:,.2f}".format(a.mt4_net) }}</td>
+          <td class="num cash-col">{{ "{:,.2f}".format(a.crm_cash_dep) }}</td>
+          <td class="num cash-col">{{ "{:,.2f}".format(a.crm_cash_with) }}</td>
+          <td class="num cash-col fw">{{ "{:,.2f}".format(a.crm_cash_net) }}</td>
+          <td class="num noncash-col">{{ "{:,.2f}".format(a.crm_noncash_in) if a.crm_noncash_in else '—' }}</td>
+          <td class="num noncash-col">{{ "{:,.2f}".format(a.crm_noncash_out) if a.crm_noncash_out else '—' }}</td>
+          <td class="num {{ 'pos' if a.difference > 1 else ('neg' if a.difference < -1 else '') }}">
+            {{ "{:+,.2f}".format(a.difference) if a.abs_diff >= 0.01 else '—' }}
+          </td>
+          <td class="num {{ 'pos' if a.fee_adj_diff > 1 else ('neg' if a.fee_adj_diff < -1 else 'muted') }}"
+              title="Expected fees: ${{ '{:,.2f}'.format(a.expected_fees) }}">
+            {{ "{:+,.2f}".format(a.fee_adj_diff) if a.expected_fees else '—' }}
+          </td>
+          <td class="num praxis-col">{{ "{:,.2f}".format(a.praxis_net) if a.praxis_net else '—' }}</td>
+          <td><span class="badge {{ a.status }}">{{ a.status.replace('_',' ') }}</span></td>
+          <td class="methods">{{ a.cash_methods or '—' }}</td>
+          <td class="num">{{ a.tx_count or '—' }}</td>
+          <td>{{ a.currency }}</td>
+      {%- endmacro %}
+
+      {% if groups %}
+        {%- for g in groups %}
+        {%- set a = g.agg %}
+        {%- set cid_safe = 'cid' ~ (g.cid if g.cid else loop.index|string) %}
+
+        {%- if g.multi %}
+        {# ══ Multi-account: collapsible group header + login sub-rows ══ #}
+        <tr class="group-row">
+          <td>
+            <button class="toggle-btn" id="tog-{{ cid_safe }}"
+                    onclick="toggleGroup('{{ cid_safe }}')"
+                    title="{{ 'Collapse' if g.expanded else 'Expand' }} accounts">
+              {{ '▾' if g.expanded else '▸' }}
+            </button>
+            <a href="/cid/{{ g.cid }}?ref={{ month }}" class="cid-link">{{ g.cid }}</a>
+            <span style="font-size:10px;color:var(--muted);margin-left:6px;">{{ g.logins|length }} accounts</span>
+          </td>
+          {{ agg_cells(a) }}
+        </tr>
+        {%- for r in g.logins %}
+        <tr class="login-row login-row-{{ cid_safe }}" style="{{ '' if g.expanded else 'display:none;' }}">
+          <td>
+            <span class="login-prefix">└</span>
+            <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}">{{ r.login }}</a>
+          </td>
+          {{ login_cells(r) }}
         </tr>
         {%- endfor %}
+
+        {%- elif g.cid %}
+        {# ══ Single account with known CID: one clean row ══ #}
+        {%- set r = g.logins[0] %}
+        <tr class="group-row">
+          <td>
+            <a href="/cid/{{ g.cid }}?ref={{ month }}" class="cid-link">{{ g.cid }}</a>
+            <span style="color:rgba(255,255,255,.15);margin:0 5px;font-size:10px;">|</span>
+            <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}" style="font-weight:400;font-size:12px;">{{ r.login }}</a>
+          </td>
+          {{ login_cells(r) }}
+        </tr>
+
+        {%- else %}
+        {# ══ No CID: single row, login is the only identifier ══ #}
+        {%- set r = g.logins[0] %}
+        <tr class="group-row">
+          <td>
+            <span class="no-cid-badge" title="This login has no linked CRM account (vtigeraccountid)">no CID</span>
+            <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}" style="margin-left:6px;">{{ r.login }}</a>
+          </td>
+          {{ login_cells(r) }}
+        </tr>
+        {%- endif %}
+
         {%- endfor %}
       {% else %}
         <tr><td colspan="14" class="empty">No results for this filter.</td></tr>
