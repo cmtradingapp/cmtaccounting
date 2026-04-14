@@ -57,7 +57,7 @@ jobs:
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/recon-app && docker compose up -d --build && docker compose ps"
           else
-            echo "Code-only change — docker compose up -d to reload env + flush caches"
+            echo "Code-only change — force-recreate to reload templates + flush caches"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-              "cd /root/recon-app && docker compose up -d && sleep 3 && docker compose ps"
+              "cd /root/recon-app && docker compose up -d --force-recreate recon && sleep 3 && docker compose ps"
           fi
