@@ -342,15 +342,8 @@ def recon_crm_txns(month, login):
         year, mon = int(month[:4]), int(month[5:7])
     except (ValueError, IndexError):
         abort(400)
-    rows = queries.login_detail(year, mon, login)
-    return jsonify([{
-        "type":     r.get("transactiontype", ""),
-        "method":   r.get("payment_method") or "—",
-        "approval": r.get("transactionapproval", ""),
-        "count":    r.get("tx_count", 0),
-        "usd":      r.get("total_usd", 0),
-        "is_cash":  r.get("is_cash", False),
-    } for r in rows])
+    rows = queries.login_crm_transactions(year, mon, login)
+    return jsonify(rows)
 
 
 @app.route("/recon/<month>/praxis")

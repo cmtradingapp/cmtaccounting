@@ -2099,6 +2099,35 @@ def login_detail(year: int, month: int, login: int):
     return result
 
 
+
+def login_crm_transactions(year: int, month: int, login: int):
+    """Individual CRM transactions for a login in a month (for popover detail)."""
+    import datetime
+    month_start = datetime.date(year, month, 1)
+    month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+    with crm() as cur:
+        cur.execute("""
+            SELECT transactiontype, payment_method, transactionapproval,
+                   usdamount, CAST(confirmation_time AS date) AS tx_date,
+                   psp_transaction_id
+            FROM report.vtiger_mttransactions
+            WHERE login = %s
+              AND confirmation_time >= %s AND confirmation_time < %s
+              AND (deleted IS NULL OR deleted = 0)
+            ORDER BY confirmation_time DESC
+        """, (login, month_start, month_end))
+        rows = cur.fetchall()
+    return [{
+        "type":     r["transactiontype"] or "",
+        "method":   r["payment_method"] or chr(8212),
+        "approval": r["transactionapproval"] or "",
+        "usd":      round(float(r["usdamount"] or 0), 2),
+        "date":     str(r["tx_date"]) if r["tx_date"] else "",
+        "psp_id":   r["psp_transaction_id"] or "",
+        "is_cash":  _is_cash(r["payment_method"] or "", r["transactiontype"] or ""),
+    } for r in rows]
+
+
 def login_mt4_detail(year: int, month: int, login: int):
     """Daily MT4 net deposit entries for a specific login."""
     with dealio() as cur:

@@ -614,12 +614,17 @@ function toggleGroup(cid) {
   }
 
   function render(login, rows) {
-    var h = '<div id="crm-pop-head">CRM Transactions \u2014 ' + login + ' (' + rows.reduce(function(s,r){return s+r.count;},0) + ')</div>';
-    h += '<table><thead><tr><th>Type</th><th>Method</th><th>Status</th><th class="r">Txns</th><th class="r">USD</th></tr></thead><tbody>';
+    var h = '<div id="crm-pop-head">CRM Transactions \u2014 ' + login + ' (' + rows.length + ')</div>';
+    h += '<table><thead><tr><th>Date</th><th>Type</th><th>Method</th><th class="r">USD</th></tr></thead><tbody>';
     rows.forEach(function(r) {
       var cls = r.is_cash ? 'cash' : 'noncash';
       var usd = parseFloat(r.usd || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-      h += '<tr class="' + cls + '"><td>' + r.type + '</td><td>' + r.method + '</td><td>' + r.approval + '</td><td class="r">' + r.count + '</td><td class="r">$' + usd + '</td></tr>';
+      h += '<tr class="' + cls + '">';
+      h += '<td style="font-size:11px;color:var(--muted)">' + (r.date || '\u2014') + '</td>';
+      h += '<td>' + r.type + '</td>';
+      h += '<td>' + r.method + '</td>';
+      h += '<td class="r">$' + usd + '</td>';
+      h += '</tr>';
     });
     h += '</tbody></table>';
     pop.innerHTML = h;
