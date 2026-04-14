@@ -11,7 +11,8 @@
   /* CRM transaction popover on TXNS hover */
   #crm-pop {
     position: fixed; z-index: 9998; display: none;
-    width: 380px; max-height: 340px; overflow-y: auto;
+    width: max-content; min-width: 340px; max-width: min(520px, calc(100vw - 24px));
+    max-height: 360px; overflow-y: auto; overflow-x: hidden;
     background: rgba(22,25,32,.97); border: 1px solid rgba(255,255,255,.12);
     border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.5);
     padding: 0; font-size: 12px;
@@ -21,7 +22,13 @@
     font-size: 11px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .06em; color: var(--muted);
   }
-  #crm-pop table { width: 100%; border-collapse: collapse; }
+  #crm-pop table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  #crm-pop col.c-date   { width: 88px; }
+  #crm-pop col.c-type   { width: 90px; }
+  #crm-pop col.c-method { width: auto; }
+  #crm-pop col.c-usd    { width: 90px; }
+  #crm-pop td { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #crm-pop td.r { white-space: nowrap; overflow: visible; text-overflow: clip; }
   #crm-pop th { font-size: 10px; font-weight: 600; text-transform: uppercase;
     letter-spacing: .05em; color: var(--muted); padding: 6px 10px; text-align: left; }
   #crm-pop th.r { text-align: right; }
@@ -49,9 +56,20 @@
   /* Tighter table for the wider recon layout */
   .recon-table-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--border); }
   .recon-table { border-collapse: collapse; }
-  /* CID group rows */
-  .group-row td { background: rgba(255,255,255,.02); font-weight: 600; border-top: 1px solid rgba(255,255,255,.07); }
+
+  /* ── Row status left-border accent ── */
+  .group-row td { background: rgba(255,255,255,.02); font-weight: 600; border-top: 1px solid rgba(255,255,255,.06); }
+  .group-row.status-discrepancy td:first-child { border-left: 3px solid rgba(239,68,68,.6)  !important; }
+  .group-row.status-crm_only td:first-child    { border-left: 3px solid rgba(79,142,247,.6)  !important; }
+  .group-row.status-mt4_only td:first-child    { border-left: 3px solid rgba(245,158,11,.6)  !important; }
+  .group-row.status-matched td:first-child      { border-left: 3px solid transparent           !important; }
   .group-row:first-child td { border-top: none; }
+
+  /* ── Row hover ── */
+  .group-row:hover td { background: rgba(255,255,255,.04) !important; transition: background .1s; }
+  .login-row:hover td { background: rgba(255,255,255,.03) !important; transition: background .1s; }
+
+  /* ── Toggle / tree controls ── */
   .toggle-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px;
                 padding: 0 4px 0 0; line-height: 1; vertical-align: middle; }
   .toggle-btn:hover { color: var(--text); }
@@ -64,7 +82,8 @@
   .no-cid-badge { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
                   color:var(--muted); background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
                   border-radius:3px; padding:1px 5px; vertical-align:middle; }
-  /* Ghost header — mirrors real column widths via JS, shown when real thead scrolls out of view */
+
+  /* ── Ghost sticky header ── */
   #stickyReconHead {
     position: fixed; top: 56px; left: 0; right: 0;
     z-index: 50; display: none;
@@ -77,10 +96,18 @@
     letter-spacing: .06em; color: var(--muted); text-align: left; white-space: nowrap;
   }
   #stickyReconHead th.num { text-align: right; }
-  .recon-table th { padding: 8px 10px; font-size: 10px; }
-  .recon-table td { padding: 10px 10px; font-size: 12px; }
-  .recon-table td:last-child { padding-right: 12px; }
-  .praxis-col { background: rgba(167,139,250,.03); color: var(--text); }
+
+  /* ── Table typography ── */
+  .recon-table th { padding: 7px 7px; font-size: 10px; }
+  .recon-table td { padding: 9px 7px; font-size: 12px; }
+  .recon-table td.num { font-variant-numeric: tabular-nums; }
+  .recon-table td:last-child { padding-right: 10px; }
+
+  /* ── Column hierarchy: de-emphasise noncash, emphasise difference ── */
+  .noncash-col { opacity: .5; font-size: 11px !important; }
+  .th-noncash  { opacity: .6; }
+  .praxis-col { background: rgba(167,139,250,.03); color: var(--muted); font-style: italic; }
+  td.diff-cell { font-weight: 600; }
 </style>
 
 {% set parts = month.split('-') %}
@@ -182,17 +209,17 @@
       <tr>
         <th data-reconSort="0" title="Praxis CID (client) — expand ▸ to see individual MT4 accounts">CID / Login</th>
         <th data-reconSort="1" class="num" title="MT4 net deposit for the month — sum of convertednetdeposit from daily_profits. This is the amount that actually settled into the trading account.">MT4 Net</th>
-        <th data-reconSort="2" class="num th-cash" title="Real client deposits — wire transfers, card payments, Praxis/External, crypto. Money sent by the client.">Deposits</th>
-        <th data-reconSort="3" class="num th-cash" title="Real client withdrawals — money paid out to the client.">Withdrawals</th>
+        <th data-reconSort="2" class="num th-cash" title="Real client deposits — wire transfers, card payments, Praxis/External, crypto. Money sent by the client.">Dep.</th>
+        <th data-reconSort="3" class="num th-cash" title="Real client withdrawals — money paid out to the client.">With.</th>
         <th data-reconSort="4" class="num th-cash" title="Net real funds movement: Deposits minus Withdrawals. Compared against MT4 Net to find discrepancies.">Net</th>
-        <th data-reconSort="5" class="num th-noncash" title="Internal credits that are NOT real client deposits — bonuses, commissions, transfer-in, credit-in. Shown for visibility but excluded from the match calculation.">Internal Credit</th>
-        <th data-reconSort="6" class="num th-noncash" title="Internal debits that are NOT real withdrawals — bonus clawbacks, credit-out, transfer-out. Shown for visibility but excluded from the match calculation.">Internal Debit</th>
+        <th data-reconSort="5" class="num th-noncash" title="Internal credits that are NOT real client deposits — bonuses, commissions, transfer-in, credit-in. Shown for visibility but excluded from the match calculation.">Int. Credit</th>
+        <th data-reconSort="6" class="num th-noncash" title="Internal debits that are NOT real withdrawals — bonus clawbacks, credit-out, transfer-out. Shown for visibility but excluded from the match calculation.">Int. Debit</th>
         <th data-reconSort="7" class="num" title="MT4 Net minus CRM Net. Should be ~0 for correctly processed transactions. Differences under $1 are auto-matched (FX rounding on ZAR/NGN/KES deposits).">Difference</th>
-        <th data-reconSort="8" class="num" title="Expected PSP fee for this login's deposits, computed from fee agreements. Informational only — the company pays these fees directly, they don't affect the match status.">Fee Cost</th>
-        <th data-reconSort="9" class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Net Praxis deposits for this CID (deposits minus withdrawals). Only populated when the CID maps to exactly one MT4 account — ambiguous multi-account CIDs are excluded.">Praxis Net</th>
+        <th data-reconSort="8" class="num" title="Expected PSP fee for this login's deposits, computed from fee agreements. Informational only — the company pays these fees directly, they don't affect the match status.">Fee</th>
+        <th data-reconSort="9" class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Net Praxis deposits for this CID (deposits minus withdrawals). Only populated when the CID maps to exactly one MT4 account — ambiguous multi-account CIDs are excluded.">Praxis</th>
         <th data-reconSort="10" title="matched = difference under $1 · discrepancy = real gap between MT4 and CRM · crm only = CRM has transactions but MT4 shows no deposit · mt4 only = MT4 shows a deposit but no CRM record">Status</th>
-        <th data-reconSort="11" title="Payment methods used for real (non-internal) transactions this month">Methods</th>
-        <th data-reconSort="12" class="num" title="Total number of approved CRM transactions for this login (all types including internal)">CRM Txns</th>
+        <th data-reconSort="11" title="Payment methods used for real (non-internal) transactions this month">Method</th>
+        <th data-reconSort="12" class="num" title="Total number of approved CRM transactions for this login (all types including internal)">Txns</th>
         <th data-reconSort="13" title="Account currency from MT4">Ccy</th>
       </tr>
     </thead>
@@ -218,7 +245,13 @@
             {{ "{:+,.2f}".format(r.fee_adj_diff) if r.expected_fees else '—' }}
           </td>
           <td class="num praxis-col">{{ "{:,.2f}".format(r.praxis_net) if r.praxis_net else '—' }}</td>
-          <td><span class="badge {{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
+          <td>
+            {%- if r.status == 'matched' %}<span class="badge matched">✓ matched</span>
+            {%- elif r.status == 'discrepancy' %}<span class="badge discrepancy">⚠ discrepancy</span>
+            {%- elif r.status == 'crm_only' %}<span class="badge crm_only">↓ crm only</span>
+            {%- elif r.status == 'mt4_only' %}<span class="badge mt4_only">↑ mt4 only</span>
+            {%- else %}<span class="badge {{ r.status }}">{{ r.status.replace('_',' ') }}</span>{%- endif %}
+          </td>
           <td class="methods" title="{{ r.payment_methods }}">{{ r.cash_methods or '—' }}</td>
           <td class="num"><span class="txns-trigger" data-login="{{ r.login }}">{{ r.tx_count or '—' }}</span></td>
           <td>{{ r.currency }}</td>
@@ -245,7 +278,13 @@
             {{ "{:+,.2f}".format(a.fee_adj_diff) if a.expected_fees else '—' }}
           </td>
           <td class="num praxis-col">{{ "{:,.2f}".format(a.praxis_net) if a.praxis_net else '—' }}</td>
-          <td><span class="badge {{ a.status }}">{{ a.status.replace('_',' ') }}</span></td>
+          <td>
+            {%- if a.status == 'matched' %}<span class="badge matched">✓ matched</span>
+            {%- elif a.status == 'discrepancy' %}<span class="badge discrepancy">⚠ discrepancy</span>
+            {%- elif a.status == 'crm_only' %}<span class="badge crm_only">↓ crm only</span>
+            {%- elif a.status == 'mt4_only' %}<span class="badge mt4_only">↑ mt4 only</span>
+            {%- else %}<span class="badge {{ a.status }}">{{ a.status.replace('_',' ') }}</span>{%- endif %}
+          </td>
           <td class="methods">{{ a.cash_methods or '—' }}</td>
           <td class="num">{{ a.tx_count or '—' }}</td>
           <td>{{ a.currency }}</td>
@@ -258,7 +297,7 @@
 
         {%- if g.multi %}
         {# ══ Multi-account: collapsible group header + login sub-rows ══ #}
-        <tr class="group-row">
+        <tr class="group-row status-{{ g.agg.status }}">
           <td>
             <button class="toggle-btn" id="tog-{{ cid_safe }}"
                     onclick="toggleGroup('{{ cid_safe }}')"
@@ -283,7 +322,7 @@
         {%- elif g.cid %}
         {# ══ Single account with known CID: one clean row ══ #}
         {%- set r = g.logins[0] %}
-        <tr class="group-row">
+        <tr class="group-row status-{{ g.agg.status }}">
           <td>
             <a href="/cid/{{ g.cid }}?ref={{ month }}" class="cid-link">{{ g.cid }}</a>
             <span style="color:rgba(255,255,255,.15);margin:0 5px;font-size:10px;">|</span>
@@ -295,7 +334,7 @@
         {%- else %}
         {# ══ No CID: single row, login is the only identifier ══ #}
         {%- set r = g.logins[0] %}
-        <tr class="group-row">
+        <tr class="group-row status-{{ g.agg.status }}">
           <td>
             <span class="no-cid-badge" title="This login has no linked CRM account (vtigeraccountid)">no CID</span>
             <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}" style="margin-left:6px;">{{ r.login }}</a>
@@ -497,7 +536,10 @@ function _buildCells(a) {
     '<td class="num ' + diffCls + '"' + diffStyle + '>' + diffStr + '</td>',
     '<td class="num ' + (a.fee_adj_diff > 1 ? 'pos' : a.fee_adj_diff < -1 ? 'neg' : 'muted') + '" title="Expected fees: $' + _fmtP(a.expected_fees) + '">' + (a.expected_fees ? _fmt(a.fee_adj_diff) : '—') + '</td>',
     '<td class="num praxis-col">' + (a.praxis_net ? _fmtP(a.praxis_net) : '—') + '</td>',
-    '<td><span class="badge ' + a.status + '">' + a.status.replace('_',' ') + '</span></td>',
+    (function(){
+    var icons = {matched:'✓ matched', discrepancy:'⚠ discrepancy', crm_only:'↓ crm only', mt4_only:'↑ mt4 only'};
+    return '<td><span class="badge ' + a.status + '">' + (icons[a.status] || a.status.replace('_',' ')) + '</span></td>';
+  })(),
     '<td class="methods">' + (a.cash_methods || '—') + '</td>',
     '<td class="num">' + (a.login ? '<span class="txns-trigger" data-login="' + a.login + '">' + (a.tx_count || '—') + '</span>' : (a.tx_count || '—')) + '</td>',
     '<td>' + (a.currency || '') + '</td>',
@@ -622,18 +664,27 @@ function toggleGroup(cid) {
 
   function render(login, rows) {
     var h = '<div id="crm-pop-head">CRM Transactions \u2014 ' + login + ' (' + rows.length + ')</div>';
-    h += '<table><thead><tr><th>Date</th><th>Type</th><th>Method</th><th class="r">USD</th></tr></thead><tbody>';
+    h += '<table><colgroup><col class="c-date"><col class="c-type"><col class="c-method"><col class="c-usd"></colgroup><thead><tr><th>Date</th><th>Type</th><th>Method</th><th class="r">USD</th></tr></thead><tbody>';
+    var total = 0;
     rows.forEach(function(r) {
       var cls = r.is_cash ? 'cash' : 'noncash';
-      var usd = parseFloat(r.usd || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+      var amt = parseFloat(r.usd || 0);
+      total += amt;
+      var usd = amt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
       h += '<tr class="' + cls + '">';
       h += '<td style="font-size:11px;color:var(--muted)">' + (r.date || '\u2014') + '</td>';
       h += '<td>' + r.type + '</td>';
-      h += '<td>' + r.method + '</td>';
+      h += '<td title="' + r.method + '">' + r.method + '</td>';
       h += '<td class="r">$' + usd + '</td>';
       h += '</tr>';
     });
-    h += '</tbody></table>';
+    h += '</tbody>';
+    var totalStr = total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    h += '<tfoot><tr style="border-top:1px solid rgba(255,255,255,.12);font-weight:700;">'
+       + '<td colspan="3" style="padding:6px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Total</td>'
+       + '<td class="r" style="padding:6px 10px;color:var(--text);">$' + totalStr + '</td>'
+       + '</tr></tfoot>';
+    h += '</table>';
     pop.innerHTML = h;
   }
 
