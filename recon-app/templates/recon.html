@@ -22,13 +22,9 @@
     font-size: 11px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .06em; color: var(--muted);
   }
-  #crm-pop table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  #crm-pop col.c-date   { width: 88px; }
-  #crm-pop col.c-type   { width: 90px; }
-  #crm-pop col.c-method { width: auto; }
-  #crm-pop col.c-usd    { width: 90px; }
-  #crm-pop td { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #crm-pop td.r { white-space: nowrap; overflow: visible; text-overflow: clip; }
+  #crm-pop table { width: 100%; border-collapse: collapse; }
+  #crm-pop td { white-space: nowrap; }
+  #crm-pop td.method-cell { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
   #crm-pop th { font-size: 10px; font-weight: 600; text-transform: uppercase;
     letter-spacing: .05em; color: var(--muted); padding: 6px 10px; text-align: left; }
   #crm-pop th.r { text-align: right; }
@@ -79,6 +75,17 @@
   .cid-link  { font-family: monospace; font-size: 12px; color: var(--text-2); text-decoration: none; font-weight: 700; }
   .cid-link:hover { color: var(--accent); }
   .no-cid-login { display:inline-flex; align-items:center; gap:6px; }
+  .cid-name {
+    font-size: 11px; color: var(--muted); font-weight: 400;
+    margin-top: 2px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; max-width: 190px; line-height: 1.2;
+  }
+  .cid-fallback-badge {
+    font-size:9px; font-weight:700; color:var(--muted);
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
+    border-radius:3px; padding:1px 4px; margin-left:4px; vertical-align:middle;
+    cursor:help;
+  }
   .no-cid-badge { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
                   color:var(--muted); background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
                   border-radius:3px; padding:1px 5px; vertical-align:middle; }
@@ -305,7 +312,9 @@
               {{ '▾' if g.expanded else '▸' }}
             </button>
             <a href="/cid/{{ g.cid }}?ref={{ month }}" class="cid-link">{{ g.cid }}</a>
+            {% if g.cid_fallback %}<span class="cid-fallback-badge" title="CID resolved via vtiger_trading_accounts (fallback — may not match Praxis)">~</span>{% endif %}
             <span style="font-size:10px;color:var(--muted);margin-left:6px;">{{ g.logins|length }} accounts</span>
+            {% if g.name %}<div class="cid-name">{{ g.name }}</div>{% endif %}
           </td>
           {{ agg_cells(a) }}
         </tr>
@@ -325,8 +334,9 @@
         <tr class="group-row status-{{ g.agg.status }}">
           <td>
             <a href="/cid/{{ g.cid }}?ref={{ month }}" class="cid-link">{{ g.cid }}</a>
-            <span style="color:rgba(255,255,255,.15);margin:0 5px;font-size:10px;">|</span>
-            <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}" style="font-weight:400;font-size:12px;">{{ r.login }}</a>
+            {% if g.cid_fallback %}<span class="cid-fallback-badge" title="CID resolved via vtiger_trading_accounts (fallback — may not match Praxis)">~</span>{% endif %}
+            {% if g.name %}<div class="cid-name">{{ g.name }}</div>{% endif %}
+            <a class="login-link" href="/client/{{ r.login }}?ref={{ month }}" style="font-weight:400;font-size:12px;color:var(--muted);">{{ r.login }}</a>
           </td>
           {{ login_cells(r) }}
         </tr>
@@ -553,7 +563,9 @@ function _buildGroup(g, idx) {
     html += '<tr class="group-row">';
     html += '<td><button class="toggle-btn" id="tog-' + cidSafe + '" onclick="toggleGroup(\'' + cidSafe + '\')" title="' + (g.expanded ? 'Collapse' : 'Expand') + ' accounts">' + (g.expanded ? '▾' : '▸') + '</button>';
     html += '<a href="/cid/' + g.cid + '?ref=' + _reconMonth + '" class="cid-link">' + g.cid + '</a>';
-    html += '<span style="font-size:10px;color:var(--muted);margin-left:6px;">' + g.logins.length + ' accounts</span></td>';
+    html += '<span style="font-size:10px;color:var(--muted);margin-left:6px;">' + g.logins.length + ' accounts</span>';
+    if (g.name) html += '<div class="cid-name">' + g.name + '</div>';
+    html += '</td>';
     html += _buildCells(g.agg) + '</tr>';
     g.logins.forEach(function(r) {
       html += '<tr class="login-row login-row-' + cidSafe + '" style="' + (g.expanded ? '' : 'display:none;') + '">';
@@ -564,8 +576,8 @@ function _buildGroup(g, idx) {
     var r = g.logins[0];
     html += '<tr class="group-row"><td>';
     html += '<a href="/cid/' + g.cid + '?ref=' + _reconMonth + '" class="cid-link">' + g.cid + '</a>';
-    html += '<span style="color:rgba(255,255,255,.15);margin:0 5px;font-size:10px;">|</span>';
-    html += '<a class="login-link" href="/client/' + r.login + '?ref=' + _reconMonth + '" style="font-weight:400;font-size:12px;">' + r.login + '</a></td>';
+    if (g.name) html += '<div class="cid-name">' + g.name + '</div>';
+    html += '<a class="login-link" href="/client/' + r.login + '?ref=' + _reconMonth + '" style="font-weight:400;font-size:12px;color:var(--muted);">' + r.login + '</a></td>';
     html += _buildCells(r) + '</tr>';
   } else {
     var r = g.logins[0];
@@ -664,7 +676,7 @@ function toggleGroup(cid) {
 
   function render(login, rows) {
     var h = '<div id="crm-pop-head">CRM Transactions \u2014 ' + login + ' (' + rows.length + ')</div>';
-    h += '<table><colgroup><col class="c-date"><col class="c-type"><col class="c-method"><col class="c-usd"></colgroup><thead><tr><th>Date</th><th>Type</th><th>Method</th><th class="r">USD</th></tr></thead><tbody>';
+    h += '<table><thead><tr><th>Date</th><th>Type</th><th>Method</th><th class="r">USD</th></tr></thead><tbody>';
     var total = 0;
     rows.forEach(function(r) {
       var cls = r.is_cash ? 'cash' : 'noncash';
@@ -674,7 +686,7 @@ function toggleGroup(cid) {
       h += '<tr class="' + cls + '">';
       h += '<td style="font-size:11px;color:var(--muted)">' + (r.date || '\u2014') + '</td>';
       h += '<td>' + r.type + '</td>';
-      h += '<td title="' + r.method + '">' + r.method + '</td>';
+      h += '<td class="method-cell" title="' + r.method + '">' + r.method + '</td>';
       h += '<td class="r">$' + usd + '</td>';
       h += '</tr>';
     });

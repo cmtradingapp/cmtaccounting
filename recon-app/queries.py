@@ -240,7 +240,6 @@ def _load_praxis_account_map() -> dict:
     try:
         def _fetch():
             with crm() as cur:
-                # Primary: vtiger_mttransactions gives Praxis-compatible CIDs (26xxx/27xxx)
                 cur.execute("""
                     SELECT DISTINCT login, vtigeraccountid
                     FROM report.vtiger_mttransactions
@@ -250,36 +249,20 @@ def _load_praxis_account_map() -> dict:
                       AND (deleted IS NULL OR deleted = 0)
                 """)
                 m: dict = {}
-                primary_logins: set = set()
                 for r in cur.fetchall():
                     cid = str(r["vtigeraccountid"]).strip()
                     lg  = r["login"]
                     if cid and lg:
-                        if lg not in m.get(cid, []):
-                            m.setdefault(cid, []).append(int(lg))
-                        primary_logins.add(int(lg))
-
-                # Fallback: vtiger_trading_accounts for logins not covered above
-                cur.execute("""
-                    SELECT login, CAST(vtigeraccountid AS VARCHAR(20)) AS cid
-                    FROM report.vtiger_trading_accounts
-                    WHERE login IS NOT NULL
-                      AND vtigeraccountid IS NOT NULL
-                      AND (deleted IS NULL OR deleted = 0)
-                """)
-                for r in cur.fetchall():
-                    lg  = r["login"]
-                    cid = (r["cid"] or "").strip()
-                    if cid and lg and int(lg) not in primary_logins:
-                        if lg not in m.get(cid, []):
+                        if int(lg) not in m.get(cid, []):
                             m.setdefault(cid, []).append(int(lg))
                 return m
         mapping = _db_retry(_fetch)
     except Exception:
         mapping = {}
 
-    _cache_set(key, mapping)
-    return mapping
+    fallback_cids: set = set()   # vtiger_trading_accounts fallback removed (was too slow)
+    _cache_set(key, (mapping, fallback_cids))
+    return mapping, fallback_cids
 
 
 def praxis_summary(year: int, month: int) -> dict:
@@ -299,7 +282,7 @@ def praxis_summary(year: int, month: int) -> dict:
     month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
 
     # Load CRM account mapping (session_cid -> [login, ...])
-    account_map = _load_praxis_account_map()
+    account_map, _fallback_cids = _load_praxis_account_map()
 
     try:
         from db import praxis as praxis_ctx
@@ -590,7 +573,7 @@ def reconcile_grouped(year: int, month: int) -> list:
     can render them as plain rows without a toggle.
     """
     rows        = reconcile(year, month)   # cached
-    account_map = _load_praxis_account_map()   # {cid: [login, ...]} cached 30 min
+    account_map, fallback_cids = _load_praxis_account_map()   # {cid: [login, ...]} cached 30 min
     login_to_cid = {}
     for cid, logins in account_map.items():
         for login in logins:
@@ -647,7 +630,32 @@ def reconcile_grouped(year: int, month: int) -> list:
             "agg":      agg,
             "multi":    len(logins) > 1,
             "expanded": agg["status"] != "matched",
+            "cid_fallback": g["cid"] in fallback_cids,
         })
+
+    # Batch-fetch client names for all known CIDs (single round-trip to CRM)
+    cid_names: dict = {}
+    numeric_cids = [g["cid"] for g in groups if g["cid"]]
+    if numeric_cids:
+        try:
+            def _fetch_names():
+                with crm() as cur:
+                    placeholders = ",".join(["%s"] * len(numeric_cids))
+                    cur.execute(
+                        f"SELECT CAST(accountid AS VARCHAR(20)) AS cid,"
+                        f" RTRIM(first_name + ' ' + last_name) AS name"
+                        f" FROM report.vtiger_account"
+                        f" WHERE accountid IN ({placeholders})",
+                        [int(c) for c in numeric_cids]
+                    )
+                    return {(r["cid"] or "").strip(): (r["name"] or "").strip()
+                            for r in cur.fetchall()}
+            cid_names = _db_retry(_fetch_names)
+        except Exception:
+            cid_names = {}
+
+    for g in groups:
+        g["name"] = cid_names.get(g["cid"], "")
 
     groups.sort(key=lambda g: g["agg"]["abs_diff"], reverse=True)
     return groups
@@ -1261,7 +1269,7 @@ def equity_report(date_from=None, date_to=None) -> list:
     agg        = _db_retry(_fetch_agg)
 
     # CID + name mapping
-    account_map = _load_praxis_account_map()  # {cid: [login, ...]}
+    account_map, _fallback_cids = _load_praxis_account_map()  # {cid: [login, ...]}
     login_to_cid = {login: cid for cid, logins in account_map.items() for login in logins}
 
     # Praxis names
@@ -1363,10 +1371,13 @@ def client_list(date_from=None, date_to=None) -> list:
                 GROUP BY login
             """, (date_from, date_to))
             return {r["login"]: dict(r) for r in cur.fetchall()}
-    mt4 = _db_retry(_fetch_mt4)
+    try:
+        mt4 = _db_retry(_fetch_mt4)
+    except Exception:
+        mt4 = {}
 
     # 2. CID mapping login → cid
-    account_map = _load_praxis_account_map()   # {cid: [login, ...]}
+    account_map, _fallback_cids = _load_praxis_account_map()   # {cid: [login, ...]}
     login_to_cid = {}
     for cid_str, logins in account_map.items():
         for login in logins:
@@ -1527,7 +1538,7 @@ def praxis_client_tree(year: int, month: int,
         by_cid[str(r["session_cid"]).strip()].append(dict(r))
 
     # 3. Account map cid → [login]
-    account_map = _load_praxis_account_map()
+    account_map, _fallback_cids = _load_praxis_account_map()
 
     # 4. CRM cash summary keyed by login
     # For spans >1 month, merge multiple months' summaries
@@ -1731,7 +1742,7 @@ def praxis_transaction_list(year: int, month: int) -> list:
                       AND session_cid IS NOT NULL AND session_cid != ''
                     ORDER BY session_cid, created_timestamp
                 """, (month_start, month_end))
-                account_map = _load_praxis_account_map()
+                account_map, _fallback_cids = _load_praxis_account_map()
                 rows = []
                 for r in cur.fetchall():
                     row = dict(r)
@@ -1833,7 +1844,7 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
     if cached is not None:
         return cached
 
-    account_map = _load_praxis_account_map()
+    account_map, _fallback_cids = _load_praxis_account_map()
     logins = account_map.get(str(cid).strip(), [])
 
     # 1. Praxis transactions — fetch for ALL CIDs with same name (merged view)
@@ -1881,6 +1892,24 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
             email = s.get("email") or "—"
     except Exception:
         primary_txs = []
+
+    # Name fallback: if Praxis had no transactions for this CID, look up vtiger_account
+    if name == "—":
+        try:
+            def _fetch_crm_name():
+                with crm() as cur:
+                    cur.execute("""
+                        SELECT RTRIM(first_name + ' ' + last_name) AS full_name, email
+                        FROM report.vtiger_account
+                        WHERE accountid = %s
+                    """, (int(cid),))
+                    return cur.fetchone()
+            row = _db_retry(_fetch_crm_name)
+            if row:
+                name  = (row["full_name"] or "").strip() or "—"
+                email = row["email"] or "—"
+        except Exception:
+            pass
 
     # Pass 2: find all related CIDs by name, then fetch all their txs together
     all_cids = [cid]
@@ -2043,7 +2072,7 @@ def client_praxis_detail(login: int, date_from, date_to) -> list:
     """Individual Praxis transactions for a login over an arbitrary date range.
     Resolves MT4 login → Praxis session_cid via vtiger_trading_accounts.
     """
-    account_map = _load_praxis_account_map()
+    account_map, _fallback_cids = _load_praxis_account_map()
     # Reverse lookup: login → [cid, ...]
     cids = [cid for cid, logins in account_map.items() if login in logins]
     if not cids:
