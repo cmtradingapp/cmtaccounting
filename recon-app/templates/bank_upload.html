@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %} — Upload Bank Statement{% endblock %}
+{% block content %}
+<style>
+  .drop-zone {
+    border: 2px dashed rgba(79,142,247,.35);
+    border-radius: var(--radius-md);
+    background: rgba(79,142,247,.04);
+    padding: 40px 32px; text-align: center;
+    cursor: pointer; transition: border-color .2s, background .2s;
+    position: relative;
+  }
+  .drop-zone.drag-over { border-color: var(--accent); background: rgba(79,142,247,.1); }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .drop-icon  { font-size: 32px; margin-bottom: 10px; opacity: .5; }
+  .drop-label { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .drop-hint  { font-size: 12px; color: var(--muted); }
+  .file-preview {
+    display: none; margin-top: 12px; padding: 10px 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    align-items: center; gap: 10px; font-size: 13px;
+  }
+  .file-preview .file-name { font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-preview .file-size { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .upload-error {
+    padding: 12px 16px; margin-bottom: 16px;
+    background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2);
+    border-radius: var(--radius-sm); color: var(--red); font-size: 13px;
+  }
+</style>
+
+<div class="form-wrapper">
+  <a href="/banks" class="back-link">&larr; Bank Statements</a>
+  <div class="page-header">
+    <div class="page-title">Upload Bank Statement</div>
+  </div>
+  <div style="color:var(--text-2);font-size:13px;margin-bottom:20px;">
+    Upload a CSV, XLS, XLSX or PDF bank statement. The system will auto-detect the bank format and extract transactions.
+  </div>
+
+  {% if error %}
+  <div class="upload-error">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" id="uploadForm">
+    <div class="fee-form">
+      <!-- Bank account selector -->
+      <div class="form-row cols-1">
+        <label>Bank Account *
+          <select name="bank_account_id" id="bankAccountSelect" required>
+            <option value="">-- Select bank account --</option>
+            {% for a in accounts %}
+            <option value="{{ a.id }}">{{ a.bank_name }} — {{ a.account_number }}{% if a.account_label %} ({{ a.account_label }}){% endif %} [{{ a.currency }}]</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      {% if not accounts %}
+      <div style="padding:16px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:var(--radius-sm);font-size:13px;color:var(--yellow);margin-bottom:16px;">
+        No bank accounts configured. <a href="/banks" style="color:var(--accent);">Add one first</a>.
+      </div>
+      {% endif %}
+
+      <!-- Drop zone -->
+      <div class="drop-zone" id="dropZone">
+        <input type="file" name="statement_file" id="fileInput"
+               accept=".csv,.xls,.xlsx,.pdf">
+        <div class="drop-icon">&#128196;</div>
+        <div class="drop-label">Drop bank statement here or click to browse</div>
+        <div class="drop-hint">CSV, XLS, XLSX, or PDF &mdash; max 50 MB</div>
+      </div>
+      <div class="file-preview" id="filePreview">
+        <span class="file-name" id="fileName"></span>
+        <span class="file-size" id="fileSize"></span>
+      </div>
+
+      <!-- Vision mode for PDFs -->
+      <div id="visionOpt" style="display:none;margin-top:12px;">
+        <label class="check-row" style="height:auto;padding:8px 0;">
+          <input type="checkbox" name="vision_mode" value="1" id="visionMode">
+          <span>Scanned PDF &mdash; use AI vision (page images)</span>
+        </label>
+        <div style="font-size:11px;color:var(--muted);margin-left:26px;">
+          For PDFs with no selectable text. Claude reads each page as an image.
+        </div>
+      </div>
+
+      <div class="form-footer">
+        <div class="form-footer-actions">
+          <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+            &#9654; Parse Statement
+          </button>
+          <a href="/banks" class="btn btn-cancel">Cancel</a>
+        </div>
+        <div class="form-hint">
+          The statement will be parsed and you'll review the extracted transactions before saving.
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script>
+var dropZone = document.getElementById('dropZone');
+var fileInput = document.getElementById('fileInput');
+var preview = document.getElementById('filePreview');
+var submitBtn = document.getElementById('submitBtn');
+var visionOpt = document.getElementById('visionOpt');
+
+fileInput.addEventListener('change', handleFile);
+
+['dragenter','dragover'].forEach(function(ev) {
+  dropZone.addEventListener(ev, function(e) {
+    e.preventDefault(); dropZone.classList.add('drag-over');
+  });
+});
+['dragleave','drop'].forEach(function(ev) {
+  dropZone.addEventListener(ev, function(e) {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+  });
+});
+dropZone.addEventListener('drop', function(e) {
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    handleFile();
+  }
+});
+
+function handleFile() {
+  var f = fileInput.files[0];
+  if (!f) return;
+  document.getElementById('fileName').textContent = f.name;
+  document.getElementById('fileSize').textContent = (f.size / 1024).toFixed(1) + ' KB';
+  preview.style.display = 'flex';
+  submitBtn.disabled = false;
+
+  var ext = f.name.split('.').pop().toLowerCase();
+  visionOpt.style.display = ext === 'pdf' ? '' : 'none';
+}
+
+document.getElementById('uploadForm').addEventListener('submit', function() {
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;"><span class="spin"></span> Parsing&hellip;</span>';
+});
+</script>
+<style>
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite; }
+</style>
+{% endblock %}

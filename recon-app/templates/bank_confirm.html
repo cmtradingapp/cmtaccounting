@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %} — {% if manual_mode|default(false) %}Manual Entry{% else %}Confirm Bank Statement{% endif %}{% endblock %}
+{% block content %}
+<style>
+  .tx-table { width: 100%; border-collapse: collapse; }
+  .tx-table th {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted); text-align: left;
+    padding: 8px 6px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--surface); z-index: 2;
+  }
+  .tx-table td { padding: 4px 6px; vertical-align: top; }
+  .tx-table input, .tx-table select {
+    width: 100%; height: 32px; padding: 0 8px;
+    background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.07);
+    color: var(--text); border-radius: var(--radius-sm); font-size: 12px;
+  }
+  .tx-table input:focus, .tx-table select:focus {
+    border-color: var(--accent); outline: none;
+    box-shadow: 0 0 0 2px rgba(79,142,247,.1);
+  }
+  .tx-table input[type=date] { color-scheme: dark; }
+  .tx-table .num-input { text-align: right; font-variant-numeric: tabular-nums; }
+  .tx-remove {
+    color: var(--muted); background: none; border: none; cursor: pointer;
+    font-size: 16px; padding: 4px 6px; opacity: 0; transition: opacity .15s, color .15s;
+  }
+  tr:hover .tx-remove { opacity: 1; }
+  .tx-remove:hover { color: var(--red); }
+
+  .summary-bar {
+    display: flex; gap: 24px; padding: 14px 20px;
+    background: var(--surface-alt); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .summary-item { font-size: 12px; color: var(--muted); }
+  .summary-item .val { font-size: 15px; font-weight: 700; color: var(--text); margin-top: 2px;
+    font-variant-numeric: tabular-nums; }
+  .summary-item .val.pos { color: var(--green); }
+  .summary-item .val.neg { color: var(--red); }
+</style>
+
+<div class="form-wrapper" style="max-width:1200px;">
+  <a href="/banks/upload" class="back-link">&larr; {% if manual_mode|default(false) %}Bank Statements{% else %}Re-upload{% endif %}</a>
+  <div class="page-header">
+    <div class="page-title">{% if manual_mode|default(false) %}Manual Entry{% else %}Confirm Transactions{% endif %}</div>
+  </div>
+
+  {% if not manual_mode|default(false) and filename %}
+  <div style="font-size:13px;color:var(--text-2);margin-bottom:12px;">
+    File: <strong>{{ filename }}</strong>
+    {% if result.get('bank_name') %} &mdash; {{ result.bank_name }}{% endif %}
+    {% if result.get('account_number') %} ({{ result.account_number }}){% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/banks/upload/confirm" id="confirmForm">
+    {% if manual_mode|default(false) %}
+    <!-- Account selector for manual mode -->
+    <div style="margin-bottom:16px;">
+      <div class="fee-form" style="padding:16px 20px;">
+        <div class="form-row">
+          <label>Bank Account *
+            <select name="bank_account_id" required>
+              <option value="">-- Select --</option>
+              {% for a in accounts %}
+              <option value="{{ a.id }}">{{ a.bank_name }} &mdash; {{ a.account_number }}{% if a.account_label %} ({{ a.account_label }}){% endif %}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Source
+            <select name="source">
+              <option value="manual" selected>Manual</option>
+              <option value="upload">Upload</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <input type="hidden" name="bank_account_id" value="{{ account.id }}">
+    <input type="hidden" name="source" value="upload">
+    {% endif %}
+
+    <input type="hidden" name="filename" value="{{ filename }}">
+
+    <!-- Summary bar -->
+    <div class="summary-bar" id="summaryBar">
+      <div class="summary-item">
+        <div>Opening Balance</div>
+        <div class="val">
+          <input type="text" name="opening_balance" id="openBal"
+                 value="{{ result.get('opening_balance', '') or '' }}"
+                 style="width:120px;height:28px;font-size:13px;font-weight:700;text-align:right;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.07);color:var(--text);border-radius:var(--radius-sm);padding:0 8px;"
+                 placeholder="0.00">
+        </div>
+      </div>
+      <div class="summary-item">
+        <div>Closing Balance</div>
+        <div class="val">
+          <input type="text" name="closing_balance" id="closeBal"
+                 value="{{ result.get('closing_balance', '') or '' }}"
+                 style="width:120px;height:28px;font-size:13px;font-weight:700;text-align:right;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.07);color:var(--text);border-radius:var(--radius-sm);padding:0 8px;"
+                 placeholder="0.00">
+        </div>
+      </div>
+      <div class="summary-item">
+        <div>Total Credits</div>
+        <div class="val pos" id="sumCredits">0.00</div>
+      </div>
+      <div class="summary-item">
+        <div>Total Debits</div>
+        <div class="val neg" id="sumDebits">0.00</div>
+      </div>
+      <div class="summary-item">
+        <div>Transactions</div>
+        <div class="val" id="txCount">0</div>
+      </div>
+    </div>
+
+    <!-- Transaction table -->
+    <div class="table-wrap" style="max-height:60vh;overflow-y:auto;">
+      <table class="tx-table" id="txTable">
+        <thead>
+          <tr>
+            <th style="width:110px;">Date *</th>
+            <th style="width:110px;">Value Date</th>
+            <th style="width:110px;">Amount *</th>
+            <th style="width:110px;">Balance</th>
+            <th style="width:60px;">Ccy</th>
+            <th style="width:120px;">Reference</th>
+            <th>Description</th>
+            <th style="width:100px;">Type</th>
+            <th style="width:30px;"></th>
+          </tr>
+        </thead>
+        <tbody id="txBody">
+          {% for tx in transactions %}
+          <tr data-idx="{{ loop.index0 }}">
+            <td><input type="date" name="tx_date_{{ loop.index0 }}" value="{{ tx.get('date','') }}" required></td>
+            <td><input type="date" name="tx_value_date_{{ loop.index0 }}" value="{{ tx.get('value_date','') or '' }}"></td>
+            <td><input type="number" name="tx_amount_{{ loop.index0 }}" step="any" class="num-input"
+                       value="{{ tx.get('amount','') }}" required onchange="recalcSummary()"></td>
+            <td><input type="number" name="tx_balance_{{ loop.index0 }}" step="any" class="num-input"
+                       value="{{ tx.get('balance','') or '' }}"></td>
+            <td><input type="text" name="tx_currency_{{ loop.index0 }}"
+                       value="{{ tx.get('currency','') or (account.currency if account else '') }}" style="width:55px;"></td>
+            <td><input type="text" name="tx_reference_{{ loop.index0 }}" value="{{ tx.get('reference','') or '' }}"></td>
+            <td><input type="text" name="tx_description_{{ loop.index0 }}" value="{{ tx.get('description','') or '' }}"></td>
+            <td>
+              <select name="tx_type_{{ loop.index0 }}">
+                {% for t in ['deposit','withdrawal','fee','interest','transfer','other'] %}
+                <option value="{{ t }}" {{ 'selected' if tx.get('tx_type') == t }}>{{ t }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><button type="button" class="tx-remove" onclick="removeRow(this)" title="Remove">&times;</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      <button type="button" class="btn" onclick="addRow()">+ Add Row</button>
+      <button type="button" class="btn" onclick="addRows(5)">+ Add 5 Rows</button>
+    </div>
+
+    <input type="hidden" name="tx_count" id="txCountInput" value="{{ transactions|length }}">
+
+    <div class="form-footer" style="margin-top:24px;">
+      <div class="form-footer-actions">
+        <button type="submit" class="btn btn-primary" id="saveBtn">
+          &#10003; Save Statement ({{ transactions|length }} transactions)
+        </button>
+        <a href="/banks" class="btn btn-cancel">Discard</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script>
+var _nextIdx = {{ transactions|length }};
+var _txTypes = ['deposit','withdrawal','fee','interest','transfer','other'];
+
+function makeRowHTML(idx) {
+  var opts = _txTypes.map(function(t) {
+    return '<option value="' + t + '">' + t + '</option>';
+  }).join('');
+  return '<tr data-idx="' + idx + '">' +
+    '<td><input type="date" name="tx_date_' + idx + '" required></td>' +
+    '<td><input type="date" name="tx_value_date_' + idx + '"></td>' +
+    '<td><input type="number" name="tx_amount_' + idx + '" step="any" class="num-input" required onchange="recalcSummary()"></td>' +
+    '<td><input type="number" name="tx_balance_' + idx + '" step="any" class="num-input"></td>' +
+    '<td><input type="text" name="tx_currency_' + idx + '" style="width:55px;"></td>' +
+    '<td><input type="text" name="tx_reference_' + idx + '"></td>' +
+    '<td><input type="text" name="tx_description_' + idx + '"></td>' +
+    '<td><select name="tx_type_' + idx + '">' + opts + '</select></td>' +
+    '<td><button type="button" class="tx-remove" onclick="removeRow(this)" title="Remove">&times;</button></td>' +
+    '</tr>';
+}
+
+function addRow() {
+  document.getElementById('txBody').insertAdjacentHTML('beforeend', makeRowHTML(_nextIdx++));
+  recalcSummary();
+}
+
+function addRows(n) {
+  for (var i = 0; i < n; i++) addRow();
+}
+
+function removeRow(btn) {
+  btn.closest('tr').remove();
+  recalcSummary();
+}
+
+function recalcSummary() {
+  var rows = document.querySelectorAll('#txBody tr');
+  var credits = 0, debits = 0, count = 0;
+  rows.forEach(function(tr) {
+    var inp = tr.querySelector('input[name^="tx_amount_"]');
+    if (!inp) return;
+    var v = parseFloat(inp.value);
+    if (isNaN(v)) return;
+    count++;
+    if (v > 0) credits += v;
+    else debits += v;
+  });
+  document.getElementById('sumCredits').textContent = '+' + credits.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  document.getElementById('sumDebits').textContent = debits.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  document.getElementById('txCount').textContent = count;
+  document.getElementById('txCountInput').value = _nextIdx;
+  document.getElementById('saveBtn').textContent = '\u2713 Save Statement (' + count + ' transactions)';
+}
+
+recalcSummary();
+
+{% if manual_mode|default(false) and not transactions %}
+// Start with 5 empty rows for manual entry
+addRows(5);
+{% endif %}
+</script>
+{% endblock %}

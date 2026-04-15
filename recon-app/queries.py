@@ -2416,6 +2416,7 @@ def ensure_fee_tables():
     _ensure_amendment_tables()
     _ensure_processor_mappings_table()
     _ensure_method_mappings_table()
+    _ensure_bank_tables()
 
 
 def _ensure_prompt_tables():
@@ -3130,3 +3131,271 @@ def update_fee_rule(rule_id, data):
 def delete_fee_rule(rule_id):
     with fees_db() as conn:
         conn.execute("DELETE FROM psp_fee_rules WHERE id = ?", (rule_id,))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BANK STATEMENTS MODULE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _ensure_bank_tables():
+    """Create bank_accounts, bank_statements, bank_transactions tables."""
+    if _PG:
+        _ddl = """
+            CREATE TABLE IF NOT EXISTS bank_accounts (
+                id           SERIAL PRIMARY KEY,
+                bank_name    TEXT NOT NULL,
+                account_number TEXT NOT NULL,
+                account_label  TEXT,
+                currency     TEXT NOT NULL DEFAULT 'USD',
+                entity       TEXT,
+                active       INTEGER DEFAULT 1,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS bank_statements (
+                id              SERIAL PRIMARY KEY,
+                bank_account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                period_start    DATE,
+                period_end      DATE,
+                filename        TEXT,
+                file_data       BYTEA,
+                opening_balance DOUBLE PRECISION,
+                closing_balance DOUBLE PRECISION,
+                total_credits   DOUBLE PRECISION,
+                total_debits    DOUBLE PRECISION,
+                tx_count        INTEGER DEFAULT 0,
+                source          TEXT DEFAULT 'upload',
+                uploaded_at     TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS bank_transactions (
+                id              SERIAL PRIMARY KEY,
+                statement_id    INTEGER NOT NULL REFERENCES bank_statements(id) ON DELETE CASCADE,
+                bank_account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                tx_date         DATE NOT NULL,
+                value_date      DATE,
+                amount          DOUBLE PRECISION NOT NULL,
+                balance         DOUBLE PRECISION,
+                currency        TEXT,
+                reference       TEXT,
+                description     TEXT,
+                tx_type         TEXT,
+                counterparty    TEXT,
+                matched_crm_id  INTEGER,
+                matched_praxis_tid TEXT,
+                match_confidence DOUBLE PRECISION,
+                match_status    TEXT DEFAULT 'unmatched'
+            );
+            CREATE INDEX IF NOT EXISTS idx_bank_tx_date ON bank_transactions(tx_date);
+            CREATE INDEX IF NOT EXISTS idx_bank_tx_account ON bank_transactions(bank_account_id);
+            CREATE INDEX IF NOT EXISTS idx_bank_tx_match ON bank_transactions(match_status);
+        """
+    else:
+        _ddl = """
+            CREATE TABLE IF NOT EXISTS bank_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bank_name TEXT NOT NULL,
+                account_number TEXT NOT NULL,
+                account_label TEXT,
+                currency TEXT NOT NULL DEFAULT 'USD',
+                entity TEXT,
+                active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS bank_statements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bank_account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                period_start DATE,
+                period_end DATE,
+                filename TEXT,
+                file_data BLOB,
+                opening_balance REAL,
+                closing_balance REAL,
+                total_credits REAL,
+                total_debits REAL,
+                tx_count INTEGER DEFAULT 0,
+                source TEXT DEFAULT 'upload',
+                uploaded_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS bank_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                statement_id INTEGER NOT NULL REFERENCES bank_statements(id) ON DELETE CASCADE,
+                bank_account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                tx_date DATE NOT NULL,
+                value_date DATE,
+                amount REAL NOT NULL,
+                balance REAL,
+                currency TEXT,
+                reference TEXT,
+                description TEXT,
+                tx_type TEXT,
+                counterparty TEXT,
+                matched_crm_id INTEGER,
+                matched_praxis_tid TEXT,
+                match_confidence REAL,
+                match_status TEXT DEFAULT 'unmatched'
+            );
+            CREATE INDEX IF NOT EXISTS idx_bank_tx_date ON bank_transactions(tx_date);
+            CREATE INDEX IF NOT EXISTS idx_bank_tx_account ON bank_transactions(bank_account_id);
+            CREATE INDEX IF NOT EXISTS idx_bank_tx_match ON bank_transactions(match_status);
+        """
+    with fees_db() as conn:
+        conn.executescript(_ddl)
+
+
+# --- Bank Accounts ---
+
+def get_bank_accounts(active_only=True):
+    with fees_db() as conn:
+        if active_only:
+            rows = conn.execute(
+                "SELECT * FROM bank_accounts WHERE active = 1 ORDER BY bank_name, account_number"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM bank_accounts ORDER BY active DESC, bank_name, account_number"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_bank_account(account_id):
+    with fees_db() as conn:
+        row = conn.execute("SELECT * FROM bank_accounts WHERE id = ?", (account_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def create_bank_account(data):
+    with fees_db() as conn:
+        cur = conn.execute("""
+            INSERT INTO bank_accounts (bank_name, account_number, account_label, currency, entity)
+            VALUES (?, ?, ?, ?, ?)
+        """, (data["bank_name"], data["account_number"],
+              data.get("account_label", ""), data.get("currency", "USD"),
+              data.get("entity", "")))
+        return cur.lastrowid
+
+
+def update_bank_account(account_id, data):
+    with fees_db() as conn:
+        conn.execute("""
+            UPDATE bank_accounts
+            SET bank_name=?, account_number=?, account_label=?, currency=?, entity=?
+            WHERE id=?
+        """, (data["bank_name"], data["account_number"],
+              data.get("account_label", ""), data.get("currency", "USD"),
+              data.get("entity", ""), account_id))
+
+
+def delete_bank_account(account_id):
+    with fees_db() as conn:
+        conn.execute("UPDATE bank_accounts SET active = 0 WHERE id = ?", (account_id,))
+
+
+# --- Bank Statements ---
+
+def get_bank_statements(bank_account_id=None, limit=50):
+    with fees_db() as conn:
+        if bank_account_id:
+            rows = conn.execute("""
+                SELECT s.*, a.bank_name, a.account_number, a.account_label, a.currency AS acct_currency
+                FROM bank_statements s
+                JOIN bank_accounts a ON a.id = s.bank_account_id
+                WHERE s.bank_account_id = ?
+                ORDER BY s.period_end DESC, s.uploaded_at DESC
+                LIMIT ?
+            """, (bank_account_id, limit)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT s.*, a.bank_name, a.account_number, a.account_label, a.currency AS acct_currency
+                FROM bank_statements s
+                JOIN bank_accounts a ON a.id = s.bank_account_id
+                ORDER BY s.uploaded_at DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_bank_statement(statement_id):
+    with fees_db() as conn:
+        row = conn.execute("""
+            SELECT s.*, a.bank_name, a.account_number, a.account_label, a.currency AS acct_currency
+            FROM bank_statements s
+            JOIN bank_accounts a ON a.id = s.bank_account_id
+            WHERE s.id = ?
+        """, (statement_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def create_bank_statement(data, file_data=None):
+    """Create a bank statement record and its transactions.
+    data = {bank_account_id, period_start, period_end, filename, opening_balance,
+            closing_balance, total_credits, total_debits, source, transactions: [...]}
+    """
+    with fees_db() as conn:
+        cur = conn.execute("""
+            INSERT INTO bank_statements
+                (bank_account_id, period_start, period_end, filename, file_data,
+                 opening_balance, closing_balance, total_credits, total_debits,
+                 tx_count, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["bank_account_id"],
+            data.get("period_start"),
+            data.get("period_end"),
+            data.get("filename"),
+            file_data,
+            data.get("opening_balance"),
+            data.get("closing_balance"),
+            data.get("total_credits"),
+            data.get("total_debits"),
+            len(data.get("transactions", [])),
+            data.get("source", "upload"),
+        ))
+        stmt_id = cur.lastrowid
+
+        for tx in data.get("transactions", []):
+            conn.execute("""
+                INSERT INTO bank_transactions
+                    (statement_id, bank_account_id, tx_date, value_date, amount,
+                     balance, currency, reference, description, tx_type, counterparty)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                stmt_id,
+                data["bank_account_id"],
+                tx["date"],
+                tx.get("value_date"),
+                tx["amount"],
+                tx.get("balance"),
+                tx.get("currency"),
+                tx.get("reference"),
+                tx.get("description"),
+                tx.get("tx_type", "other"),
+                tx.get("counterparty"),
+            ))
+        return stmt_id
+
+
+def delete_bank_statement(statement_id):
+    with fees_db() as conn:
+        conn.execute("DELETE FROM bank_transactions WHERE statement_id = ?", (statement_id,))
+        conn.execute("DELETE FROM bank_statements WHERE id = ?", (statement_id,))
+
+
+def get_bank_transactions(statement_id):
+    with fees_db() as conn:
+        rows = conn.execute("""
+            SELECT * FROM bank_transactions
+            WHERE statement_id = ?
+            ORDER BY tx_date, id
+        """, (statement_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_bank_statement_file(statement_id):
+    """Return (filename, file_data) for download."""
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT filename, file_data FROM bank_statements WHERE id = ?",
+            (statement_id,)
+        ).fetchone()
+        if row and row["file_data"]:
+            return row["filename"], row["file_data"]
+        return None, None

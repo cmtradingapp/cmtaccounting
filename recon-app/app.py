@@ -1837,6 +1837,200 @@ def prompt_delete(tpl_id):
     return redirect(url_for("prompt_list"))
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# BANK STATEMENTS MODULE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+BANK_UPLOAD_EXTS = {"csv", "xls", "xlsx", "pdf"}
+
+
+@app.route("/banks")
+@require_recon_auth
+def banks_main():
+    accounts   = queries.get_bank_accounts()
+    statements = queries.get_bank_statements(limit=50)
+    return render_template("banks.html", accounts=accounts, statements=statements)
+
+
+@app.route("/banks/accounts/add", methods=["POST"])
+@require_recon_auth
+def bank_account_add():
+    queries.create_bank_account({
+        "bank_name":      request.form["bank_name"],
+        "account_number": request.form["account_number"],
+        "account_label":  request.form.get("account_label", ""),
+        "currency":       request.form.get("currency", "USD"),
+        "entity":         request.form.get("entity", ""),
+    })
+    return redirect(url_for("banks_main"))
+
+
+@app.route("/banks/accounts/<int:account_id>/edit", methods=["POST"])
+@require_recon_auth
+def bank_account_edit(account_id):
+    queries.update_bank_account(account_id, {
+        "bank_name":      request.form["bank_name"],
+        "account_number": request.form["account_number"],
+        "account_label":  request.form.get("account_label", ""),
+        "currency":       request.form.get("currency", "USD"),
+        "entity":         request.form.get("entity", ""),
+    })
+    return redirect(url_for("banks_main"))
+
+
+@app.route("/banks/accounts/<int:account_id>/delete", methods=["POST"])
+@require_recon_auth
+def bank_account_delete(account_id):
+    queries.delete_bank_account(account_id)
+    return redirect(url_for("banks_main"))
+
+
+@app.route("/banks/upload", methods=["GET", "POST"])
+@require_recon_auth
+def bank_upload():
+    accounts = queries.get_bank_accounts()
+    if request.method == "GET":
+        return render_template("bank_upload.html", accounts=accounts)
+
+    f = request.files.get("statement_file")
+    if not f or not f.filename:
+        return render_template("bank_upload.html", accounts=accounts,
+                               error="No file selected.")
+
+    ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
+    if ext not in BANK_UPLOAD_EXTS:
+        return render_template("bank_upload.html", accounts=accounts,
+                               error="Supported formats: CSV, XLS, XLSX, PDF.")
+
+    account_id = request.form.get("bank_account_id", type=int)
+    if not account_id:
+        return render_template("bank_upload.html", accounts=accounts,
+                               error="Please select a bank account.")
+
+    account = queries.get_bank_account(account_id)
+    if not account:
+        return render_template("bank_upload.html", accounts=accounts,
+                               error="Bank account not found.")
+
+    vision_mode = request.form.get("vision_mode") == "1"
+
+    try:
+        file_bytes = f.read()
+        import bank_parse
+        result = bank_parse.parse_bank_statement(file_bytes, f.filename,
+                                                  vision_mode=vision_mode)
+    except Exception as e:
+        return render_template("bank_upload.html", accounts=accounts,
+                               error=f"Parse error: {e}")
+
+    # Pre-fill account info from detection if available
+    return render_template("bank_confirm.html",
+                           account=account,
+                           result=result,
+                           filename=f.filename,
+                           file_token=str(uuid.uuid4()),
+                           transactions=result.get("transactions", []))
+
+
+# Cache uploaded files briefly for the confirm step
+_bank_upload_cache = {}
+
+
+@app.route("/banks/upload/confirm", methods=["POST"])
+@require_recon_auth
+def bank_upload_confirm():
+    account_id = request.form.get("bank_account_id", type=int)
+    account = queries.get_bank_account(account_id) if account_id else None
+    if not account:
+        return redirect(url_for("bank_upload"))
+
+    # Collect transactions from the form
+    tx_count = int(request.form.get("tx_count", 0))
+    transactions = []
+    for i in range(tx_count):
+        date_val = request.form.get(f"tx_date_{i}", "")
+        amount_val = request.form.get(f"tx_amount_{i}", "")
+        if not date_val or not amount_val:
+            continue
+        transactions.append({
+            "date":        date_val,
+            "value_date":  request.form.get(f"tx_value_date_{i}", "") or None,
+            "amount":      float(amount_val),
+            "balance":     float(request.form.get(f"tx_balance_{i}", "") or 0) or None,
+            "currency":    request.form.get(f"tx_currency_{i}", "") or account.get("currency"),
+            "reference":   request.form.get(f"tx_reference_{i}", ""),
+            "description": request.form.get(f"tx_description_{i}", ""),
+            "tx_type":     request.form.get(f"tx_type_{i}", "other"),
+            "counterparty": request.form.get(f"tx_counterparty_{i}", ""),
+        })
+
+    if not transactions:
+        return render_template("bank_upload.html",
+                               accounts=queries.get_bank_accounts(),
+                               error="No valid transactions to save.")
+
+    # Compute summary
+    credits = sum(t["amount"] for t in transactions if t["amount"] > 0)
+    debits  = sum(t["amount"] for t in transactions if t["amount"] < 0)
+    dates   = [t["date"] for t in transactions if t["date"]]
+
+    data = {
+        "bank_account_id": account_id,
+        "period_start":    min(dates) if dates else None,
+        "period_end":      max(dates) if dates else None,
+        "filename":        request.form.get("filename", ""),
+        "opening_balance": float(request.form.get("opening_balance", "") or 0) or None,
+        "closing_balance": float(request.form.get("closing_balance", "") or 0) or None,
+        "total_credits":   round(credits, 2),
+        "total_debits":    round(debits, 2),
+        "source":          request.form.get("source", "upload"),
+        "transactions":    transactions,
+    }
+
+    stmt_id = queries.create_bank_statement(data)
+    return redirect(url_for("bank_detail", statement_id=stmt_id))
+
+
+@app.route("/banks/add")
+@require_recon_auth
+def bank_manual_entry():
+    accounts = queries.get_bank_accounts()
+    return render_template("bank_confirm.html",
+                           account=None,
+                           accounts=accounts,
+                           result={},
+                           filename="",
+                           file_token="",
+                           transactions=[],
+                           manual_mode=True)
+
+
+@app.route("/banks/<int:statement_id>")
+@require_recon_auth
+def bank_detail(statement_id):
+    stmt = queries.get_bank_statement(statement_id)
+    if not stmt:
+        abort(404)
+    txns = queries.get_bank_transactions(statement_id)
+    return render_template("bank_detail.html", statement=stmt, transactions=txns)
+
+
+@app.route("/banks/<int:statement_id>/download")
+@require_recon_auth
+def bank_download(statement_id):
+    filename, file_data = queries.get_bank_statement_file(statement_id)
+    if not file_data:
+        abort(404)
+    return send_file(io.BytesIO(file_data), download_name=filename, as_attachment=True)
+
+
+@app.route("/banks/<int:statement_id>/delete", methods=["POST"])
+@require_recon_auth
+def bank_delete(statement_id):
+    queries.delete_bank_statement(statement_id)
+    return redirect(url_for("banks_main"))
+
+
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(host="0.0.0.0", port=5050, debug=debug)

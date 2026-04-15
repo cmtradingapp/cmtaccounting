@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %} — Statement {{ statement.id }}{% endblock %}
+{% block content %}
+<style>
+  .stmt-header {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: var(--sp-3); align-items: start; margin-bottom: var(--sp-4);
+  }
+  .stmt-info { display: flex; flex-direction: column; gap: 4px; }
+  .stmt-bank { font-size: 18px; font-weight: 700; }
+  .stmt-acct { font-size: 13px; color: var(--text-2); font-family: monospace; }
+  .stmt-period { font-size: 13px; color: var(--muted); }
+  .stmt-actions { display: flex; gap: 8px; align-items: start; }
+
+  .summary-cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: var(--sp-2); margin-bottom: var(--sp-4);
+  }
+  .s-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 14px 18px;
+  }
+  .s-card .lbl {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: 4px;
+  }
+  .s-card .val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+</style>
+
+<a href="/banks" class="back-link">&larr; Bank Statements</a>
+
+<div class="stmt-header">
+  <div class="stmt-info">
+    <div class="stmt-bank">{{ statement.bank_name }}{% if statement.account_label %} &mdash; {{ statement.account_label }}{% endif %}</div>
+    <div class="stmt-acct">{{ statement.account_number }} &middot; {{ statement.acct_currency }}</div>
+    <div class="stmt-period">
+      {% if statement.period_start and statement.period_end %}
+        {{ statement.period_start }} &rarr; {{ statement.period_end }}
+      {% elif statement.period_start %}
+        From {{ statement.period_start }}
+      {% endif %}
+      {% if statement.filename %} &middot; {{ statement.filename }}{% endif %}
+      &middot;
+      <span class="badge {% if statement.source == 'upload' %}matched{% elif statement.source == 'manual' %}mt4_only{% else %}crm_only{% endif %}">
+        {{ statement.source }}
+      </span>
+    </div>
+  </div>
+  <div class="stmt-actions">
+    {% if statement.file_data %}
+    <a href="/banks/{{ statement.id }}/download" class="btn">&#8595; Download</a>
+    {% endif %}
+    <form method="post" action="/banks/{{ statement.id }}/delete"
+          onsubmit="return confirm('Delete this statement and all its transactions?')">
+      <button class="btn btn-danger">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="summary-cards">
+  <div class="s-card">
+    <div class="lbl">Opening Balance</div>
+    <div class="val">{{ "{:,.2f}".format(statement.opening_balance) if statement.opening_balance else '&mdash;' }}</div>
+  </div>
+  <div class="s-card">
+    <div class="lbl">Closing Balance</div>
+    <div class="val">{{ "{:,.2f}".format(statement.closing_balance) if statement.closing_balance else '&mdash;' }}</div>
+  </div>
+  <div class="s-card">
+    <div class="lbl">Total Credits</div>
+    <div class="val" style="color:var(--green);">{{ "+{:,.2f}".format(statement.total_credits) if statement.total_credits else '&mdash;' }}</div>
+  </div>
+  <div class="s-card">
+    <div class="lbl">Total Debits</div>
+    <div class="val" style="color:var(--red);">{{ "{:,.2f}".format(statement.total_debits) if statement.total_debits else '&mdash;' }}</div>
+  </div>
+  <div class="s-card">
+    <div class="lbl">Transactions</div>
+    <div class="val">{{ statement.tx_count }}</div>
+  </div>
+  <div class="s-card">
+    <div class="lbl">Uploaded</div>
+    <div class="val" style="font-size:14px;">{{ statement.uploaded_at[:16] if statement.uploaded_at else '' }}</div>
+  </div>
+</div>
+
+<!-- Transaction table -->
+<div class="section-title">Transactions ({{ transactions|length }})</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-col="0">Date</th>
+        <th data-col="1">Value Date</th>
+        <th data-col="2" class="num">Amount</th>
+        <th data-col="3" class="num">Balance</th>
+        <th data-col="4">Reference</th>
+        <th data-col="5">Description</th>
+        <th data-col="6">Type</th>
+        <th data-col="7">Match</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tx in transactions %}
+      <tr>
+        <td>{{ tx.tx_date }}</td>
+        <td>{{ tx.value_date or '' }}</td>
+        <td class="num {{ 'pos' if tx.amount > 0 else 'neg' }}" data-val="{{ tx.amount }}">
+          {{ "{:,.2f}".format(tx.amount) }}
+        </td>
+        <td class="num" data-val="{{ tx.balance or 0 }}">
+          {% if tx.balance is not none %}{{ "{:,.2f}".format(tx.balance) }}{% endif %}
+        </td>
+        <td style="font-family:monospace;font-size:12px;">{{ tx.reference or '' }}</td>
+        <td style="max-width:300px;white-space:normal;font-size:12px;">{{ tx.description or '' }}</td>
+        <td>
+          <span class="badge {% if tx.tx_type == 'deposit' %}matched{% elif tx.tx_type == 'withdrawal' %}discrepancy{% elif tx.tx_type == 'fee' %}fee-settlement{% else %}crm_only{% endif %}">
+            {{ tx.tx_type or 'other' }}
+          </span>
+        </td>
+        <td>
+          <span class="badge {{ tx.match_status or 'mt4_only' }}">
+            {{ tx.match_status or 'unmatched' }}
+          </span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if not transactions %}
+<div class="empty" style="padding:40px;">
+  <div style="font-size:14px;color:var(--muted);">No transactions in this statement.</div>
+</div>
+{% endif %}
+{% endblock %}

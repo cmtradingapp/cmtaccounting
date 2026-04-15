@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %} — Bank Statements{% endblock %}
+{% block content %}
+<style>
+  .tab-bar {
+    display: flex; gap: 2px; margin-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--border); padding-bottom: 0;
+  }
+  .tab-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 36px; padding: 0 14px;
+    background: transparent; border: none;
+    font-size: 13px; font-weight: 500; color: var(--muted);
+    cursor: pointer; position: relative;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    transition: color .15s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 18px; padding: 0 6px;
+    background: rgba(255,255,255,.07); border-radius: 999px;
+    font-size: 11px; font-weight: 700; color: var(--text-2);
+  }
+  .tab-btn.active .tab-count { background: rgba(79,142,247,.15); color: var(--accent); }
+
+  /* Add account modal */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 900;
+    background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+    align-items: center; justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 28px 32px;
+    width: 480px; max-width: 95vw;
+    box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  }
+  .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 20px; }
+</style>
+
+<div class="page-header">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <div class="page-title">Bank Statements</div>
+    <a class="btn btn-ghost" href="/banks/upload" style="border:1px solid rgba(79,142,247,.3);">
+      &#11014; Upload Statement</a>
+    <a class="btn btn-ghost" href="/banks/add" style="border:1px solid rgba(79,142,247,.3);">
+      &#9998; Manual Entry</a>
+    <button class="btn" onclick="openAddAccount()" style="border-color:rgba(34,197,94,.3);color:rgba(34,197,94,.9);">
+      + Add Account</button>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div class="tab-bar" style="justify-content:space-between;align-items:center;">
+  <div style="display:flex;gap:2px;margin-bottom:-1px;">
+    <button class="tab-btn active" id="tab-statements-btn" onclick="switchTab('statements')">
+      Statements <span class="tab-count">{{ statements|length }}</span>
+    </button>
+    <button class="tab-btn" id="tab-accounts-btn" onclick="switchTab('accounts')">
+      Accounts <span class="tab-count">{{ accounts|length }}</span>
+    </button>
+  </div>
+</div>
+
+<!-- Statements tab -->
+<div id="tab-statements">
+  {% if statements %}
+  <div class="table-meta">{{ statements|length }} statement{{ 's' if statements|length != 1 }}</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-col="0">Bank</th>
+          <th data-col="1">Account</th>
+          <th data-col="2">Period</th>
+          <th data-col="3" class="num">Credits</th>
+          <th data-col="4" class="num">Debits</th>
+          <th data-col="5" class="num">Txns</th>
+          <th data-col="6">Source</th>
+          <th data-col="7">Uploaded</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in statements %}
+        <tr class="clickable" onclick="location.href='/banks/{{ s.id }}'">
+          <td>
+            <div style="font-weight:600;">{{ s.bank_name }}</div>
+            {% if s.account_label %}<div style="font-size:11px;color:var(--muted);">{{ s.account_label }}</div>{% endif %}
+          </td>
+          <td style="font-family:monospace;font-size:12px;">{{ s.account_number }}</td>
+          <td>
+            {% if s.period_start and s.period_end %}
+              {{ s.period_start }} &rarr; {{ s.period_end }}
+            {% elif s.period_start %}
+              {{ s.period_start }}
+            {% else %}
+              <span class="muted">&mdash;</span>
+            {% endif %}
+          </td>
+          <td class="num pos" data-val="{{ s.total_credits or 0 }}">
+            {% if s.total_credits %}+{{ "{:,.2f}".format(s.total_credits) }}{% else %}&mdash;{% endif %}
+          </td>
+          <td class="num neg" data-val="{{ s.total_debits or 0 }}">
+            {% if s.total_debits %}{{ "{:,.2f}".format(s.total_debits) }}{% else %}&mdash;{% endif %}
+          </td>
+          <td class="num" data-val="{{ s.tx_count or 0 }}">{{ s.tx_count or 0 }}</td>
+          <td>
+            <span class="badge {% if s.source == 'upload' %}matched{% elif s.source == 'manual' %}mt4_only{% else %}crm_only{% endif %}">
+              {{ s.source }}
+            </span>
+          </td>
+          <td style="font-size:12px;color:var(--muted);">{{ s.uploaded_at[:16] if s.uploaded_at else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:32px;margin-bottom:12px;opacity:.4;">&#127974;</div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:6px;">No statements yet</div>
+    <div style="font-size:13px;margin-bottom:16px;">Upload a bank statement CSV/XLSX/PDF or add transactions manually.</div>
+    <a href="/banks/upload" class="btn btn-primary">&#11014; Upload Statement</a>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Accounts tab -->
+<div id="tab-accounts" style="display:none;">
+  {% if accounts %}
+  <div class="table-meta">{{ accounts|length }} bank account{{ 's' if accounts|length != 1 }}</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-col="0">Bank</th>
+          <th data-col="1">Account Number</th>
+          <th data-col="2">Label</th>
+          <th data-col="3">Currency</th>
+          <th data-col="4">Entity</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in accounts %}
+        <tr>
+          <td style="font-weight:600;">{{ a.bank_name }}</td>
+          <td style="font-family:monospace;">{{ a.account_number }}</td>
+          <td>{{ a.account_label or '' }}</td>
+          <td>{{ a.currency }}</td>
+          <td style="font-size:12px;color:var(--text-2);">{{ a.entity or '' }}</td>
+          <td style="text-align:right;">
+            <button class="btn" style="height:28px;font-size:12px;padding:0 10px;"
+                    onclick="openEditAccount({{ a.id }}, '{{ a.bank_name }}', '{{ a.account_number }}', '{{ a.account_label or '' }}', '{{ a.currency }}', '{{ a.entity or '' }}')">
+              Edit
+            </button>
+            <form method="post" action="/banks/accounts/{{ a.id }}/delete"
+                  style="display:inline;" onsubmit="return confirm('Deactivate this account?')">
+              <button class="btn btn-danger-sm" style="height:28px;font-size:12px;padding:0 10px;opacity:1;">
+                Delete
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:32px;margin-bottom:12px;opacity:.4;">&#127974;</div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:6px;">No bank accounts</div>
+    <div style="font-size:13px;margin-bottom:16px;">Add a bank account to start uploading statements.</div>
+    <button class="btn btn-primary" onclick="openAddAccount()">+ Add Account</button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Add/Edit Account Modal -->
+<div class="modal-backdrop" id="accountModal">
+  <div class="modal-box">
+    <div class="modal-title" id="modalTitle">Add Bank Account</div>
+    <form id="accountForm" method="post" action="/banks/accounts/add">
+      <div class="fee-form" style="padding:0;background:none;border:none;box-shadow:none;">
+        <div class="form-row">
+          <label>Bank Name *
+            <input type="text" name="bank_name" id="f_bank_name" required
+                   placeholder="e.g. Nedbank, ABSA, Standard Bank">
+          </label>
+          <label>Account Number *
+            <input type="text" name="account_number" id="f_account_number" required
+                   placeholder="e.g. 1053484658">
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Label
+            <input type="text" name="account_label" id="f_account_label"
+                   placeholder="e.g. Client Funds, Marketing">
+          </label>
+          <label>Currency
+            <select name="currency" id="f_currency">
+              {% for c in ['USD','EUR','GBP','ZAR','AED','NGN','KES'] %}
+              <option value="{{ c }}">{{ c }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="form-row cols-1">
+          <label>Entity
+            <input type="text" name="entity" id="f_entity"
+                   placeholder="e.g. CMT PROCESSING LTD">
+          </label>
+        </div>
+        <div class="form-footer" style="border:none;margin-top:16px;padding-top:0;">
+          <div class="form-footer-actions">
+            <button type="submit" class="btn btn-primary">Save Account</button>
+            <button type="button" class="btn btn-cancel" onclick="closeModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function switchTab(tab) {
+  document.getElementById('tab-statements').style.display = tab === 'statements' ? '' : 'none';
+  document.getElementById('tab-accounts').style.display   = tab === 'accounts'   ? '' : 'none';
+  document.getElementById('tab-statements-btn').classList.toggle('active', tab === 'statements');
+  document.getElementById('tab-accounts-btn').classList.toggle('active', tab === 'accounts');
+}
+
+function openAddAccount() {
+  document.getElementById('modalTitle').textContent = 'Add Bank Account';
+  document.getElementById('accountForm').action = '/banks/accounts/add';
+  document.getElementById('f_bank_name').value = '';
+  document.getElementById('f_account_number').value = '';
+  document.getElementById('f_account_label').value = '';
+  document.getElementById('f_currency').value = 'USD';
+  document.getElementById('f_entity').value = '';
+  document.getElementById('accountModal').classList.add('open');
+}
+
+function openEditAccount(id, bank, acctNum, label, ccy, entity) {
+  document.getElementById('modalTitle').textContent = 'Edit Bank Account';
+  document.getElementById('accountForm').action = '/banks/accounts/' + id + '/edit';
+  document.getElementById('f_bank_name').value = bank;
+  document.getElementById('f_account_number').value = acctNum;
+  document.getElementById('f_account_label').value = label;
+  document.getElementById('f_currency').value = ccy;
+  document.getElementById('f_entity').value = entity;
+  document.getElementById('accountModal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('accountModal').classList.remove('open');
+}
+
+document.getElementById('accountModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+</script>
+{% endblock %}
