@@ -1903,14 +1903,7 @@ def bank_upload():
                                error="Supported formats: CSV, XLS, XLSX, PDF.")
 
     account_id = request.form.get("bank_account_id", type=int)
-    if not account_id:
-        return render_template("bank_upload.html", accounts=accounts,
-                               error="Please select a bank account.")
-
-    account = queries.get_bank_account(account_id)
-    if not account:
-        return render_template("bank_upload.html", accounts=accounts,
-                               error="Bank account not found.")
+    account = queries.get_bank_account(account_id) if account_id else None
 
     vision_mode = request.form.get("vision_mode") == "1"
 
@@ -1923,9 +1916,20 @@ def bank_upload():
         return render_template("bank_upload.html", accounts=accounts,
                                error=f"Parse error: {e}")
 
-    # Pre-fill account info from detection if available
+    # Auto-match detected account number to an existing bank account
+    matched_account = account
+    if not matched_account:
+        detected_num = (result.get("account_number") or "").strip().lstrip("0")
+        if detected_num:
+            for a in accounts:
+                db_num = (a.get("account_number") or "").strip().lstrip("0")
+                if db_num and (db_num == detected_num or db_num.endswith(detected_num) or detected_num.endswith(db_num)):
+                    matched_account = a
+                    break
+
     return render_template("bank_confirm.html",
-                           account=account,
+                           account=matched_account,
+                           accounts=accounts,
                            result=result,
                            filename=f.filename,
                            file_token=str(uuid.uuid4()),

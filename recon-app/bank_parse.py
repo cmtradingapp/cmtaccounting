@@ -158,6 +158,7 @@ def _parse_nedbank_csv(file_bytes):
     result = {
         "bank_name": "Nedbank",
         "account_number": "",
+        "entity_name": "",
         "currency": "ZAR",
         "opening_balance": None,
         "closing_balance": None,
@@ -240,11 +241,21 @@ def _parse_standard_csv(file_bytes):
     """Parse Standard Bank CSV statement."""
     result = _parse_generic_csv(file_bytes)
     result["bank_name"] = "Standard Bank"
+    result.setdefault("entity_name", "")
+    result.setdefault("currency", "ZAR")
 
     text = file_bytes.decode("utf-8", errors="replace")
-    m = re.search(r"280544308|(\d{9,12})", text[:500])
+    header = text[:1000]
+    # Extract account number
+    m = re.search(r"Account\s+0*(\d{6,12})", header, re.IGNORECASE)
     if m:
-        result["account_number"] = m.group(0)
+        result["account_number"] = m.group(1)
+    elif re.search(r"280544308|(\d{9,12})", header):
+        result["account_number"] = re.search(r"280544308|(\d{9,12})", header).group(0).lstrip("0")
+    # Extract entity name (line after "Account XXXXXXXXX")
+    m_entity = re.search(r"Account\s+\d+\s+([A-Z][A-Z &()./]{4,})", header)
+    if m_entity:
+        result["entity_name"] = m_entity.group(1).strip()
     return result
 
 
@@ -262,6 +273,7 @@ def _parse_generic_csv(file_bytes):
     result = {
         "bank_name": "Unknown",
         "account_number": "",
+        "entity_name": "",
         "currency": "",
         "opening_balance": None,
         "closing_balance": None,
@@ -372,6 +384,7 @@ def _parse_excel(file_bytes, filename, bank_format):
     result = {
         "bank_name": bank_format.replace("_xls", "").replace("_xlsx", "").replace("generic", "Unknown").title(),
         "account_number": "",
+        "entity_name": "",
         "currency": "",
         "opening_balance": None,
         "closing_balance": None,
@@ -505,13 +518,14 @@ def _read_xls(file_bytes):
 # PDF PARSERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_BANK_STATEMENT_SYSTEM_PROMPT = """You are a bank statement parser. Extract ALL transactions from this bank statement.
+_BANK_STATEMENT_SYSTEM_PROMPT = """You are a bank statement parser. Extract ALL transactions and account details from this bank statement.
 
 Return ONLY a JSON object with this exact structure (no markdown, no explanation):
 {
-    "bank_name": "the bank name",
-    "account_number": "the account number if visible",
-    "currency": "the currency code (USD, ZAR, EUR, etc.)",
+    "bank_name": "the bank name (e.g. Standard Bank, Nedbank, ABSA)",
+    "account_number": "the account number digits only, no leading zeros",
+    "entity_name": "the account holder name (e.g. GCMT SA PTY CLIENT D)",
+    "currency": "the currency code (USD, ZAR, EUR, AED, NGN, etc.)",
     "opening_balance": 1234.56,
     "closing_balance": 5678.90,
     "transactions": [
@@ -532,6 +546,7 @@ Rules:
 - tx_type must be one of: deposit, withdrawal, fee, interest, transfer, other
 - Dates must be YYYY-MM-DD format
 - Include ALL transactions, do not skip any
+- Strip leading zeros from account_number (280544308 not 0000280544308)
 - If a field is not available, use null
 - Return ONLY the JSON, no markdown fences, no explanation
 """
@@ -595,9 +610,11 @@ def _parse_ai_response(raw):
             raise ValueError("Could not parse AI response as JSON")
 
     # Normalize
+    acct_num = str(data.get("account_number", "") or "").strip().lstrip("0") or ""
     result = {
         "bank_name": data.get("bank_name", "Unknown"),
-        "account_number": str(data.get("account_number", "") or ""),
+        "account_number": acct_num,
+        "entity_name": str(data.get("entity_name", "") or "").strip(),
         "currency": data.get("currency", ""),
         "opening_balance": data.get("opening_balance"),
         "closing_balance": data.get("closing_balance"),

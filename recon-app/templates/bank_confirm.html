@@ -47,14 +47,6 @@
     <div class="page-title">{% if manual_mode|default(false) %}Manual Entry{% else %}Confirm Transactions{% endif %}</div>
   </div>
 
-  {% if not manual_mode|default(false) and filename %}
-  <div style="font-size:13px;color:var(--text-2);margin-bottom:12px;">
-    File: <strong>{{ filename }}</strong>
-    {% if result.get('bank_name') %} &mdash; {{ result.bank_name }}{% endif %}
-    {% if result.get('account_number') %} ({{ result.account_number }}){% endif %}
-  </div>
-  {% endif %}
-
   <form method="post" action="/banks/upload/confirm" id="confirmForm">
     {% if manual_mode|default(false) %}
     <!-- Account selector for manual mode -->
@@ -79,7 +71,48 @@
       </div>
     </div>
     {% else %}
-    <input type="hidden" name="bank_account_id" value="{{ account.id }}">
+    <!-- Detected bank info + account selection -->
+    <div style="margin-bottom:16px;">
+      {% if result.get('bank_name') or result.get('account_number') %}
+      <div style="padding:12px 16px;background:rgba(79,142,247,.06);border:1px solid rgba(79,142,247,.2);border-radius:var(--radius-sm);margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <div style="font-size:12px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Detected from document</div>
+        <div style="font-size:13px;color:var(--text);font-weight:600;">
+          {{ result.bank_name or '—' }}
+          {% if result.get('account_number') %}<span style="color:var(--muted);font-weight:400;"> · {{ result.account_number }}</span>{% endif %}
+          {% if result.get('entity_name') %}<span style="color:var(--muted);font-weight:400;"> · {{ result.entity_name }}</span>{% endif %}
+          {% if result.get('currency') %}<span style="display:inline-flex;align-items:center;height:18px;padding:0 7px;background:rgba(255,255,255,.07);border-radius:999px;font-size:11px;font-weight:600;margin-left:6px;">{{ result.currency }}</span>{% endif %}
+        </div>
+        {% if filename %}<div style="font-size:12px;color:var(--muted);margin-left:auto;">{{ filename }}</div>{% endif %}
+      </div>
+      {% endif %}
+
+      <div class="fee-form" style="padding:14px 18px;">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:end;">
+          <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:flex;flex-direction:column;gap:6px;">
+            Bank Account *
+            <select name="bank_account_id" id="confirmAccountSelect" required>
+              <option value="">-- Select bank account --</option>
+              {% for a in accounts %}
+              <option value="{{ a.id }}"
+                {% if account and a.id == account.id %}selected{% endif %}>
+                {{ a.bank_name }} — {{ a.account_number }}{% if a.account_label %} ({{ a.account_label }}){% endif %} [{{ a.currency }}]
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+          <div>
+            {% if account %}
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+              <span style="color:var(--green);">&#10003;</span>
+              <span style="color:var(--muted);">Auto-matched</span>
+            </div>
+            {% else %}
+            <div style="font-size:12px;color:var(--yellow);">No match found — select or <a href="/banks" style="color:var(--accent);">add account</a></div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
     <input type="hidden" name="source" value="upload">
     {% endif %}
 

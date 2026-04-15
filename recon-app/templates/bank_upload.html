@@ -49,14 +49,17 @@
     <div class="fee-form">
       <!-- Bank account selector -->
       <div class="form-row cols-1">
-        <label>Bank Account *
-          <select name="bank_account_id" id="bankAccountSelect" required>
-            <option value="">-- Select bank account --</option>
+        <label>Bank Account
+          <select name="bank_account_id" id="bankAccountSelect">
+            <option value="">— Auto-detect from document —</option>
             {% for a in accounts %}
             <option value="{{ a.id }}">{{ a.bank_name }} — {{ a.account_number }}{% if a.account_label %} ({{ a.account_label }}){% endif %} [{{ a.currency }}]</option>
             {% endfor %}
           </select>
         </label>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+          Leave blank to auto-detect from the document header. You can confirm or correct on the next page.
+        </div>
       </div>
 
       {% if not accounts %}
@@ -97,7 +100,7 @@
           <a href="/banks" class="btn btn-cancel">Cancel</a>
         </div>
         <div class="form-hint">
-          The statement will be parsed and you'll review the extracted transactions before saving.
+          Bank account can be selected or confirmed on the next page.
         </div>
       </div>
     </div>
