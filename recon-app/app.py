@@ -2082,6 +2082,36 @@ def bank_delete(statement_id):
     return redirect(url_for("banks_main"))
 
 
+@app.route("/banks/transactions/<int:tx_id>/edit", methods=["POST"])
+@require_recon_auth
+def bank_tx_edit(tx_id):
+    data = {
+        "tx_date":     request.form.get("tx_date", ""),
+        "value_date":  request.form.get("value_date", "") or None,
+        "amount":      float(request.form.get("amount", 0)),
+        "balance":     float(request.form.get("balance") or 0) or None,
+        "currency":    request.form.get("currency", "").strip().upper() or None,
+        "reference":   request.form.get("reference", ""),
+        "description": request.form.get("description", ""),
+        "tx_type":     request.form.get("tx_type", "other"),
+    }
+    stmt_id = queries.get_bank_tx_statement_id(tx_id)
+    queries.update_bank_transaction(tx_id, data)
+    if stmt_id:
+        return redirect(url_for("bank_detail", statement_id=stmt_id))
+    return redirect(url_for("banks_main"))
+
+
+@app.route("/banks/transactions/<int:tx_id>/delete", methods=["POST"])
+@require_recon_auth
+def bank_tx_delete(tx_id):
+    stmt_id = queries.get_bank_tx_statement_id(tx_id)
+    queries.delete_bank_transaction(tx_id)
+    if stmt_id:
+        return redirect(url_for("bank_detail", statement_id=stmt_id))
+    return redirect(url_for("banks_main"))
+
+
 @app.route("/banks/<int:statement_id>/restore", methods=["POST"])
 @require_recon_auth
 def bank_restore(statement_id):

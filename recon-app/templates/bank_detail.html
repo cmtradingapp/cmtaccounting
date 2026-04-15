@@ -6,14 +6,26 @@
     display: grid; grid-template-columns: 1fr auto;
     gap: var(--sp-3); align-items: start; margin-bottom: var(--sp-4);
   }
-  .stmt-info { display: flex; flex-direction: column; gap: 4px; }
-  .stmt-bank { font-size: 18px; font-weight: 700; }
+  .stmt-info { display: flex; flex-direction: column; gap: 6px; }
+  .stmt-bank { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+  .stmt-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .stmt-acct { font-size: 13px; color: var(--text-2); font-family: monospace; }
-  .stmt-period { font-size: 13px; color: var(--muted); }
+  .ccy-badge {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 10px;
+    background: rgba(79,142,247,.12); color: var(--accent);
+    border: 1px solid rgba(79,142,247,.2); border-radius: 999px;
+    font-size: 12px; font-weight: 700; letter-spacing: .04em;
+  }
+  .stmt-period { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .source-badge {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 7px;
+    background: rgba(100,116,139,.12); color: var(--muted);
+    border-radius: 999px; font-size: 11px; font-weight: 600;
+  }
   .stmt-actions { display: flex; gap: 8px; align-items: start; }
 
   .summary-cards {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: var(--sp-2); margin-bottom: var(--sp-4);
   }
   .s-card {
@@ -22,9 +34,48 @@
   }
   .s-card .lbl {
     font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .06em; color: var(--muted); margin-bottom: 4px;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: 6px;
   }
   .s-card .val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* Transaction type badges */
+  .tx-dep  { background:rgba(34,197,94,.12);  color:var(--green);  }
+  .tx-with { background:rgba(239,68,68,.12);  color:var(--red);    }
+  .tx-fee  { background:rgba(245,158,11,.12); color:var(--yellow); }
+  .tx-int  { background:rgba(79,142,247,.12); color:var(--accent); }
+  .tx-xfer { background:rgba(167,139,250,.12);color:#a78bfa;       }
+  .tx-oth  { background:rgba(100,116,139,.1); color:var(--muted);  }
+  .tx-unmatched { background:rgba(100,116,139,.1); color:var(--muted); }
+
+  /* Edit/delete row actions */
+  .tx-actions { display:flex; gap:2px; opacity:0; transition:opacity .15s; }
+  tr:hover .tx-actions { opacity:1; }
+  .tx-act-btn {
+    background:none; border:none; cursor:pointer; padding:3px 6px;
+    border-radius:4px; font-size:14px; line-height:1;
+    transition: color .15s, background .15s;
+  }
+  .tx-act-btn.edit  { color:var(--muted); }
+  .tx-act-btn.edit:hover  { color:var(--accent); background:rgba(79,142,247,.1); }
+  .tx-act-btn.del   { color:var(--muted); }
+  .tx-act-btn.del:hover   { color:var(--red);    background:rgba(239,68,68,.08); }
+
+  /* Edit modal */
+  .tx-modal-backdrop {
+    display:none; position:fixed; inset:0; z-index:600;
+    background:rgba(0,0,0,.6); backdrop-filter:blur(4px);
+    align-items:center; justify-content:center;
+  }
+  .tx-modal-backdrop.open { display:flex; }
+  .tx-modal-box {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius-md); padding:24px 28px;
+    width:560px; max-width:95vw;
+    box-shadow:0 16px 48px rgba(0,0,0,.5);
+  }
+  .tx-modal-title { font-size:15px; font-weight:700; margin-bottom:18px; }
+  .tx-modal-box .fee-form { background:none; border:none; box-shadow:none; padding:0; }
+  .tx-modal-box select option { background: var(--surface-alt); color: var(--text); }
 </style>
 
 <a href="/banks" class="back-link">&larr; Bank Statements</a>
@@ -32,18 +83,18 @@
 <div class="stmt-header">
   <div class="stmt-info">
     <div class="stmt-bank">{{ statement.bank_name }}{% if statement.account_label %} &mdash; {{ statement.account_label }}{% endif %}</div>
-    <div class="stmt-acct">{{ statement.account_number }} &middot; {{ statement.acct_currency }}</div>
+    <div class="stmt-meta">
+      <span class="stmt-acct">{{ statement.account_number }}</span>
+      <span class="ccy-badge">{{ statement.acct_currency }}</span>
+    </div>
     <div class="stmt-period">
       {% if statement.period_start and statement.period_end %}
-        {{ statement.period_start }} &rarr; {{ statement.period_end }}
+        <span>{{ statement.period_start }} &rarr; {{ statement.period_end }}</span>
       {% elif statement.period_start %}
-        From {{ statement.period_start }}
+        <span>From {{ statement.period_start }}</span>
       {% endif %}
-      {% if statement.filename %} &middot; {{ statement.filename }}{% endif %}
-      &middot;
-      <span class="badge {% if statement.source == 'upload' %}matched{% elif statement.source == 'manual' %}mt4_only{% else %}crm_only{% endif %}">
-        {{ statement.source }}
-      </span>
+      {% if statement.filename %}<span style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ statement.filename }}</span>{% endif %}
+      <span class="source-badge">{{ statement.source }}</span>
     </div>
   </div>
   <div class="stmt-actions">
@@ -52,26 +103,28 @@
     {% endif %}
     <form method="post" action="/banks/{{ statement.id }}/delete"
           onsubmit="return confirm('Move this statement to Historical? You can restore or permanently delete it from the Bank Statements page.')">
-      <button class="btn" style="color:var(--muted);">Archive</button>
+      <button class="btn" style="color:var(--yellow);border-color:rgba(245,158,11,.3);">Archive</button>
     </form>
   </div>
 </div>
 
+{% set ccy = statement.acct_currency or '' %}
+
 <div class="summary-cards">
   <div class="s-card">
-    <div class="lbl">Opening Balance</div>
+    <div class="lbl">Opening Balance{% if ccy %} &middot; {{ ccy }}{% endif %}</div>
     <div class="val">{{ "{:,.2f}".format(statement.opening_balance) if statement.opening_balance else '&mdash;' }}</div>
   </div>
   <div class="s-card">
-    <div class="lbl">Closing Balance</div>
+    <div class="lbl">Closing Balance{% if ccy %} &middot; {{ ccy }}{% endif %}</div>
     <div class="val">{{ "{:,.2f}".format(statement.closing_balance) if statement.closing_balance else '&mdash;' }}</div>
   </div>
   <div class="s-card">
-    <div class="lbl">Total Credits</div>
+    <div class="lbl">Total Credits{% if ccy %} &middot; {{ ccy }}{% endif %}</div>
     <div class="val" style="color:var(--green);">{{ "+{:,.2f}".format(statement.total_credits) if statement.total_credits else '&mdash;' }}</div>
   </div>
   <div class="s-card">
-    <div class="lbl">Total Debits</div>
+    <div class="lbl">Total Debits{% if ccy %} &middot; {{ ccy }}{% endif %}</div>
     <div class="val" style="color:var(--red);">{{ "{:,.2f}".format(statement.total_debits) if statement.total_debits else '&mdash;' }}</div>
   </div>
   <div class="s-card">
@@ -80,7 +133,7 @@
   </div>
   <div class="s-card">
     <div class="lbl">Uploaded</div>
-    <div class="val" style="font-size:14px;">{{ statement.uploaded_at[:16] if statement.uploaded_at else '' }}</div>
+    <div class="val" style="font-size:13px;line-height:1.4;">{{ statement.uploaded_at[:16] if statement.uploaded_at else '' }}</div>
   </div>
 </div>
 
@@ -91,20 +144,19 @@
     <thead>
       <tr>
         <th data-col="0">Date</th>
-        <th data-col="1">Value Date</th>
-        <th data-col="2" class="num">Amount</th>
-        <th data-col="3" class="num">Balance</th>
-        <th data-col="4">Reference</th>
-        <th data-col="5">Description</th>
-        <th data-col="6">Type</th>
-        <th data-col="7">Match</th>
+        <th data-col="1" class="num">Amount{% if ccy %} ({{ ccy }}){% endif %}</th>
+        <th data-col="2" class="num">Balance</th>
+        <th data-col="3">Reference</th>
+        <th data-col="4">Description</th>
+        <th data-col="5">Type</th>
+        <th data-col="6">Recon</th>
+        <th style="width:64px;"></th>
       </tr>
     </thead>
     <tbody>
       {% for tx in transactions %}
       <tr>
-        <td>{{ tx.tx_date }}</td>
-        <td>{{ tx.value_date or '' }}</td>
+        <td style="white-space:nowrap;">{{ tx.tx_date }}</td>
         <td class="num {{ 'pos' if tx.amount > 0 else 'neg' }}" data-val="{{ tx.amount }}">
           {{ "{:,.2f}".format(tx.amount) }}
         </td>
@@ -112,20 +164,49 @@
           {% if tx.balance is not none %}{{ "{:,.2f}".format(tx.balance) }}{% endif %}
         </td>
         <td style="font-family:monospace;font-size:12px;">{{ tx.reference or '' }}</td>
-        <td style="max-width:300px;white-space:normal;font-size:12px;">{{ tx.description or '' }}</td>
+        <td style="max-width:340px;white-space:normal;font-size:12px;line-height:1.4;">{{ tx.description or '' }}</td>
         <td>
-          <span class="badge {% if tx.tx_type == 'deposit' %}matched{% elif tx.tx_type == 'withdrawal' %}discrepancy{% elif tx.tx_type == 'fee' %}fee-settlement{% else %}crm_only{% endif %}">
-            {{ tx.tx_type or 'other' }}
+          {% set tt = tx.tx_type or 'other' %}
+          <span class="badge {% if tt=='deposit' %}tx-dep{% elif tt=='withdrawal' %}tx-with{% elif tt=='fee' %}tx-fee{% elif tt=='interest' %}tx-int{% elif tt=='transfer' %}tx-xfer{% else %}tx-oth{% endif %}">
+            {{ tt }}
           </span>
         </td>
         <td>
-          <span class="badge {{ tx.match_status or 'mt4_only' }}">
-            {{ tx.match_status or 'unmatched' }}
+          {% set ms = tx.match_status or 'unmatched' %}
+          <span class="badge {% if ms=='matched' %}matched{% elif ms=='manual' %}crm_only{% elif ms=='excluded' %}mt4_only{% else %}tx-unmatched{% endif %}">
+            {{ ms }}
           </span>
+        </td>
+        <td>
+          <div class="tx-actions">
+            <button type="button" class="tx-act-btn edit" title="Edit transaction"
+                    onclick="openTxEdit({{ tx.id }}, '{{ tx.tx_date }}', {{ tx.amount }}, {{ tx.balance or 'null' }}, '{{ tx.currency or ccy }}', '{{ tx.reference or ''|e }}', '{{ tx.description or ''|replace("'","\\'")|e }}', '{{ tt }}')">
+              ✎
+            </button>
+            <form method="post" action="/banks/transactions/{{ tx.id }}/delete" style="display:inline;"
+                  onsubmit="return confirm('Delete this transaction?')">
+              <button type="submit" class="tx-act-btn del" title="Delete transaction">&#10005;</button>
+            </form>
+          </div>
         </td>
       </tr>
       {% endfor %}
     </tbody>
+    {% if transactions %}
+    <tfoot>
+      <tr style="border-top:2px solid var(--border);background:rgba(255,255,255,.02);">
+        <td style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:10px 16px;">Totals</td>
+        <td class="num" style="font-weight:700;font-variant-numeric:tabular-nums;">
+          {% set credits = transactions | selectattr('amount','gt',0) | map(attribute='amount') | sum %}
+          {% set debits  = transactions | selectattr('amount','lt',0) | map(attribute='amount') | sum %}
+          <span class="pos">+{{ "{:,.2f}".format(credits) }}</span>
+          <span style="color:var(--border);margin:0 4px;">/</span>
+          <span class="neg">{{ "{:,.2f}".format(debits) }}</span>
+        </td>
+        <td colspan="6"></td>
+      </tr>
+    </tfoot>
+    {% endif %}
   </table>
 </div>
 
@@ -134,4 +215,75 @@
   <div style="font-size:14px;color:var(--muted);">No transactions in this statement.</div>
 </div>
 {% endif %}
+
+<!-- Transaction edit modal -->
+<div class="tx-modal-backdrop" id="txModal">
+  <div class="tx-modal-box">
+    <div class="tx-modal-title">Edit Transaction</div>
+    <form id="txEditForm" method="post" action="">
+      <div class="fee-form">
+        <div class="form-row">
+          <label>Date *
+            <input type="date" name="tx_date" id="me_date" required>
+          </label>
+          <label>Amount *
+            <input type="number" name="amount" id="me_amount" step="any" required
+                   placeholder="positive=credit, negative=debit">
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Balance
+            <input type="number" name="balance" id="me_balance" step="any" placeholder="">
+          </label>
+          <label>Currency
+            <input type="text" name="currency" id="me_currency" placeholder="{{ ccy }}" style="text-transform:uppercase;">
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Reference
+            <input type="text" name="reference" id="me_reference" placeholder="">
+          </label>
+          <label>Type
+            <select name="tx_type" id="me_type">
+              {% for t in ['deposit','withdrawal','fee','interest','transfer','other'] %}
+              <option value="{{ t }}">{{ t }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="form-row cols-1">
+          <label>Description
+            <input type="text" name="description" id="me_description" placeholder="">
+          </label>
+        </div>
+        <div class="form-footer" style="border:none;margin-top:16px;padding-top:0;">
+          <div class="form-footer-actions">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <button type="button" class="btn btn-cancel" onclick="closeTxModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openTxEdit(id, date, amount, balance, currency, reference, description, txType) {
+  document.getElementById('txEditForm').action = '/banks/transactions/' + id + '/edit';
+  document.getElementById('me_date').value        = date;
+  document.getElementById('me_amount').value      = amount;
+  document.getElementById('me_balance').value     = balance !== null ? balance : '';
+  document.getElementById('me_currency').value    = currency;
+  document.getElementById('me_reference').value   = reference;
+  document.getElementById('me_description').value = description;
+  document.getElementById('me_type').value        = txType;
+  document.getElementById('txModal').classList.add('open');
+}
+function closeTxModal() {
+  document.getElementById('txModal').classList.remove('open');
+}
+document.getElementById('txModal').addEventListener('click', function(e) {
+  if (e.target === this) closeTxModal();
+});
+</script>
 {% endblock %}

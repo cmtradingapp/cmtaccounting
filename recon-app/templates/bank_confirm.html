@@ -52,24 +52,19 @@
     <!-- Account selector for manual mode -->
     <div style="margin-bottom:16px;">
       <div class="fee-form" style="padding:16px 20px;">
-        <div class="form-row">
+        <div class="form-row cols-1">
           <label>Bank Account *
-            <select name="bank_account_id" required>
+            <select name="bank_account_id" id="manualAccountSelect" required onchange="updateManualCurrency(this)">
               <option value="">-- Select --</option>
               {% for a in accounts %}
-              <option value="{{ a.id }}">{{ a.bank_name }} &mdash; {{ a.account_number }}{% if a.account_label %} ({{ a.account_label }}){% endif %}</option>
+              <option value="{{ a.id }}" data-currency="{{ a.currency }}">{{ a.bank_name }} &mdash; {{ a.account_number }}{% if a.account_label %} ({{ a.account_label }}){% endif %} [{{ a.currency }}]</option>
               {% endfor %}
-            </select>
-          </label>
-          <label>Source
-            <select name="source">
-              <option value="manual" selected>Manual</option>
-              <option value="upload">Upload</option>
             </select>
           </label>
         </div>
       </div>
     </div>
+    <input type="hidden" name="source" value="manual">
     {% else %}
     <!-- Detected bank info + account selection -->
     <div style="margin-bottom:16px;">
@@ -377,6 +372,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 /* If user picks an existing account from the override dropdown,
    inject it as bank_account_id and clear the new-account fields. */
+/* Update currency display in summary bar when account changes (manual mode) */
+function updateManualCurrency(sel) {
+  var opt = sel.options[sel.selectedIndex];
+  var ccy = opt ? (opt.getAttribute('data-currency') || '?') : '?';
+  var el = document.querySelector('.summary-item .val[id=""]');
+  // Find the currency display item (last summary-item)
+  var items = document.querySelectorAll('.summary-item');
+  var last = items[items.length - 1];
+  if (last) {
+    var valEl = last.querySelector('.val');
+    if (valEl) valEl.textContent = sel.value ? ccy : '?';
+  }
+}
+
 function overrideToExisting(sel) {
   var val = sel.value;
   // Find or create the hidden bank_account_id input

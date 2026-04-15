@@ -3452,6 +3452,57 @@ def get_bank_transactions(statement_id):
         return [dict(r) for r in rows]
 
 
+def get_bank_tx_statement_id(tx_id):
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT statement_id FROM bank_transactions WHERE id=?", (tx_id,)
+        ).fetchone()
+        return row[0] if row else None
+
+
+def update_bank_transaction(tx_id, data):
+    with fees_db() as conn:
+        conn.execute("""
+            UPDATE bank_transactions
+            SET tx_date=?, value_date=?, amount=?, balance=?, currency=?,
+                reference=?, description=?, tx_type=?
+            WHERE id=?
+        """, (data.get("tx_date"), data.get("value_date") or None,
+              data["amount"], data.get("balance"), data.get("currency"),
+              data.get("reference"), data.get("description"),
+              data.get("tx_type", "other"), tx_id))
+        stmt_row = conn.execute(
+            "SELECT statement_id FROM bank_transactions WHERE id=?", (tx_id,)
+        ).fetchone()
+        if stmt_row:
+            _recompute_statement_totals(conn, stmt_row[0])
+
+
+def delete_bank_transaction(tx_id):
+    with fees_db() as conn:
+        stmt_row = conn.execute(
+            "SELECT statement_id FROM bank_transactions WHERE id=?", (tx_id,)
+        ).fetchone()
+        conn.execute("DELETE FROM bank_transactions WHERE id=?", (tx_id,))
+        if stmt_row:
+            _recompute_statement_totals(conn, stmt_row[0])
+
+
+def _recompute_statement_totals(conn, statement_id):
+    r = conn.execute("""
+        SELECT
+            COUNT(*) AS cnt,
+            SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credits,
+            SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS debits
+        FROM bank_transactions WHERE statement_id=?
+    """, (statement_id,)).fetchone()
+    conn.execute("""
+        UPDATE bank_statements
+        SET tx_count=?, total_credits=?, total_debits=?
+        WHERE id=?
+    """, (r[0], r[1] or 0, r[2] or 0, statement_id))
+
+
 def get_bank_statement_file(statement_id):
     """Return (filename, file_data) for download."""
     with fees_db() as conn:
