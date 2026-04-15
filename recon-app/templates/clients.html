@@ -2,6 +2,12 @@
 {% block title %} — Clients{% endblock %}
 {% block content %}
 <style>
+  /* Indeterminate progress bar animation */
+  @keyframes cl-prog-slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+
   /* Last-active colour coding */
   .la-today { color: var(--green);  }
   .la-week  { color: var(--text);   font-weight: 600; }
@@ -188,12 +194,13 @@
     <div class="cl-step" id="cl-step-build">Building client list</div>
     <div class="cl-step" id="cl-step-group">Grouping by CID &amp; rendering</div>
   </div>
-  <!-- Progress bar (hidden by default, shown during background computation) -->
-  <div id="cl-progress-wrap" style="display:none;width:260px;margin-top:12px;">
-    <div style="background:var(--border);border-radius:999px;height:6px;overflow:hidden;">
-      <div id="cl-progress-bar" style="height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--green));transition:width 1s ease;"></div>
+  <!-- Real progress (hidden by default, shown during background computation) -->
+  <div id="cl-progress-wrap" style="display:none;width:280px;margin-top:14px;">
+    <div id="cl-progress-stage" style="font-size:13px;color:var(--accent);font-weight:600;margin-bottom:10px;text-align:center;min-height:20px;"></div>
+    <div style="background:var(--border);border-radius:999px;height:5px;overflow:hidden;">
+      <div style="height:100%;width:40%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--green));animation:cl-prog-slide 1.5s ease-in-out infinite;"></div>
     </div>
-    <div id="cl-progress-text" style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center;"></div>
+    <div id="cl-progress-text" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;"></div>
   </div>
   <div style="font-size:11px;color:var(--muted);margin-top:6px;" id="cl-elapsed">0s elapsed</div>
 </div>
@@ -566,22 +573,17 @@ function loadData(span){
         document.getElementById('cl-load-title').textContent = 'Server is computing all-time data\u2026';
         document.getElementById('cl-load-title').style.color = 'var(--yellow)';
         stepIds.forEach(function(s){document.getElementById(s).className='cl-step done';});
-        // Show progress bar
+        // Show real progress from server
         var progWrap = document.getElementById('cl-progress-wrap');
-        var progBar = document.getElementById('cl-progress-bar');
-        var progText = document.getElementById('cl-progress-text');
         progWrap.style.display = '';
-        // Estimated: ~120s for all-time computation; cap at 95%
-        var estPct = Math.min(95, Math.round(totalSec / 120 * 100));
-        progBar.style.width = estPct + '%';
-        progText.textContent = 'Attempt ' + _retryCount + ' \u00b7 ' + totalSec + 's total \u00b7 retrying in 20s';
-        // Live timer while waiting for next retry
+        document.getElementById('cl-progress-stage').textContent = data.stage || 'Working\u2026';
+        document.getElementById('cl-progress-text').textContent =
+          'Attempt ' + _retryCount + ' \u00b7 ' + totalSec + 's total';
+        // Live elapsed timer while waiting
         _retryTicker = setInterval(function(){
           var sec = Math.round((Date.now() - _retryT0) / 1000);
-          var pct = Math.min(95, Math.round(sec / 120 * 100));
-          progBar.style.width = pct + '%';
-          var remaining = 20 - Math.round((Date.now() - Date.now() + 20000) / 1000);
-          progText.textContent = 'Attempt ' + _retryCount + ' \u00b7 ' + sec + 's total';
+          document.getElementById('cl-progress-text').textContent =
+            'Attempt ' + _retryCount + ' \u00b7 ' + sec + 's total';
           elapsedEl.textContent = sec + 's elapsed';
         }, 1000);
         setTimeout(function(){ loadData(_span); }, 20000);

@@ -251,9 +251,13 @@ def clients_data():
         cache_age = None
     # If empty result AND background computation is running, tell frontend to retry
     computing = not rows and queries.is_client_list_computing()
-    return jsonify({"rows": rows, "cache_age": cache_age,
-                    "date_from": str(date_from), "date_to": str(date_to),
-                    "computing": computing})
+    resp = {"rows": rows, "cache_age": cache_age,
+            "date_from": str(date_from), "date_to": str(date_to),
+            "computing": computing}
+    if computing:
+        prog = queries.get_client_list_progress(date_from, date_to)
+        resp["stage"] = prog["stage"] if prog else "Starting computation\u2026"
+    return jsonify(resp)
 
 
 @app.route("/clients")

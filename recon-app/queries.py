@@ -960,6 +960,7 @@ _TTL_CLIENT_LIST_WIDE  = 21600   # 6 hours — "all" / 2Y spans (slow, changes s
 # Eliminates 524 timeouts: stale data is returned instantly while background refreshes.
 _CLIENT_LIST_STALE: dict = {}
 _CLIENT_LIST_REFRESHING: set = set()
+_CLIENT_LIST_PROGRESS: dict = {}   # {key: {"stage": str, "started": float}}
 
 
 _TTL_FEE_CALC = 300   # 5 minutes
@@ -1435,18 +1436,34 @@ def is_client_list_computing():
     return bool(_CLIENT_LIST_REFRESHING)
 
 
+def get_client_list_progress(date_from=None, date_to=None):
+    """Return the real computation stage for the given key, or None."""
+    if date_from and date_to:
+        key = f"client_list:{date_from}:{date_to}"
+        return _CLIENT_LIST_PROGRESS.get(key)
+    # Return any active progress if no specific key given
+    for v in _CLIENT_LIST_PROGRESS.values():
+        return v
+    return None
+
+
 def _compute_client_list(date_from, date_to) -> list:
     """Inner worker: runs all DB queries and builds the client list rows.
     Called by client_list() — either synchronously (first load) or from a
     background refresh thread (stale-while-revalidate).
     """
-    import datetime as _dt2, concurrent.futures as _cf
+    import datetime as _dt2, concurrent.futures as _cf, time as _time
     span_days = (_dt2.date.today() - date_from).days
     wide_span = span_days > 365
+    _prog_key = f"client_list:{date_from}:{date_to}"
+    def _set_stage(s):
+        _CLIENT_LIST_PROGRESS[_prog_key] = {"stage": s, "started": _CLIENT_LIST_PROGRESS.get(_prog_key, {}).get("started", _time.time())}
     # Floating P&L: always use a narrow 90-day window — we only want the most
     # recent value, no need to scan years of history (16× speedup vs full range)
     float_from = max(date_from, date_to - _dt2.timedelta(days=90))
     stmt_timeout = 300000 if wide_span else 120000
+
+    _set_stage("Querying MT4 deposits & P&L\u2026")
 
     def _fetch_mt4():
         with dealio() as cur:
@@ -1482,6 +1499,7 @@ def _compute_client_list(date_from, date_to) -> list:
                     rows[r["login"]]["client_floating_eod"] = r["client_floating_eod"]
             return rows
 
+    _set_stage("Loading CRM account mappings\u2026")
     # CID mapping (cached — fast)
     account_map, _fallback_cids = _load_praxis_account_map()
     login_to_cid = {}
@@ -1517,6 +1535,7 @@ def _compute_client_list(date_from, date_to) -> list:
             pass
         return result
 
+    _set_stage("Querying MT4 + fetching client names\u2026")
     # Run MT4 and CRM names in parallel (different DBs, both I/O-bound)
     cids_for_names = all_cids if wide_span else []
     with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
@@ -1555,6 +1574,7 @@ def _compute_client_list(date_from, date_to) -> list:
     except Exception:
         praxis_names = {}
 
+    _set_stage("Building result rows\u2026")
     rows = []
     for login, m in mt4.items():
         net_dep    = float(m["net_deposit"] or 0)
@@ -1580,6 +1600,7 @@ def _compute_client_list(date_from, date_to) -> list:
         })
 
     rows.sort(key=lambda r: r["company_total"], reverse=True)
+    _CLIENT_LIST_PROGRESS.pop(_prog_key, None)   # clear progress on completion
     return rows
 
 
