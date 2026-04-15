@@ -538,22 +538,28 @@ function clearDateRange(e) {
 var _retryCount = 0, _retryT0 = 0, _retryTicker = null;
 
 function loadData(span){
-  _span=span; document.getElementById('clScroller').style.display='none';
+  _span=span;
   var overlay=document.getElementById('cl-overlay');
   var elapsedEl=document.getElementById('cl-elapsed');
   var stepIds=['cl-step-mt4','cl-step-map','cl-step-names','cl-step-build','cl-step-group'];
+  var isRetry = _retryCount > 0;
+
+  if (!isRetry) {
+    // First load: full initialization
+    _retryT0 = Date.now(); _retryCount = 0;
+    document.getElementById('clScroller').style.display='none';
+    overlay.classList.remove('hidden');
+    document.getElementById('cl-progress-wrap').style.display='none';
+    document.getElementById('cl-load-title').style.color='';
+    stepIds.forEach(function(s){document.getElementById(s).className='cl-step';});
+    document.getElementById(stepIds[0]).className='cl-step active';
+    document.getElementById('cl-load-title').textContent=span==='all'?'Loading all-time data\u2026':'Loading client data\u2026';
+  }
+  // Step ticker: only run on first load (retries keep steps all-green)
   var curStep=0, t0=Date.now();
-  overlay.classList.remove('hidden');
-  document.getElementById('cl-progress-wrap').style.display='none';
-  document.getElementById('cl-load-title').style.color='';
-  stepIds.forEach(function(s){document.getElementById(s).className='cl-step';});
-  document.getElementById(stepIds[0]).className='cl-step active';
-  document.getElementById('cl-load-title').textContent=span==='all'?'Loading all-time data\u2026':'Loading client data\u2026';
-  // Only reset retry state when this isn't a retry (i.e., when user actively changed span)
-  if (!_retryT0 || _retryCount === 0) { _retryT0 = Date.now(); _retryCount = 0; }
-  var ticker=setInterval(function(){
+  var ticker = isRetry ? null : setInterval(function(){
     var sec=Math.round((Date.now()-t0)/1000);
-    elapsedEl.textContent=sec+'s elapsed';
+    if (!isRetry) elapsedEl.textContent=sec+'s elapsed';
     var idx=sec<6?0:sec<12?1:sec<18?2:4;
     idx=Math.min(idx,3);
     if(idx!==curStep){document.getElementById(stepIds[curStep]).className='cl-step done';curStep=idx;document.getElementById(stepIds[curStep]).className='cl-step active';}
@@ -564,7 +570,7 @@ function loadData(span){
   fetch(fetchUrl)
     .then(function(r){return r.json();})
     .then(function(data){
-      clearInterval(ticker);
+      if (ticker) clearInterval(ticker);
       if (_retryTicker) { clearInterval(_retryTicker); _retryTicker = null; }
       // If server is still computing (wide span, first load): show progress + auto-retry
       if (data.computing) {
@@ -625,7 +631,7 @@ function loadData(span){
       },50);
     })
     .catch(function(e){
-      clearInterval(ticker);
+      if (ticker) clearInterval(ticker);
       document.getElementById('cl-load-title').textContent='Error loading data. Try refreshing.';
       document.getElementById('cl-load-title').style.color='var(--red)';
     });
