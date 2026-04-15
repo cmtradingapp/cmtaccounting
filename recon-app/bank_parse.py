@@ -58,6 +58,101 @@ def detect_bank_format(file_bytes, filename):
 # MAIN ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_BANK_META_SYSTEM_PROMPT = """\
+You are a bank statement header parser for a financial reconciliation system.
+
+Given the first section of a bank statement (CSV, XLS, or HTML-exported file),
+extract ONLY the account metadata fields listed below. The transactions have already
+been extracted by a deterministic parser — do NOT re-parse transactions.
+
+Return ONLY a single valid JSON object. No markdown fences, no explanation, no extra keys.
+
+═══════════════════════════════════════════════════════════
+  OUTPUT SCHEMA  (use null for any unknown field)
+═══════════════════════════════════════════════════════════
+{
+  "bank_name":       "<short readable bank name, e.g. 'Guaranty Trust Bank' or 'Nedbank'>",
+  "account_number":  "<digits only, keep leading zeros, e.g. '0624057342' or '280544308'>",
+  "entity_name":     "<account holder name, e.g. 'CM FINTECH NIGERIA LTD' or 'GCMT SA PTY'>",
+  "currency":        "<ISO-4217 code, e.g. 'NGN', 'ZAR', 'USD', 'AED', 'EUR', 'GBP', 'GHS', 'KES'>",
+  "opening_balance": <number or null>,
+  "closing_balance": <number or null>
+}
+
+═══════════════════════════════════════════════════════════
+  RULES
+═══════════════════════════════════════════════════════════
+- bank_name: the institution's name as printed, not a product name
+- account_number: digits only — strip spaces, dashes, dots; KEEP leading zeros
+- entity_name: the account holder / company name
+- currency: infer from country context if not stated explicitly
+  (Nigeria → NGN, South Africa → ZAR, UAE → AED, Ghana → GHS, Kenya → KES)
+- opening_balance / closing_balance: the stated balance figures, as plain numbers
+- If a field is genuinely absent, use null — never guess randomly
+- Return ONLY the JSON object
+"""
+
+
+def _ai_enrich_metadata(file_bytes: bytes, filename: str, result: dict) -> None:
+    """Call Claude to fill in any metadata fields the heuristic scan missed.
+    Modifies `result` in-place, only overwriting empty/null/Unknown values.
+    Called only when at least one key field is missing.
+    """
+    try:
+        import ai_parse as _ai
+    except ImportError:
+        return
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    # Build a text sample from the file header (not transactions — already parsed)
+    try:
+        if ext in ("xls",) or b"<html" in file_bytes[:512].lower() or b"<!doc" in file_bytes[:512].lower():
+            # HTML-as-XLS: strip tags
+            raw = file_bytes.decode("utf-8", errors="replace")
+            sample = re.sub(r"<[^>]+>", " ", raw)
+            sample = re.sub(r"&nbsp;|&amp;|&lt;|&gt;", " ", sample)
+            sample = re.sub(r"\s+", " ", sample)[:3000]
+        elif ext == "xlsx":
+            # XLSX: render first 25 rows as tab-separated
+            rows = _read_xlsx(file_bytes)
+            lines = ["\t".join(str(c or "") for c in row) for row in rows[:25]]
+            sample = "\n".join(lines)
+        else:
+            # CSV / plain text
+            sample = file_bytes.decode("utf-8", errors="replace")[:3000]
+    except Exception:
+        return
+
+    user_msg = (
+        f"File: {filename}\n\n"
+        f"Header section of the bank statement:\n\n{sample}\n\n"
+        f"Extract the account metadata fields as JSON."
+    )
+
+    try:
+        raw = _ai._call_claude(_BANK_META_SYSTEM_PROMPT, user_msg)
+        import json as _json
+        # Handle markdown fences if present
+        cleaned = re.sub(r"^```\w*\s*", "", raw.strip())
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+        data = _json.loads(cleaned)
+    except Exception:
+        return
+
+    # Merge: only fill fields that are empty / null / "Unknown"
+    _EMPTY = {"", "Unknown", "unknown", None}
+    for field in ("bank_name", "account_number", "entity_name", "currency"):
+        if result.get(field) in _EMPTY and data.get(field):
+            result[field] = str(data[field]).strip()
+    for field in ("opening_balance", "closing_balance"):
+        if result.get(field) is None and data.get(field) is not None:
+            try:
+                result[field] = float(data[field])
+            except (TypeError, ValueError):
+                pass
+
+
 def parse_bank_statement(file_bytes, filename, bank_format=None, vision_mode=False):
     """Parse a bank statement file and return structured data.
 
@@ -87,16 +182,27 @@ def parse_bank_statement(file_bytes, filename, bank_format=None, vision_mode=Fal
     # CSV
     if ext == "csv":
         if bank_format == "nedbank_csv":
-            return _parse_nedbank_csv(file_bytes)
-        if bank_format == "standard_csv":
-            return _parse_standard_csv(file_bytes)
-        return _parse_generic_csv(file_bytes)
-
+            result = _parse_nedbank_csv(file_bytes)
+        elif bank_format == "standard_csv":
+            result = _parse_standard_csv(file_bytes)
+        else:
+            result = _parse_generic_csv(file_bytes)
     # XLS / XLSX
-    if ext in ("xls", "xlsx"):
-        return _parse_excel(file_bytes, filename, bank_format)
+    elif ext in ("xls", "xlsx"):
+        result = _parse_excel(file_bytes, filename, bank_format)
+    else:
+        raise ValueError(f"Unsupported file format: {ext}")
 
-    raise ValueError(f"Unsupported file format: {ext}")
+    # AI enrichment: fill in any metadata fields the heuristic missed
+    _needs_enrichment = (
+        result.get("bank_name", "Unknown") in ("", "Unknown") or
+        not result.get("account_number") or
+        not result.get("currency")
+    )
+    if _needs_enrichment:
+        _ai_enrich_metadata(file_bytes, filename, result)
+
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
