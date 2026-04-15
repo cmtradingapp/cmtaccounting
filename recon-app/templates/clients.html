@@ -192,31 +192,29 @@
     <colgroup>
       <col style="width:115px">
       <col style="width:auto">
-      <col style="width:115px">
-      <col style="width:115px">
-      <col style="width:110px">
+      <col style="width:130px">
       <col style="width:105px">
-      <col style="width:105px">
-      <col style="width:55px">
-      <col style="width:95px">
+      <col style="width:100px">
+      <col style="width:100px">
+      <col style="width:52px">
+      <col style="width:100px">
     </colgroup>
     <thead>
       <tr>
         <th data-col="0">CID / Login</th>
         <th data-col="1">Name</th>
-        <th data-col="2" class="num desc" title="Company total value (USD) — net deposit minus all P&L">Co. Total</th>
-        <th data-col="3" class="num" title="Company trading P&L from closed positions (USD)">Trading P&amp;L</th>
-        <th data-col="4" class="num" title="Last EOD unrealised P&L from open positions (USD)">Floating P&amp;L</th>
+        <th data-col="2" class="num desc" title="Co. Total = Net Deposit + Realised P&L + Open exposure. The complete company position — what we net if the client closed everything right now.">Co. Total</th>
+        <th data-col="3" class="num" title="Company realised P&L from closed trades. Positive = company profited (client lost). Exactly inverse to what the client realised.">Realised</th>
+        <th data-col="4" class="num" title="Company open exposure from live positions (last EOD). Positive = clients are currently losing on open trades.">Open</th>
         <th data-col="5" class="num" title="Net deposit — deposits minus withdrawals (USD)">Net Dep.</th>
-        <th data-col="6" class="num" title="Client realised P&L from closed trades (USD)">Client P&amp;L</th>
-        <th data-col="7">Ccy</th>
-        <th data-col="8">Last Active</th>
+        <th data-col="6">Ccy</th>
+        <th data-col="7">Last Active</th>
       </tr>
     </thead>
     <!-- spacer rows for virtual scroll -->
     <tbody id="clTbody">
-      <tr id="clPadTop" style="height:0"><td colspan="9"></td></tr>
-      <tr id="clPadBot" style="height:0"><td colspan="9"></td></tr>
+      <tr id="clPadTop" style="height:0"><td colspan="8"></td></tr>
+      <tr id="clPadBot" style="height:0"><td colspan="8"></td></tr>
     </tbody>
   </table>
 </div>
@@ -245,6 +243,13 @@ function fmt(n) {
   return (n >= 0 ? '+' : '\u2212') + s;
 }
 function clr(n) { return n > 1 ? 'pos' : n < -1 ? 'neg' : ''; }
+function fmtCompact(n) {
+  if (!n) return '';
+  var abs = Math.abs(n), sign = n >= 0 ? '+' : '\u2212';
+  if (abs >= 1e6) return sign + (abs/1e6).toFixed(1) + 'M';
+  if (abs >= 1e3) return sign + Math.round(abs/1e3) + 'K';
+  return sign + Math.round(abs);
+}
 
 // Group flat rows by CID
 function groupData(rows) {
@@ -315,14 +320,17 @@ function makeGroupRow(g) {
     tr.onclick=function(e){if(!e.target.closest('a,button'))toggleGroup(cidSafe);};
   }
 
+  var floatAmt = -(agg.client_floating_eod || 0);
+  var floatNote = Math.abs(floatAmt) > 500
+    ? '<div style="font-size:10px;font-weight:400;color:var(--muted);margin-top:1px;">incl. <span class="'+clr(floatAmt)+'">'+fmtCompact(floatAmt)+'</span> open</div>'
+    : '';
   tr.innerHTML =
     '<td style="line-height:1.3">'+firstCell+'</td>'+
     '<td>'+(g.name||'\u2014')+'</td>'+
-    '<td class="num fw '+clr(agg.company_total)+'">'+fmt(agg.company_total)+'</td>'+
+    '<td class="num fw '+clr(agg.company_total)+'">'+fmt(agg.company_total)+floatNote+'</td>'+
     '<td class="num '+clr(agg.company_trading_pnl)+'">'+fmt(agg.company_trading_pnl)+'</td>'+
-    '<td class="num '+clr(-(agg.client_floating_eod||0))+'">'+fmt(-(agg.client_floating_eod||0))+'</td>'+
+    '<td class="num '+clr(floatAmt)+'">'+fmt(floatAmt)+'</td>'+
     '<td class="num">'+fmt(agg.net_deposit)+'</td>'+
-    '<td class="num '+clr(agg.client_realised_pnl)+'">'+fmt(agg.client_realised_pnl)+'</td>'+
     '<td>'+(agg.currency||'\u2014')+'</td>'+
     '<td style="color:var(--muted)">'+(agg.last_active||'\u2014')+'</td>';
   return tr;
@@ -335,15 +343,18 @@ function makeLoginRow(g, r) {
   var tr=document.createElement('tr');
   tr.className='cl-login-row'; tr.style.cursor='pointer';
   tr.onclick=function(){window.location=url;};
+  var rFloatAmt = -(r.client_floating_eod || 0);
+  var rFloatNote = Math.abs(rFloatAmt) > 500
+    ? '<div style="font-size:10px;font-weight:400;color:var(--muted);margin-top:1px;">incl. <span class="'+clr(rFloatAmt)+'">'+fmtCompact(rFloatAmt)+'</span> open</div>'
+    : '';
   tr.innerHTML=
     '<td><span style="color:rgba(255,255,255,.2);font-size:10px;margin-right:3px;">\u2514</span>'+
     '<a href="'+url+'" style="color:var(--accent)" onclick="event.stopPropagation()">'+r.login+'</a></td>'+
     '<td style="color:var(--muted);font-size:11px;">'+(r.name||'\u2014')+'</td>'+
-    '<td class="num fw '+clr(r.company_total)+'">'+fmt(r.company_total)+'</td>'+
+    '<td class="num fw '+clr(r.company_total)+'">'+fmt(r.company_total)+rFloatNote+'</td>'+
     '<td class="num '+clr(r.company_trading_pnl)+'">'+fmt(r.company_trading_pnl)+'</td>'+
-    '<td class="num '+clr(-(r.client_floating_eod||0))+'">'+fmt(-(r.client_floating_eod||0))+'</td>'+
+    '<td class="num '+clr(rFloatAmt)+'">'+fmt(rFloatAmt)+'</td>'+
     '<td class="num">'+fmt(r.net_deposit)+'</td>'+
-    '<td class="num '+clr(r.client_realised_pnl)+'">'+fmt(r.client_realised_pnl)+'</td>'+
     '<td>'+(r.currency||'\u2014')+'</td>'+
     '<td style="color:var(--muted)">'+(r.last_active||'\u2014')+'</td>';
   return tr;
@@ -397,7 +408,7 @@ function vsRender(force) {
 // Apply filter + sort
 function applyView() {
   var q=_search.toLowerCase().trim();
-  var keys=['cid','name','company_total','company_trading_pnl','client_floating_eod','net_deposit','client_realised_pnl','currency','last_active'];
+  var keys=['cid','name','company_total','company_trading_pnl','client_floating_eod','net_deposit','currency','last_active'];
   var sortKey=keys[_sortCol]||'company_total';
   _viewGroups=_allGroups.filter(function(g){
     var agg=g.agg;
