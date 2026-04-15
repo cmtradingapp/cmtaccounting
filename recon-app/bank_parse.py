@@ -311,7 +311,7 @@ def _parse_generic_csv(file_bytes):
             col_map["credit"] = i
         elif not col_map.get("balance") and "balance" in h:
             col_map["balance"] = i
-        elif not col_map.get("description") and ("desc" in h or "narrative" in h or "detail" in h or "particular" in h):
+        elif not col_map.get("description") and any(k in h for k in ("desc", "narrative", "detail", "particular", "remark", "narr", "memo", "note", "transaction detail")):
             col_map["description"] = i
         elif not col_map.get("reference") and ("ref" in h or "reference" in h):
             col_map["reference"] = i
@@ -371,6 +371,59 @@ def _parse_generic_csv(file_bytes):
 # EXCEL PARSERS (XLS / XLSX)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _extract_html_metadata(file_bytes):
+    """Extract bank metadata from HTML-as-XLS files using regex on plain text."""
+    text = file_bytes.decode("utf-8", errors="replace")
+    # Strip HTML tags to get plain text
+    plain = re.sub(r"<[^>]+>", " ", text)
+    plain = re.sub(r"&nbsp;", " ", plain)
+    plain = re.sub(r"&[a-z]+;", " ", plain)
+    plain = re.sub(r"\s+", " ", plain)
+
+    meta = {}
+
+    # Bank name — stop at CUSTOMER/STATEMENT/PLC suffixes
+    m = re.search(r"([A-Z][A-Z &]+(?:BANK|FINANCE|TRUST)(?:\s+(?:PLC|LTD|INC|CORP|GROUP))?)", plain)
+    if m:
+        meta["bank_name"] = m.group(1).strip().title()
+
+    # Account number — keep leading zeros (significant in e.g. Nigerian account numbers)
+    m = re.search(r"Account\s+No[.:\s]+([0-9A-Z\-/]{6,20})", plain, re.IGNORECASE)
+    if m:
+        acct = re.sub(r"[^0-9A-Z]", "", m.group(1).upper())
+        meta["account_number"] = acct
+
+    # Account / entity name
+    m = re.search(r"Account\s+Name[:\s]+([A-Z][A-Za-z &().\-]{3,60}?)(?:\s{2,}|Print|Address|Account\s+No)", plain, re.IGNORECASE)
+    if m:
+        meta["entity_name"] = m.group(1).strip()
+
+    # Currency — common name → ISO code
+    _CCY_MAP = {
+        "naira": "NGN", "dollar": "USD", "euro": "EUR", "pound": "GBP",
+        "rand": "ZAR", "dirham": "AED", "cedi": "GHS", "shilling": "KES",
+        "franc": "XOF",
+    }
+    m = re.search(r"Currency[:\s]+([A-Za-z\s]{3,20}?)(?:\s{2,}|\n|Period|Opening)", plain, re.IGNORECASE)
+    if m:
+        ccy_raw = m.group(1).strip().lower()
+        meta["currency"] = _CCY_MAP.get(ccy_raw, ccy_raw.upper()[:3])
+    # Also check for explicit ISO code
+    m2 = re.search(r"\b(NGN|USD|EUR|GBP|ZAR|AED|GHS|KES|XOF|XAF)\b", plain)
+    if m2 and "currency" not in meta:
+        meta["currency"] = m2.group(1)
+
+    # Opening balance
+    m = re.search(r"Opening\s+Balance[:\s]+([\d,]+\.?\d*)", plain, re.IGNORECASE)
+    if m:
+        try:
+            meta["opening_balance"] = float(m.group(1).replace(",", ""))
+        except ValueError:
+            pass
+
+    return meta
+
+
 def _parse_excel(file_bytes, filename, bank_format):
     """Parse XLS/XLSX using openpyxl (xlsx) or xlrd (xls)."""
     ext = filename.rsplit(".", 1)[-1].lower()
@@ -382,13 +435,20 @@ def _parse_excel(file_bytes, filename, bank_format):
     else:
         raise ValueError(f"Unsupported Excel format: {ext}")
 
+    # For HTML-as-XLS files, extract header metadata before parsing the table
+    html_meta = {}
+    preview = file_bytes[:512].lstrip()
+    if preview.startswith(b"<") or b"<!DOCTYPE" in preview or b"<html" in preview[:512].lower():
+        html_meta = _extract_html_metadata(file_bytes)
+
     # Convert to the same structure as CSV and parse generically
+    _bank_label = bank_format.replace("_xls", "").replace("_xlsx", "").replace("generic", "Unknown").title()
     result = {
-        "bank_name": bank_format.replace("_xls", "").replace("_xlsx", "").replace("generic", "Unknown").title(),
-        "account_number": "",
-        "entity_name": "",
-        "currency": "",
-        "opening_balance": None,
+        "bank_name": html_meta.get("bank_name") or _bank_label,
+        "account_number": html_meta.get("account_number", ""),
+        "entity_name": html_meta.get("entity_name", ""),
+        "currency": html_meta.get("currency", ""),
+        "opening_balance": html_meta.get("opening_balance"),
         "closing_balance": None,
         "transactions": [],
     }
@@ -422,7 +482,7 @@ def _parse_excel(file_bytes, filename, bank_format):
             col_map["credit"] = i
         elif not col_map.get("balance") and "balance" in h:
             col_map["balance"] = i
-        elif not col_map.get("description") and ("desc" in h or "narrative" in h or "detail" in h or "particular" in h):
+        elif not col_map.get("description") and any(k in h for k in ("desc", "narrative", "detail", "particular", "remark", "narr", "memo", "note", "transaction detail")):
             col_map["description"] = i
         elif not col_map.get("reference") and ("ref" in h or "reference" in h):
             col_map["reference"] = i
