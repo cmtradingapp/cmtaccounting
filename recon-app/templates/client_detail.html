@@ -227,17 +227,17 @@
           {% set _ = totals.__setattr__('pnl', totals.pnl + (r.closedpnl or 0)) %}
           <tr>
             <td>{{ r.date }}</td>
-            <td class="num {% if r.netdeposit > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(r.netdeposit) }}</td>
-            <td class="num {% if r.convertednetdeposit > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(r.convertednetdeposit) }}</td>
-            <td class="num">{{ "{:,.2f}".format(r.balance) }}</td>
-            <td class="num">{{ "{:,.2f}".format(r.equity) }}</td>
+            <td class="num {% if (r.netdeposit or 0) > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(r.netdeposit or 0) }}</td>
+            <td class="num {% if (r.convertednetdeposit or 0) > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(r.convertednetdeposit or 0) }}</td>
+            <td class="num">{{ "{:,.2f}".format(r.balance or 0) }}</td>
+            <td class="num">{{ "{:,.2f}".format(r.equity or 0) }}</td>
             <td class="num {% if (r.closedpnl or 0) > 0 %}pos{% elif (r.closedpnl or 0) < 0 %}neg{% endif %}">
               {% if r.closedpnl %}{{ "{:+,.2f}".format(r.closedpnl) }}{% else %}—{% endif %}
             </td>
             <td class="num" style="color:var(--muted);">
               {% if r.floatingpnl %}{{ "{:+,.2f}".format(r.floatingpnl) }}{% else %}—{% endif %}
             </td>
-            <td>{{ r.groupcurrency }}</td>
+            <td>{{ r.groupcurrency or '' }}</td>
           </tr>
           {% endfor %}
           <tr style="border-top:2px solid var(--border);font-weight:700;">

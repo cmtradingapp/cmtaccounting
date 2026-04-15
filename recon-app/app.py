@@ -403,13 +403,18 @@ def client_detail(login):
     praxis_with= sum(r["usd_amount"] for r in praxis_rows
                      if r["direction"] in ("withdrawal","payout"))
 
-    return render_template("client_detail.html",
-        login=login, span=span, span_label=span_labels.get(span, span),
-        range_start=str(range_start), range_end=str(range_end), ref=ref,
-        crm_rows=crm_rows, mt4_rows=mt4_rows, praxis_rows=praxis_rows,
-        crm_cash=round(crm_cash,2), crm_with=round(crm_with,2),
-        praxis_dep=round(praxis_dep,2), praxis_with=round(praxis_with,2),
-    )
+    try:
+        return render_template("client_detail.html",
+            login=login, span=span, span_label=span_labels.get(span, span),
+            range_start=str(range_start), range_end=str(range_end), ref=ref,
+            crm_rows=crm_rows, mt4_rows=mt4_rows, praxis_rows=praxis_rows,
+            crm_cash=round(crm_cash,2), crm_with=round(crm_with,2),
+            praxis_dep=round(praxis_dep,2), praxis_with=round(praxis_with,2),
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"<pre>Error rendering client detail for login {login}:\n{e}\n\n{traceback.format_exc()}</pre>", 500
 
 
 @app.route("/recon/<month>/crm-txns/<int:login>")
