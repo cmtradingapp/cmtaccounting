@@ -52,7 +52,7 @@
     {% endif %}
     <form method="post" action="/banks/{{ statement.id }}/delete"
           onsubmit="return confirm('Move this statement to Historical? You can restore or permanently delete it from the Bank Statements page.')">
-      <button class="btn btn-danger">&#8964; Archive</button>
+      <button class="btn" style="color:var(--muted);">Archive</button>
     </form>
   </div>
 </div>
