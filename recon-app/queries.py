@@ -1449,10 +1449,20 @@ def client_list(date_from=None, date_to=None) -> list:
 
     # 1. MT4 aggregate per login using existing dealio() context manager.
     # SET statement_timeout inline so the replica doesn't kill us mid-scan.
+    import datetime as _dt2
+    # Floating P&L is a current snapshot — always scan only the most recent 90 days
+    # regardless of the main span. This is the critical optimisation: for "all" span
+    # scanning date >= 2021-01-01 with DISTINCT ON was hitting 60M+ rows; 90 days
+    # caps it at ~3.7M rows (41k logins × 90 days) — a 16× speedup.
+    float_from = max(date_from, date_to - _dt2.timedelta(days=90))
+    # Increase timeout for wide spans (>1 year)
+    span_days = (date_to - date_from).days
+    stmt_timeout = 300000 if span_days > 365 else 120000
+
     def _fetch_mt4():
         with dealio() as cur:
-            cur.execute("SET statement_timeout = 120000")
-            # Query 1: aggregate sums per login
+            cur.execute(f"SET statement_timeout = {stmt_timeout}")
+            # Query 1: aggregate sums per login (full date range)
             cur.execute("""
                 SELECT
                     login,
@@ -1466,8 +1476,9 @@ def client_list(date_from=None, date_to=None) -> list:
             """, (date_from, date_to))
             rows = {r["login"]: dict(r) for r in cur.fetchall()}
 
-            # Query 2: last-day floating P&L — new connection avoids any stale SSL state
-            cur.execute("SET statement_timeout = 120000")
+            # Query 2: most-recent floating P&L per login — ALWAYS uses a narrow
+            # 90-day window so DISTINCT ON doesn't scan years of history
+            cur.execute(f"SET statement_timeout = {stmt_timeout}")
             cur.execute("""
                 SELECT DISTINCT ON (login)
                     login,
@@ -1475,7 +1486,7 @@ def client_list(date_from=None, date_to=None) -> list:
                 FROM dealio.daily_profits
                 WHERE date >= %s AND date < %s
                 ORDER BY login, date DESC
-            """, (date_from, date_to))
+            """, (float_from, date_to))
             for r in cur.fetchall():
                 if r["login"] in rows:
                     rows[r["login"]]["client_floating_eod"] = r["client_floating_eod"]
@@ -1521,18 +1532,27 @@ def client_list(date_from=None, date_to=None) -> list:
     cids_needed = list({login_to_cid[l] for l in mt4 if l in login_to_cid and login_to_cid[l]})
     if cids_needed:
         try:
+            # Batch into 2000-item chunks — Azure SQL has parameter limits and
+            # large IN clauses cause plan cache pressure / timeouts
+            _BATCH = 2000
             def _fetch_crm_names():
+                result = {}
                 with crm() as cur:
-                    ph = ",".join(["%s"] * len(cids_needed))
-                    cur.execute(
-                        f"SELECT CAST(accountid AS VARCHAR(20)) AS cid,"
-                        f" RTRIM(first_name + ' ' + last_name) AS name, email"
-                        f" FROM report.vtiger_account WHERE accountid IN ({ph})",
-                        [int(c) for c in cids_needed]
-                    )
-                    return {(r["cid"] or "").strip(): {"name": (r["name"] or "").strip(),
-                                                        "email": r["email"] or ""}
-                            for r in cur.fetchall()}
+                    for i in range(0, len(cids_needed), _BATCH):
+                        batch = cids_needed[i:i + _BATCH]
+                        ph = ",".join(["%s"] * len(batch))
+                        cur.execute(
+                            f"SELECT CAST(accountid AS VARCHAR(20)) AS cid,"
+                            f" RTRIM(first_name + ' ' + last_name) AS name, email"
+                            f" FROM report.vtiger_account WHERE accountid IN ({ph})",
+                            [int(c) for c in batch]
+                        )
+                        for r in cur.fetchall():
+                            result[(r["cid"] or "").strip()] = {
+                                "name": (r["name"] or "").strip(),
+                                "email": r["email"] or ""
+                            }
+                return result
             crm_names = _db_retry(_fetch_crm_names)
         except Exception:
             crm_names = {}
