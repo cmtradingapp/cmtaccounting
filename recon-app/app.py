@@ -1927,16 +1927,20 @@ def bank_upload():
                     matched_account = a
                     break
 
+    # Cache the raw file so confirm step can store it for later download
+    file_token = str(uuid.uuid4())
+    _bank_upload_cache[file_token] = (f.filename, file_bytes)
+
     return render_template("bank_confirm.html",
                            account=matched_account,
                            accounts=accounts,
                            result=result,
                            filename=f.filename,
-                           file_token=str(uuid.uuid4()),
+                           file_token=file_token,
                            transactions=result.get("transactions", []))
 
 
-# Cache uploaded files briefly for the confirm step
+# Cache uploaded files briefly for the confirm step (token → (filename, bytes))
 _bank_upload_cache = {}
 
 
@@ -2011,7 +2015,12 @@ def bank_upload_confirm():
         "transactions":    transactions,
     }
 
-    stmt_id = queries.create_bank_statement(data)
+    # Retrieve cached file bytes for storage (enables download later)
+    file_token = request.form.get("file_token", "")
+    cached = _bank_upload_cache.pop(file_token, None)
+    file_data = cached[1] if cached else None
+
+    stmt_id = queries.create_bank_statement(data, file_data=file_data)
     return redirect(url_for("bank_detail", statement_id=stmt_id))
 
 
