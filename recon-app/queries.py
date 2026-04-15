@@ -283,6 +283,15 @@ def _load_praxis_account_map() -> dict:
     return _cache_get(key, 1800) or (mapping, fallback_cids)
 
 
+_praxis_last_error = None   # surface Praxis connection errors in the UI
+
+def _set_praxis_error(msg):
+    global _praxis_last_error
+    _praxis_last_error = msg
+
+def get_praxis_error():
+    return _praxis_last_error
+
 def praxis_summary(year: int, month: int) -> dict:
     """
     Per-MT4-login Praxis deposit/withdrawal totals for a month. Cached 5 min.
@@ -290,6 +299,7 @@ def praxis_summary(year: int, month: int) -> dict:
     Join: praxis_transactions.session_cid = vtiger_trading_accounts.vtigeraccountid
           vtiger_trading_accounts.login = MT4 login
     """
+    global _praxis_last_error
     import datetime
     key = f"praxis:{year}:{month}"
     cached = _cache_get(key, _TTL_RECONCILE)
@@ -322,7 +332,10 @@ def praxis_summary(year: int, month: int) -> dict:
                 """, (month_start, month_end))
                 return cur.fetchall()
         rows = _db_retry(_fetch)
-    except Exception:
+        _set_praxis_error(None)
+    except Exception as e:
+        _set_praxis_error(str(e))
+        print(f"[PRAXIS ERROR] praxis_summary({year}-{month:02d}): {e}")
         rows = []
 
     # Map each session_cid to MT4 login(s).
@@ -1631,7 +1644,10 @@ def praxis_client_tree(year: int, month: int,
                 """, (month_start, month_end))
                 return cur.fetchall()
         praxis_rows = _db_retry(_fetch_praxis)
-    except Exception:
+        _set_praxis_error(None)
+    except Exception as e:
+        _set_praxis_error(str(e))
+        print(f"[PRAXIS ERROR] praxis_client_tree({year}-{month:02d}): {e}")
         praxis_rows = []
 
     # 2. Group Praxis transactions by session_cid

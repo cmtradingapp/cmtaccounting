@@ -428,9 +428,11 @@ def recon_praxis(month):
     except Exception as e:
         tree   = []
         months = []
+    praxis_error = queries.get_praxis_error()
     return render_template("praxis_tree.html", month=month, tree=tree, months=months,
                            span=span, span_label=span_labels.get(span, span),
-                           date_from=str(date_from), date_to=str(month_end))
+                           date_from=str(date_from), date_to=str(month_end),
+                           praxis_error=praxis_error)
 
 
 @app.route("/recon/<month>/refresh", methods=["POST"])
