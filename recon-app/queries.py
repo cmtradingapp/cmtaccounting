@@ -953,7 +953,8 @@ def get_monthly_fx_rate(symbol: str, year: int, month: int) -> float | None:
     return result
 
 
-_TTL_CLIENT_LIST = 3600   # 1 hour — expensive cross-DB aggregate
+_TTL_CLIENT_LIST       = 3600    # 1 hour — expensive cross-DB aggregate (most spans)
+_TTL_CLIENT_LIST_WIDE  = 21600   # 6 hours — "all" / 2Y spans (slow, changes slowly)
 
 
 _TTL_FEE_CALC = 300   # 5 minutes
@@ -1443,20 +1444,20 @@ def client_list(date_from=None, date_to=None) -> list:
         date_to = _dt.date.today() + _dt.timedelta(days=1)
 
     key = f"client_list:{date_from}:{date_to}"
-    cached = _cache_get(key, _TTL_CLIENT_LIST)
+    import datetime as _dt2
+    span_days = (_dt2.date.today() - date_from).days
+    ttl = _TTL_CLIENT_LIST_WIDE if span_days > 365 else _TTL_CLIENT_LIST
+    cached = _cache_get(key, ttl)
     if cached is not None:
         return cached
 
     # 1. MT4 aggregate per login using existing dealio() context manager.
     # SET statement_timeout inline so the replica doesn't kill us mid-scan.
-    import datetime as _dt2
     # Floating P&L is a current snapshot — always scan only the most recent 90 days
     # regardless of the main span. This is the critical optimisation: for "all" span
     # scanning date >= 2021-01-01 with DISTINCT ON was hitting 60M+ rows; 90 days
     # caps it at ~3.7M rows (41k logins × 90 days) — a 16× speedup.
     float_from = max(date_from, date_to - _dt2.timedelta(days=90))
-    # Increase timeout for wide spans (>1 year)
-    span_days = (date_to - date_from).days
     stmt_timeout = 300000 if span_days > 365 else 120000
 
     def _fetch_mt4():
@@ -1491,20 +1492,67 @@ def client_list(date_from=None, date_to=None) -> list:
                 if r["login"] in rows:
                     rows[r["login"]]["client_floating_eod"] = r["client_floating_eod"]
             return rows
-    try:
-        mt4 = _db_retry(_fetch_mt4)
-    except Exception:
-        mt4 = {}
-
-    # 2. CID mapping login → cid
+    # 2. CID mapping (cached — fast, must come before parallel section)
     account_map, _fallback_cids = _load_praxis_account_map()   # {cid: [login, ...]}
     login_to_cid = {}
+    all_cids = []   # all CIDs from the map — used for wide spans to parallelise names lookup
     for cid_str, logins in account_map.items():
+        all_cids.append(cid_str)
         for login in logins:
             if login not in login_to_cid:
                 login_to_cid[login] = cid_str
 
-    # 3. Names: Praxis (preferred) then CRM (vtiger_account) fallback
+    # CRM names fetcher — batched at 2000 to avoid Azure SQL parameter pressure
+    _BATCH = 2000
+    def _fetch_crm_names_for(cids):
+        result = {}
+        if not cids:
+            return result
+        try:
+            with crm() as cur:
+                for i in range(0, len(cids), _BATCH):
+                    batch = cids[i:i + _BATCH]
+                    ph = ",".join(["%s"] * len(batch))
+                    cur.execute(
+                        f"SELECT CAST(accountid AS VARCHAR(20)) AS cid,"
+                        f" RTRIM(first_name + ' ' + last_name) AS name, email"
+                        f" FROM report.vtiger_account WHERE accountid IN ({ph})",
+                        [int(c) for c in batch]
+                    )
+                    for r in cur.fetchall():
+                        result[(r["cid"] or "").strip()] = {
+                            "name": (r["name"] or "").strip(),
+                            "email": r["email"] or ""
+                        }
+        except Exception:
+            pass
+        return result
+
+    # 3. Run MT4 query and CRM names lookup in PARALLEL — they hit different DBs.
+    # For wide spans (>1 year) use all known CIDs so names fetch starts immediately
+    # without waiting for MT4 results. For shorter spans filter to active logins after.
+    import concurrent.futures as _cf
+    wide_span = span_days > 365
+    cids_for_names = all_cids if wide_span else []   # narrow spans: wait for mt4 first
+
+    with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
+        _f_mt4   = _ex.submit(_db_retry, _fetch_mt4)
+        _f_names = _ex.submit(_fetch_crm_names_for, cids_for_names)
+        try:
+            mt4 = _f_mt4.result()
+        except Exception:
+            mt4 = {}
+        crm_names_parallel = _f_names.result()   # already done by the time mt4 finishes
+
+    # For narrow spans: cids_needed = only logins active in this period
+    if wide_span:
+        crm_names = crm_names_parallel
+    else:
+        cids_needed = list({login_to_cid[l] for l in mt4 if l in login_to_cid and login_to_cid[l]})
+        crm_names = _fetch_crm_names_for(cids_needed)
+
+    # Praxis names (preferred over CRM) — fails fast when DB is unreachable
+    praxis_names: dict = {}
     try:
         from db import praxis as praxis_ctx
         def _fetch_praxis_names():
@@ -1524,38 +1572,6 @@ def client_list(date_from=None, date_to=None) -> list:
         praxis_names = _db_retry(_fetch_praxis_names)
     except Exception:
         praxis_names = {}
-
-    # Fallback names: batch-fetch from vtiger_account using the CIDs we already have.
-    # vtiger_account.accountid = Praxis CID (26xxx/27xxx range) — correct match.
-    # The old vtiger_trading_accounts JOIN was using wrong ID ranges and caused 60s hangs.
-    crm_names: dict = {}   # {cid: {"name": ..., "email": ...}}
-    cids_needed = list({login_to_cid[l] for l in mt4 if l in login_to_cid and login_to_cid[l]})
-    if cids_needed:
-        try:
-            # Batch into 2000-item chunks — Azure SQL has parameter limits and
-            # large IN clauses cause plan cache pressure / timeouts
-            _BATCH = 2000
-            def _fetch_crm_names():
-                result = {}
-                with crm() as cur:
-                    for i in range(0, len(cids_needed), _BATCH):
-                        batch = cids_needed[i:i + _BATCH]
-                        ph = ",".join(["%s"] * len(batch))
-                        cur.execute(
-                            f"SELECT CAST(accountid AS VARCHAR(20)) AS cid,"
-                            f" RTRIM(first_name + ' ' + last_name) AS name, email"
-                            f" FROM report.vtiger_account WHERE accountid IN ({ph})",
-                            [int(c) for c in batch]
-                        )
-                        for r in cur.fetchall():
-                            result[(r["cid"] or "").strip()] = {
-                                "name": (r["name"] or "").strip(),
-                                "email": r["email"] or ""
-                            }
-                return result
-            crm_names = _db_retry(_fetch_crm_names)
-        except Exception:
-            crm_names = {}
 
     # 4. Build result rows
     rows = []

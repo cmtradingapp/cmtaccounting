@@ -24,6 +24,23 @@ try:
 except Exception as e:
     print(f"WARNING: Could not create fee tables: {e}")
 
+# Pre-warm the "all" span cache in the background after startup.
+# Runs once 60s after the server starts; result cached for 6h.
+# Prevents the first user request for ?span=all from timing out.
+def _warm_all_span_cache():
+    import time, datetime as _dt
+    time.sleep(60)
+    try:
+        df = _dt.date(2021, 1, 1)
+        dt = _dt.date.today() + _dt.timedelta(days=1)
+        queries.client_list(df, dt)
+        print("[warmup] client_list(all) cache populated")
+    except Exception as e:
+        print(f"[warmup] client_list(all) failed: {e}")
+
+import threading as _threading
+_threading.Thread(target=_warm_all_span_cache, daemon=True).start()
+
 _RECON_USER  = os.environ.get("RECON_USER",  "")
 _RECON_PASS  = os.environ.get("RECON_PASS",  "")
 _FEES_USER   = os.environ.get("FEES_USER",   "")
