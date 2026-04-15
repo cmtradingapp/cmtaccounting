@@ -188,7 +188,14 @@
     <div class="cl-step" id="cl-step-build">Building client list</div>
     <div class="cl-step" id="cl-step-group">Grouping by CID &amp; rendering</div>
   </div>
-  <div style="font-size:11px;color:var(--muted);" id="cl-elapsed">0s elapsed</div>
+  <!-- Progress bar (hidden by default, shown during background computation) -->
+  <div id="cl-progress-wrap" style="display:none;width:260px;margin-top:12px;">
+    <div style="background:var(--border);border-radius:999px;height:6px;overflow:hidden;">
+      <div id="cl-progress-bar" style="height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--green));transition:width 1s ease;"></div>
+    </div>
+    <div id="cl-progress-text" style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center;"></div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);margin-top:6px;" id="cl-elapsed">0s elapsed</div>
 </div>
 <div id="clLoading" style="display:none;"><div id="clLoadMsg"></div></div>
 
@@ -520,21 +527,28 @@ function clearDateRange(e) {
   if (btn1y) { btn1y.classList.add('active'); switchSpan('1y', btn1y); }
 }
 
+// Retry state — persists across loadData calls for background computation
+var _retryCount = 0, _retryT0 = 0, _retryTicker = null;
+
 function loadData(span){
   _span=span; document.getElementById('clScroller').style.display='none';
   var overlay=document.getElementById('cl-overlay');
   var elapsedEl=document.getElementById('cl-elapsed');
   var stepIds=['cl-step-mt4','cl-step-map','cl-step-names','cl-step-build','cl-step-group'];
-  var curStep=0,t0=Date.now();
+  var curStep=0, t0=Date.now();
   overlay.classList.remove('hidden');
+  document.getElementById('cl-progress-wrap').style.display='none';
+  document.getElementById('cl-load-title').style.color='';
   stepIds.forEach(function(s){document.getElementById(s).className='cl-step';});
   document.getElementById(stepIds[0]).className='cl-step active';
   document.getElementById('cl-load-title').textContent=span==='all'?'Loading all-time data\u2026':'Loading client data\u2026';
+  // Only reset retry state when this isn't a retry (i.e., when user actively changed span)
+  if (!_retryT0 || _retryCount === 0) { _retryT0 = Date.now(); _retryCount = 0; }
   var ticker=setInterval(function(){
     var sec=Math.round((Date.now()-t0)/1000);
     elapsedEl.textContent=sec+'s elapsed';
     var idx=sec<6?0:sec<12?1:sec<18?2:4;
-    idx=Math.min(idx,3); // don't advance to step 4 (group) until data arrives
+    idx=Math.min(idx,3);
     if(idx!==curStep){document.getElementById(stepIds[curStep]).className='cl-step done';curStep=idx;document.getElementById(stepIds[curStep]).className='cl-step active';}
   },500);
   var fetchUrl = '/clients/data?span='+span;
@@ -544,14 +558,37 @@ function loadData(span){
     .then(function(r){return r.json();})
     .then(function(data){
       clearInterval(ticker);
-      // If server is still computing (wide span, first load): auto-retry
+      if (_retryTicker) { clearInterval(_retryTicker); _retryTicker = null; }
+      // If server is still computing (wide span, first load): show progress + auto-retry
       if (data.computing) {
-        document.getElementById('cl-load-title').textContent = 'Computing all-time data\u2026 will refresh automatically';
+        _retryCount++;
+        var totalSec = Math.round((Date.now() - _retryT0) / 1000);
+        document.getElementById('cl-load-title').textContent = 'Server is computing all-time data\u2026';
         document.getElementById('cl-load-title').style.color = 'var(--yellow)';
         stepIds.forEach(function(s){document.getElementById(s).className='cl-step done';});
-        setTimeout(function(){ loadData(_span); }, 15000);
+        // Show progress bar
+        var progWrap = document.getElementById('cl-progress-wrap');
+        var progBar = document.getElementById('cl-progress-bar');
+        var progText = document.getElementById('cl-progress-text');
+        progWrap.style.display = '';
+        // Estimated: ~120s for all-time computation; cap at 95%
+        var estPct = Math.min(95, Math.round(totalSec / 120 * 100));
+        progBar.style.width = estPct + '%';
+        progText.textContent = 'Attempt ' + _retryCount + ' \u00b7 ' + totalSec + 's total \u00b7 retrying in 20s';
+        // Live timer while waiting for next retry
+        _retryTicker = setInterval(function(){
+          var sec = Math.round((Date.now() - _retryT0) / 1000);
+          var pct = Math.min(95, Math.round(sec / 120 * 100));
+          progBar.style.width = pct + '%';
+          var remaining = 20 - Math.round((Date.now() - Date.now() + 20000) / 1000);
+          progText.textContent = 'Attempt ' + _retryCount + ' \u00b7 ' + sec + 's total';
+          elapsedEl.textContent = sec + 's elapsed';
+        }, 1000);
+        setTimeout(function(){ loadData(_span); }, 20000);
         return;
       }
+      // Data received — reset retry state
+      _retryCount = 0; _retryT0 = 0;
       for(var i=0;i<4;i++) document.getElementById(stepIds[i]).className='cl-step done';
       document.getElementById(stepIds[4]).className='cl-step active';
       var rows=data.rows||[];
@@ -591,7 +628,8 @@ function downloadEquityReport(){
   setTimeout(function(){btn.textContent='\u2193 Equity Report';btn.style.pointerEvents='';},3000);
 }
 function switchSpan(s,btn){
-  _customFrom=''; _customTo='';
+  _customFrom=''; _customTo=''; _retryCount=0; _retryT0=0;
+  if(_retryTicker){clearInterval(_retryTicker);_retryTicker=null;}
   document.getElementById('clDateFrom').value='';
   document.getElementById('clDateTo').value='';
   document.getElementById('clDateRange').classList.remove('active');
