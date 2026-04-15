@@ -21,8 +21,8 @@ services:
       - ADMIN_PASS=${ADMIN_PASS:-ChangeMe2026!}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
-      # Praxis operations database (direct connection from server)
-      - PRAXIS_HOST=161.97.162.143
+      # Praxis — routed through praxis_proxy socat container (host-mode bridge)
+      - PRAXIS_HOST=praxis_proxy
       - PRAXIS_PORT=5433
       - PRAXIS_DB=operations
       - PRAXIS_USER=praxis_reader
@@ -43,11 +43,23 @@ services:
     volumes:
       - /root/recon-app:/app   # mount source → container; rsync + restart is sufficient
       - /root/recon-certs:/app/certs:ro  # dealio mTLS client certs (permissions: key=600, crt=644)
+    extra_hosts:
+      - "praxis_proxy:host-gateway"   # resolves to Docker host → socat listener on host port 5433
     networks:
       - recon_net
       - backoffice_net
     depends_on:
       - fees_postgres
+      - praxis_proxy
+
+  praxis_proxy:
+    image: alpine/socat
+    restart: unless-stopped
+    # host network mode: runs in the server's network namespace (same as SSH daemon),
+    # so it can reach 161.97.162.143:5433 even though Docker bridge cannot.
+    # Listens on 0.0.0.0:5433 on the HOST, recon connects via host-gateway.
+    network_mode: host
+    command: "TCP-LISTEN:5433,bind=0.0.0.0,reuseaddr,fork TCP:161.97.162.143:5433"
 
   fees_postgres:
     image: postgres:16-alpine
