@@ -219,7 +219,12 @@
           <tr>
             <th style="width:110px;">Date *</th>
             <th style="width:110px;">Value Date</th>
-            <th style="width:110px;">Amount *</th>
+            <th style="width:110px;">Amount *
+              <div style="font-size:9px;font-weight:400;color:var(--muted);margin-top:2px;letter-spacing:0;text-transform:none;">
+                <span style="color:var(--green);">+</span> credit &nbsp;
+                <span style="color:var(--red);">−</span> debit
+              </div>
+            </th>
             <th style="width:110px;">Balance</th>
             <th style="width:60px;">Ccy</th>
             <th style="width:120px;">Reference</th>
@@ -234,7 +239,8 @@
             <td><input type="date" name="tx_date_{{ loop.index0 }}" value="{{ tx.get('date','') }}" required></td>
             <td><input type="date" name="tx_value_date_{{ loop.index0 }}" value="{{ tx.get('value_date','') or '' }}"></td>
             <td><input type="number" name="tx_amount_{{ loop.index0 }}" step="any" class="num-input"
-                       value="{{ tx.get('amount','') }}" required onchange="recalcSummary()"></td>
+                       value="{{ tx.get('amount','') }}" required onchange="colorAmount(this);recalcSummary()"
+                       style="color:{% if tx.get('amount',0)|float > 0 %}var(--green){% elif tx.get('amount',0)|float < 0 %}var(--red){% endif %};"></td>
             <td><input type="number" name="tx_balance_{{ loop.index0 }}" step="any" class="num-input"
                        value="{{ tx.get('balance','') or '' }}"></td>
             <td><input type="text" name="tx_currency_{{ loop.index0 }}"
@@ -417,7 +423,7 @@ function makeRowHTML(idx) {
   return '<tr data-idx="' + idx + '">' +
     '<td><input type="date" name="tx_date_' + idx + '" required></td>' +
     '<td><input type="date" name="tx_value_date_' + idx + '"></td>' +
-    '<td><input type="number" name="tx_amount_' + idx + '" step="any" class="num-input" required onchange="recalcSummary()"></td>' +
+    '<td><input type="number" name="tx_amount_' + idx + '" step="any" class="num-input" required onchange="colorAmount(this);recalcSummary()"></td>' +
     '<td><input type="number" name="tx_balance_' + idx + '" step="any" class="num-input"></td>' +
     '<td><input type="text" name="tx_currency_' + idx + '" style="width:55px;"></td>' +
     '<td><input type="text" name="tx_reference_' + idx + '"></td>' +
@@ -440,6 +446,16 @@ function removeRow(btn) {
   btn.closest('tr').remove();
   recalcSummary();
 }
+
+function colorAmount(input) {
+  var v = parseFloat(input.value);
+  input.style.color = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : '';
+}
+
+// Color all pre-filled amount inputs on load
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('[name^="tx_amount_"]').forEach(colorAmount);
+});
 
 function recalcSummary() {
   var rows = document.querySelectorAll('#txBody tr');

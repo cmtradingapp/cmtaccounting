@@ -153,6 +153,45 @@ def _ai_enrich_metadata(file_bytes: bytes, filename: str, result: dict) -> None:
                 pass
 
 
+def _fill_balances(result: dict) -> None:
+    """Compute opening/closing balances from the transaction list.
+
+    Handles both ascending (oldest-first) and descending (newest-first) row order
+    by inspecting the transaction dates rather than assuming order.
+    Modifies result in-place; never overwrites an already-set balance.
+    """
+    txs = result.get("transactions", [])
+    if not txs:
+        return
+
+    balances = [t["balance"] for t in txs if t.get("balance") is not None]
+    if not balances:
+        return
+
+    # Determine chronological order from the first and last dates present
+    dates = [t["date"] for t in txs if t.get("date")]
+    newest_first = bool(dates and dates[0] > dates[-1])
+
+    if newest_first:
+        # transactions[0] = most recent → its balance = closing balance
+        # transactions[-1] = oldest → balance before it = opening balance
+        if result.get("closing_balance") is None:
+            result["closing_balance"] = txs[0]["balance"] if txs[0].get("balance") is not None else None
+        if result.get("opening_balance") is None:
+            last = txs[-1]
+            if last.get("balance") is not None and last.get("amount") is not None:
+                result["opening_balance"] = round(last["balance"] - last["amount"], 2)
+    else:
+        # transactions[0] = oldest → balance before it = opening balance
+        # transactions[-1] = most recent → its balance = closing balance
+        if result.get("opening_balance") is None:
+            first = txs[0]
+            if first.get("balance") is not None and first.get("amount") is not None:
+                result["opening_balance"] = round(first["balance"] - first["amount"], 2)
+        if result.get("closing_balance") is None:
+            result["closing_balance"] = txs[-1]["balance"] if txs[-1].get("balance") is not None else None
+
+
 def parse_bank_statement(file_bytes, filename, bank_format=None, vision_mode=False):
     """Parse a bank statement file and return structured data.
 
@@ -333,15 +372,7 @@ def _parse_nedbank_csv(file_bytes):
         }
         result["transactions"].append(tx)
 
-    # Compute opening/closing from balance column
-    if result["transactions"]:
-        balances = [t["balance"] for t in result["transactions"] if t.get("balance") is not None]
-        if balances:
-            first_tx = result["transactions"][0]
-            if first_tx.get("balance") is not None and first_tx.get("amount") is not None:
-                result["opening_balance"] = round(first_tx["balance"] - first_tx["amount"], 2)
-            result["closing_balance"] = balances[-1]
-
+    _fill_balances(result)
     return result
 
 
@@ -462,14 +493,7 @@ def _parse_generic_csv(file_bytes):
         }
         result["transactions"].append(tx)
 
-    if result["transactions"]:
-        balances = [t["balance"] for t in result["transactions"] if t.get("balance") is not None]
-        if balances:
-            first_tx = result["transactions"][0]
-            if first_tx.get("balance") is not None and first_tx.get("amount") is not None:
-                result["opening_balance"] = round(first_tx["balance"] - first_tx["amount"], 2)
-            result["closing_balance"] = balances[-1]
-
+    _fill_balances(result)
     return result
 
 
@@ -632,14 +656,7 @@ def _parse_excel(file_bytes, filename, bank_format):
         }
         result["transactions"].append(tx)
 
-    if result["transactions"]:
-        balances = [t["balance"] for t in result["transactions"] if t.get("balance") is not None]
-        if balances:
-            first_tx = result["transactions"][0]
-            if first_tx.get("balance") is not None and first_tx.get("amount") is not None:
-                result["opening_balance"] = round(first_tx["balance"] - first_tx["amount"], 2)
-            result["closing_balance"] = balances[-1]
-
+    _fill_balances(result)
     return result
 
 
