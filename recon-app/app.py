@@ -1945,8 +1945,27 @@ _bank_upload_cache = {}
 def bank_upload_confirm():
     account_id = request.form.get("bank_account_id", type=int)
     account = queries.get_bank_account(account_id) if account_id else None
+
     if not account:
-        return redirect(url_for("bank_upload"))
+        # No existing account selected — try to create from detected/edited fields
+        new_bank_name = (request.form.get("new_bank_name") or "").strip()
+        new_acct_num  = (request.form.get("new_account_number") or "").strip()
+        new_currency  = (request.form.get("new_currency") or "USD").strip()
+        new_label     = (request.form.get("new_account_label") or "").strip()
+        new_entity    = (request.form.get("new_entity") or "").strip()
+
+        if new_bank_name or new_acct_num:
+            account_id = queries.create_bank_account({
+                "bank_name":      new_bank_name or "Unknown",
+                "account_number": new_acct_num  or "UNKNOWN",
+                "account_label":  new_label,
+                "currency":       new_currency,
+                "entity":         new_entity,
+            })
+        else:
+            return render_template("bank_upload.html",
+                                   accounts=queries.get_bank_accounts(),
+                                   error="No bank account selected or detected from document.")
 
     # Collect transactions from the form
     tx_count = int(request.form.get("tx_count", 0))
