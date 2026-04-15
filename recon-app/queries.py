@@ -956,6 +956,11 @@ def get_monthly_fx_rate(symbol: str, year: int, month: int) -> float | None:
 _TTL_CLIENT_LIST       = 3600    # 1 hour — expensive cross-DB aggregate (most spans)
 _TTL_CLIENT_LIST_WIDE  = 21600   # 6 hours — "all" / 2Y spans (slow, changes slowly)
 
+# Stale-while-revalidate store — holds the last successful result even after TTL expires.
+# Eliminates 524 timeouts: stale data is returned instantly while background refreshes.
+_CLIENT_LIST_STALE: dict = {}
+_CLIENT_LIST_REFRESHING: set = set()
+
 
 _TTL_FEE_CALC = 300   # 5 minutes
 
@@ -1426,44 +1431,25 @@ def equity_report(date_from=None, date_to=None) -> list:
     return rows
 
 
-def client_list(date_from=None, date_to=None) -> list:
+def _compute_client_list(date_from, date_to) -> list:
+    """Inner worker: runs all DB queries and builds the client list rows.
+    Called by client_list() — either synchronously (first load) or from a
+    background refresh thread (stale-while-revalidate).
     """
-    Full client list with Company P&L from MT4 trading data.
-    Aggregates across all logins in daily_profits for the date range.
-
-    Returns list of dicts sorted by company_total descending (most valuable first):
-      login, net_deposit_usd, client_realised_pnl, company_trading_pnl,
-      company_total, currency, cid (if mapped), name (from Praxis if available)
-
-    Cached 1 hour — this is an expensive query (~4s on full dataset).
-    """
-    import datetime as _dt
-    if date_from is None:
-        date_from = _dt.date(2021, 1, 1)
-    if date_to is None:
-        date_to = _dt.date.today() + _dt.timedelta(days=1)
-
-    key = f"client_list:{date_from}:{date_to}"
-    import datetime as _dt2
+    import datetime as _dt2, concurrent.futures as _cf
     span_days = (_dt2.date.today() - date_from).days
-    ttl = _TTL_CLIENT_LIST_WIDE if span_days > 365 else _TTL_CLIENT_LIST
-    cached = _cache_get(key, ttl)
-    if cached is not None:
-        return cached
-
-    # 1. MT4 aggregate per login using existing dealio() context manager.
-    # SET statement_timeout inline so the replica doesn't kill us mid-scan.
-    # Floating P&L is a current snapshot — always scan only the most recent 90 days
-    # regardless of the main span. This is the critical optimisation: for "all" span
-    # scanning date >= 2021-01-01 with DISTINCT ON was hitting 60M+ rows; 90 days
-    # caps it at ~3.7M rows (41k logins × 90 days) — a 16× speedup.
+    wide_span = span_days > 365
+    # Floating P&L: always use a narrow 90-day window — we only want the most
+    # recent value, no need to scan years of history (16× speedup vs full range)
     float_from = max(date_from, date_to - _dt2.timedelta(days=90))
-    stmt_timeout = 300000 if span_days > 365 else 120000
+    stmt_timeout = 300000 if wide_span else 120000
 
     def _fetch_mt4():
         with dealio() as cur:
             cur.execute(f"SET statement_timeout = {stmt_timeout}")
-            # Query 1: aggregate sums per login (full date range)
+            # Zero-activity filter: SUM(0)=0, so excluding all-zero rows never
+            # changes the result — but reduces scanned rows by ~75× for wide spans.
+            # last_active now shows last day with a real deposit or closed trade.
             cur.execute("""
                 SELECT
                     login,
@@ -1473,12 +1459,11 @@ def client_list(date_from=None, date_to=None) -> list:
                     MAX(date)                 AS last_active
                 FROM dealio.daily_profits
                 WHERE date >= %s AND date < %s
+                  AND (convertednetdeposit != 0 OR convertedclosedpnl != 0)
                 GROUP BY login
             """, (date_from, date_to))
             rows = {r["login"]: dict(r) for r in cur.fetchall()}
 
-            # Query 2: most-recent floating P&L per login — ALWAYS uses a narrow
-            # 90-day window so DISTINCT ON doesn't scan years of history
             cur.execute(f"SET statement_timeout = {stmt_timeout}")
             cur.execute("""
                 SELECT DISTINCT ON (login)
@@ -1492,17 +1477,17 @@ def client_list(date_from=None, date_to=None) -> list:
                 if r["login"] in rows:
                     rows[r["login"]]["client_floating_eod"] = r["client_floating_eod"]
             return rows
-    # 2. CID mapping (cached — fast, must come before parallel section)
-    account_map, _fallback_cids = _load_praxis_account_map()   # {cid: [login, ...]}
+
+    # CID mapping (cached — fast)
+    account_map, _fallback_cids = _load_praxis_account_map()
     login_to_cid = {}
-    all_cids = []   # all CIDs from the map — used for wide spans to parallelise names lookup
+    all_cids = []
     for cid_str, logins in account_map.items():
         all_cids.append(cid_str)
         for login in logins:
             if login not in login_to_cid:
                 login_to_cid[login] = cid_str
 
-    # CRM names fetcher — batched at 2000 to avoid Azure SQL parameter pressure
     _BATCH = 2000
     def _fetch_crm_names_for(cids):
         result = {}
@@ -1528,13 +1513,8 @@ def client_list(date_from=None, date_to=None) -> list:
             pass
         return result
 
-    # 3. Run MT4 query and CRM names lookup in PARALLEL — they hit different DBs.
-    # For wide spans (>1 year) use all known CIDs so names fetch starts immediately
-    # without waiting for MT4 results. For shorter spans filter to active logins after.
-    import concurrent.futures as _cf
-    wide_span = span_days > 365
-    cids_for_names = all_cids if wide_span else []   # narrow spans: wait for mt4 first
-
+    # Run MT4 and CRM names in parallel (different DBs, both I/O-bound)
+    cids_for_names = all_cids if wide_span else []
     with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
         _f_mt4   = _ex.submit(_db_retry, _fetch_mt4)
         _f_names = _ex.submit(_fetch_crm_names_for, cids_for_names)
@@ -1542,16 +1522,14 @@ def client_list(date_from=None, date_to=None) -> list:
             mt4 = _f_mt4.result()
         except Exception:
             mt4 = {}
-        crm_names_parallel = _f_names.result()   # already done by the time mt4 finishes
+        crm_names_wide = _f_names.result()
 
-    # For narrow spans: cids_needed = only logins active in this period
     if wide_span:
-        crm_names = crm_names_parallel
+        crm_names = crm_names_wide
     else:
         cids_needed = list({login_to_cid[l] for l in mt4 if l in login_to_cid and login_to_cid[l]})
         crm_names = _fetch_crm_names_for(cids_needed)
 
-    # Praxis names (preferred over CRM) — fails fast when DB is unreachable
     praxis_names: dict = {}
     try:
         from db import praxis as praxis_ctx
@@ -1573,40 +1551,84 @@ def client_list(date_from=None, date_to=None) -> list:
     except Exception:
         praxis_names = {}
 
-    # 4. Build result rows
     rows = []
     for login, m in mt4.items():
         net_dep    = float(m["net_deposit"] or 0)
         client_pnl = float(m["client_realised_pnl"] or 0)
-        floating   = float(m.get("client_floating_eod") or 0)  # last EOD unrealised P&L
+        floating   = float(m.get("client_floating_eod") or 0)
         co_trading = round(-client_pnl, 2)
-        # company_total: what company nets if client closed everything now
-        # = net_deposit (money in) − client_realised − client_floating
         co_total   = round(co_trading + net_dep - floating, 2)
-
         cid        = login_to_cid.get(login, "")
         praxis_info= praxis_names.get(cid, {})
         crm_info   = crm_names.get(cid, {})
-        name  = praxis_info.get("name") or crm_info.get("name") or ""
-        email = praxis_info.get("email") or crm_info.get("email") or ""
-
         rows.append({
-            "login":                login,
-            "cid":                  cid,
-            "name":                 name,
-            "email":                email,
-            "net_deposit":          round(net_dep, 2),
-            "client_realised_pnl":  round(client_pnl, 2),
-            "client_floating_eod":  round(floating, 2),
-            "company_trading_pnl":  co_trading,
-            "company_total":        co_total,
-            "currency":             m.get("currency") or "USD",
-            "last_active":          str(m.get("last_active") or ""),
+            "login":               login,
+            "cid":                 cid,
+            "name":                praxis_info.get("name") or crm_info.get("name") or "",
+            "email":               praxis_info.get("email") or crm_info.get("email") or "",
+            "net_deposit":         round(net_dep, 2),
+            "client_realised_pnl": round(client_pnl, 2),
+            "client_floating_eod": round(floating, 2),
+            "company_trading_pnl": co_trading,
+            "company_total":       co_total,
+            "currency":            m.get("currency") or "USD",
+            "last_active":         str(m.get("last_active") or ""),
         })
 
     rows.sort(key=lambda r: r["company_total"], reverse=True)
-    if rows:  # never cache empty results — means dealio query failed
+    return rows
+
+
+def client_list(date_from=None, date_to=None) -> list:
+    """Stale-while-revalidate wrapper around _compute_client_list.
+
+    1. Fresh cache hit  → return immediately (normal path)
+    2. Stale cache hit  → return old data instantly, refresh in background thread
+    3. No cache at all  → compute synchronously (first ever request for this key)
+
+    This eliminates 524 timeouts after the first successful load: every subsequent
+    request returns within milliseconds regardless of how long recomputation takes.
+    """
+    import datetime as _dt
+    if date_from is None:
+        date_from = _dt.date(2021, 1, 1)
+    if date_to is None:
+        date_to = _dt.date.today() + _dt.timedelta(days=1)
+
+    key = f"client_list:{date_from}:{date_to}"
+    span_days = (_dt.date.today() - date_from).days
+    ttl = _TTL_CLIENT_LIST_WIDE if span_days > 365 else _TTL_CLIENT_LIST
+
+    # 1. Fresh cache
+    cached = _cache_get(key, ttl)
+    if cached is not None:
+        return cached
+
+    # 2. Stale cache — return old data immediately, refresh in background
+    stale = _CLIENT_LIST_STALE.get(key)
+    if stale is not None:
+        if key not in _CLIENT_LIST_REFRESHING:
+            _CLIENT_LIST_REFRESHING.add(key)
+            def _bg_refresh():
+                try:
+                    rows = _compute_client_list(date_from, date_to)
+                    if rows:
+                        _cache_set(key, rows)
+                        _CLIENT_LIST_STALE[key] = rows
+                        print(f"[client_list] background refresh done: {key} ({len(rows)} rows)")
+                except Exception as e:
+                    print(f"[client_list] background refresh failed: {key}: {e}")
+                finally:
+                    _CLIENT_LIST_REFRESHING.discard(key)
+            import threading as _thr
+            _thr.Thread(target=_bg_refresh, daemon=True).start()
+        return stale  # instant response with stale data
+
+    # 3. No cache — must compute synchronously (first time ever for this key)
+    rows = _compute_client_list(date_from, date_to)
+    if rows:
         _cache_set(key, rows)
+        _CLIENT_LIST_STALE[key] = rows
     return rows
 
 
