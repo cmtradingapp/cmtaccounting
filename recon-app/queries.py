@@ -3291,10 +3291,19 @@ def _ensure_bank_tables():
                 conn.execute("UPDATE bank_statements SET active = 1 WHERE active IS NULL")
             except Exception:
                 pass
+            # Migration: add matched_login to bank_transactions (avoids CRM query in recon summary)
+            try:
+                conn.execute("ALTER TABLE bank_transactions ADD COLUMN matched_login INTEGER")
+            except Exception:
+                pass
         else:
             try:
                 conn.execute("ALTER TABLE bank_statements ADD COLUMN IF NOT EXISTS active INTEGER DEFAULT 1")
                 conn.execute("UPDATE bank_statements SET active = 1 WHERE active IS NULL")
+            except Exception:
+                pass
+            try:
+                conn.execute("ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS matched_login INTEGER")
             except Exception:
                 pass
 
@@ -3751,15 +3760,25 @@ def auto_match_bank_to_crm(year: int, month: int) -> dict:
             crm_matched_ids.add(found["transactionid"])
             stats["by_pass"][4] += 1
 
-    # ── Persist matches ────────────────────────────────────────────────────
+    # ── Persist matches — also store login so bank_recon_summary avoids CRM query ──
+    # Build crm_id → login map from the CRM txns we already have in memory
+    crm_id_to_login = {}
+    for c in crm_txns:
+        tid = c.get("transactionid")
+        lg  = c.get("login")
+        if tid and lg:
+            crm_id_to_login[tid] = int(lg)
+
     if matches:
         with fees_db() as conn:
             for bank_tx_id, crm_tx_id, confidence, _ in matches:
+                login_val = crm_id_to_login.get(crm_tx_id)
                 conn.execute("""
                     UPDATE bank_transactions
-                    SET matched_crm_id = ?, match_confidence = ?, match_status = 'matched'
+                    SET matched_crm_id = ?, match_confidence = ?,
+                        match_status = 'matched', matched_login = ?
                     WHERE id = ?
-                """, (crm_tx_id, confidence, bank_tx_id))
+                """, (crm_tx_id, confidence, login_val, bank_tx_id))
 
     stats["matched"]   = len(matches)
     stats["unmatched"]  = len(bank_txns) - len(matches)
@@ -3783,30 +3802,23 @@ def bank_recon_summary(year: int, month: int) -> dict:
         return cached
 
     # Get all matched bank txns for the period
+    # matched_login is stored during auto_match_bank_to_crm — no CRM query needed here
     bank_txns = bank_transactions_for_period(year, month)
-    matched = [b for b in bank_txns if b.get("match_status") == "matched" and b.get("matched_crm_id")]
+    matched = [b for b in bank_txns if b.get("match_status") == "matched"
+               and (b.get("matched_login") or b.get("matched_crm_id"))]
 
     if not matched:
         result = {}
         _cache_set(key, result)
         return result
 
-    # Map CRM transactionid → login
-    crm_txns = crm_cash_transactions_individual(year, month)
-    crm_id_to_login = {}
-    for c in crm_txns:
-        tid = c.get("transactionid")
-        login = c.get("login")
-        if tid and login:
-            crm_id_to_login[int(tid) if isinstance(tid, (int, float)) else tid] = int(login)
-
-    # Aggregate per login
+    # Aggregate per login using stored matched_login
     result: dict = {}
     for b in matched:
-        crm_id = b["matched_crm_id"]
-        login = crm_id_to_login.get(crm_id)
+        login = b.get("matched_login")
         if not login:
             continue
+        login = int(login)
         if login not in result:
             result[login] = {"bank_deposits": 0, "bank_withdrawals": 0, "bank_net": 0, "bank_matched": 0}
         amt = b.get("amount") or 0

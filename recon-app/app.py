@@ -131,13 +131,6 @@ def recon_groups(month):
     hide_noncash  = request.args.get("hide_noncash") == "1"
     status_filter = request.args.get("status", "all")
 
-    # Auto-match bank transactions to CRM before building reconciliation
-    # (idempotent — only processes unmatched txns, fast when nothing to match)
-    try:
-        queries.auto_match_bank_to_crm(year, mon)
-    except Exception:
-        pass  # bank matching is optional; don't block recon if it fails
-
     try:
         rows      = queries.reconcile(year, mon)
         cache_age = queries.cache_age(year, mon)
@@ -611,12 +604,21 @@ def bank_match_save(month):
     if not bank_tx_id or not crm_tx_id:
         abort(400)
     from db import fees_db as _fdb
+    # Look up the login for this CRM transaction so bank_recon_summary works without CRM
+    crm_login = None
+    try:
+        year_s, mon_s = int(month[:4]), int(month[5:7])
+        crm_txns = queries.crm_cash_transactions_individual(year_s, mon_s)
+        crm_login = next((int(c["login"]) for c in crm_txns
+                          if c.get("transactionid") == crm_tx_id), None)
+    except Exception:
+        pass
     with _fdb() as conn:
         conn.execute("""
             UPDATE bank_transactions
-            SET matched_crm_id=?, match_confidence=1.0, match_status='manual'
+            SET matched_crm_id=?, match_confidence=1.0, match_status='manual', matched_login=?
             WHERE id=?
-        """, (crm_tx_id, bank_tx_id))
+        """, (crm_tx_id, crm_login, bank_tx_id))
     try:
         year, mon = int(month[:4]), int(month[5:7])
         queries.cache_invalidate(year, mon)

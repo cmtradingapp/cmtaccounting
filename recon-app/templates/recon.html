@@ -142,7 +142,6 @@
   <div class="recon-load-steps">
     <div class="recon-step" id="step-crm">Fetching CRM data</div>
     <div class="recon-step" id="step-mt4">Fetching MT4 data</div>
-    <div class="recon-step" id="step-bank">Matching bank settlements</div>
     <div class="recon-step" id="step-groups">Building client groups</div>
     <div class="recon-step" id="step-render">Rendering table</div>
   </div>
@@ -667,7 +666,7 @@ document.querySelectorAll('th[data-reconSort]').forEach(function(th) {
 (function () {
   var overlay  = document.getElementById('recon-overlay');
   var elapsed  = document.getElementById('recon-elapsed');
-  var steps    = ['step-crm','step-mt4','step-bank','step-groups','step-render'];
+  var steps    = ['step-crm','step-mt4','step-groups','step-render'];
   var stepIdx  = 0;
   var t0       = Date.now();
 
