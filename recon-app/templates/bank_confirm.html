@@ -1,6 +1,29 @@
 {% extends "base.html" %}
 {% block title %} — {% if manual_mode|default(false) %}Manual Entry{% else %}Confirm Bank Statement{% endif %}{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<style>
+  /* Tom Select dark theme (same as fees/banks pages) */
+  .ts-wrapper { width: 100%; }
+  .ts-wrapper.single .ts-control {
+    background: rgba(0,0,0,.25) !important; border: 1px solid rgba(255,255,255,.07) !important;
+    border-radius: var(--radius-sm) !important; min-height: 40px !important; height: 40px;
+    padding: 0 36px 0 12px !important; box-shadow: none !important;
+    display: flex; align-items: center; cursor: pointer !important;
+  }
+  .ts-wrapper.focus .ts-control { border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(79,142,247,.1) !important; }
+  .ts-wrapper.single .ts-control .item { color: var(--text) !important; font-size: 13px; display: flex; align-items: center; gap: 6px; flex: 1; }
+  .ts-wrapper.single .ts-control input { color: var(--text) !important; font-size: 13px !important; background: transparent !important; height: 38px !important; flex: 1; min-width: 0; }
+  .ts-wrapper.single:after { content:''; display:block; position:absolute; right:14px; top:50%; width:8px; height:8px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:translateY(-65%) rotate(45deg); pointer-events:none; }
+  .ts-dropdown { background: var(--surface-alt) !important; border: 1px solid rgba(255,255,255,.1) !important; border-radius: var(--radius-sm) !important; box-shadow: 0 8px 24px rgba(0,0,0,.5) !important; font-size: 13px !important; }
+  .ts-dropdown .ts-dropdown-content { max-height: 220px; }
+  .ts-dropdown .option { padding: 7px 12px !important; display: flex; align-items: center; gap: 8px; color: var(--text) !important; }
+  .ts-dropdown .option:hover, .ts-dropdown .option.active { background: rgba(255,255,255,.06) !important; }
+  .ts-dropdown .option.selected { color: var(--accent) !important; background: rgba(79,142,247,.08) !important; }
+  .fi { font-size: 14px; flex-shrink: 0; border-radius: 2px; }
+</style>
 <style>
   .tx-table { width: 100%; border-collapse: collapse; }
   .tx-table th {
@@ -133,15 +156,7 @@
           </label>
           <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:flex;flex-direction:column;gap:6px;">
             Currency
-            <select name="new_currency" id="newCurrencySelect">
-              {% set det_ccy = result.get('currency') or '' %}
-              {% for ccy in ['USD','EUR','ZAR','GBP','AED','NGN','KES','GHS'] %}
-              <option value="{{ ccy }}" {% if ccy == det_ccy %}selected{% endif %}>{{ ccy }}</option>
-              {% endfor %}
-              {% if det_ccy and det_ccy not in ['USD','EUR','ZAR','GBP','AED','NGN','KES','GHS'] %}
-              <option value="{{ det_ccy }}" selected>{{ det_ccy }}</option>
-              {% endif %}
-            </select>
+            <select name="new_currency" id="newCurrencySelect"></select>
           </label>
           <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:flex;flex-direction:column;gap:6px;">
             Legal Entity
@@ -244,7 +259,8 @@
             <td><input type="number" name="tx_balance_{{ loop.index0 }}" step="any" class="num-input"
                        value="{{ tx.get('balance','') or '' }}"></td>
             <td><input type="text" name="tx_currency_{{ loop.index0 }}"
-                       value="{{ tx.get('currency','') or (account.currency if account else '') }}" style="width:55px;"></td>
+                       value="{{ tx.get('currency','') or (account.currency if account else result.get('currency','')) }}"
+                       style="width:55px;text-transform:uppercase;font-weight:600;color:var(--muted);"></td>
             <td><input type="text" name="tx_reference_{{ loop.index0 }}" value="{{ tx.get('reference','') or '' }}"></td>
             <td><input type="text" name="tx_description_{{ loop.index0 }}" value="{{ tx.get('description','') or '' }}"></td>
             <td>
@@ -413,6 +429,9 @@ function overrideToExisting(sel) {
   }
 }
 
+// Detected/account currency — used to auto-fill CCY column for new rows
+var _detectedCcy = '{{ (account.currency if account else result.get("currency","")) | e }}';
+
 var _nextIdx = {{ transactions|length }};
 var _txTypes = ['deposit','withdrawal','fee','interest','transfer','other'];
 
@@ -425,7 +444,7 @@ function makeRowHTML(idx) {
     '<td><input type="date" name="tx_value_date_' + idx + '"></td>' +
     '<td><input type="number" name="tx_amount_' + idx + '" step="any" class="num-input" required onchange="colorAmount(this);recalcSummary()"></td>' +
     '<td><input type="number" name="tx_balance_' + idx + '" step="any" class="num-input"></td>' +
-    '<td><input type="text" name="tx_currency_' + idx + '" style="width:55px;"></td>' +
+    '<td><input type="text" name="tx_currency_' + idx + '" value="' + _detectedCcy + '" style="width:55px;text-transform:uppercase;font-weight:600;color:var(--muted);"></td>' +
     '<td><input type="text" name="tx_reference_' + idx + '"></td>' +
     '<td><input type="text" name="tx_description_' + idx + '"></td>' +
     '<td><select name="tx_type_' + idx + '">' + opts + '</select></td>' +
@@ -482,5 +501,48 @@ recalcSummary();
 // Start with 5 empty rows for manual entry
 addRows(5);
 {% endif %}
+
+// ── Tom Select currency picker for new-account panel ─────────────────────
+var _CUR_DATA = [
+  {v:'USD',s:'$',l:'US Dollar',i:'us'},{v:'EUR',s:'€',l:'Euro',i:'eu'},
+  {v:'GBP',s:'£',l:'British Pound',i:'gb'},{v:'ZAR',s:'R',l:'South African Rand',i:'za'},
+  {v:'AED',s:'د.إ',l:'UAE Dirham',i:'ae'},{v:'NGN',s:'₦',l:'Nigerian Naira',i:'ng'},
+  {v:'KES',s:'KSh',l:'Kenyan Shilling',i:'ke'},{v:'GHS',s:'GH₵',l:'Ghanaian Cedi',i:'gh'},
+  {v:'JPY',s:'¥',l:'Japanese Yen',i:'jp'},{v:'CHF',s:'Fr',l:'Swiss Franc',i:'ch'},
+  {v:'CAD',s:'C$',l:'Canadian Dollar',i:'ca'},{v:'AUD',s:'A$',l:'Australian Dollar',i:'au'},
+  {v:'SAR',s:'SR',l:'Saudi Riyal',i:'sa'},{v:'QAR',s:'QR',l:'Qatari Riyal',i:'qa'},
+  {v:'EGP',s:'E£',l:'Egyptian Pound',i:'eg'},{v:'MAD',s:'DH',l:'Moroccan Dirham',i:'ma'},
+  {v:'TRY',s:'₺',l:'Turkish Lira',i:'tr'},{v:'INR',s:'₹',l:'Indian Rupee',i:'in'},
+  {v:'CNY',s:'¥',l:'Chinese Yuan',i:'cn'},{v:'BRL',s:'R$',l:'Brazilian Real',i:'br'},
+  {v:'SEK',s:'kr',l:'Swedish Krona',i:'se'},{v:'NOK',s:'kr',l:'Norwegian Krone',i:'no'},
+  {v:'PLN',s:'zł',l:'Polish Złoty',i:'pl'},{v:'UGX',s:'USh',l:'Ugandan Shilling',i:'ug'},
+  {v:'TZS',s:'TSh',l:'Tanzanian Shilling',i:'tz'},{v:'ZMW',s:'ZK',l:'Zambian Kwacha',i:'zm'},
+  {v:'MUR',s:'₨',l:'Mauritian Rupee',i:'mu'},{v:'XOF',s:'CFA',l:'West African CFA',i:'sn'},
+  {v:'XAF',s:'FCFA',l:'Central African CFA',i:'cm'},{v:'BWP',s:'P',l:'Botswana Pula',i:'bw'},
+  {v:'HKD',s:'HK$',l:'Hong Kong Dollar',i:'hk'},{v:'SGD',s:'S$',l:'Singapore Dollar',i:'sg'},
+];
+function _cfiHtml(iso) { return iso ? '<span class="fi fi-'+iso+'"></span>' : ''; }
+var _newCcySel = document.getElementById('newCurrencySelect');
+if (_newCcySel) {
+  var _initCcy = _detectedCcy || 'USD';
+  new TomSelect(_newCcySel, {
+    valueField:'v', labelField:'v', searchField:['v','l','s'],
+    options: _CUR_DATA, items:[_initCcy],
+    maxItems:1, allowEmptyOption:false, maxOptions:100,
+    render:{
+      option: function(d){
+        return '<div style="display:flex;align-items:center;gap:10px;">'+_cfiHtml(d.i)+
+          '<span style="background:rgba(255,255,255,.1);border-radius:4px;padding:1px 7px;font-family:monospace;font-weight:700;font-size:12px;">'+d.s+'</span>'+
+          '<span style="font-weight:600;">'+d.v+'</span>'+
+          '<span style="color:var(--muted);font-size:12px;">'+d.l+'</span></div>';
+      },
+      item: function(d){
+        return '<div style="display:flex;align-items:center;gap:7px;">'+_cfiHtml(d.i)+
+          '<span style="font-family:monospace;font-weight:700;font-size:13px;color:var(--accent);">'+d.s+'</span>'+
+          '<span>'+d.v+'</span></div>';
+      }
+    }
+  });
+}
 </script>
 {% endblock %}
