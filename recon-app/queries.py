@@ -2180,7 +2180,6 @@ def client_mt4_detail(login: int, date_from, date_to) -> list:
                 FROM dealio.daily_profits
                 WHERE login = %s
                   AND date >= %s AND date < %s
-                  AND netdeposit != 0
                 ORDER BY date
             """, (login, date_from, date_to))
             return [dict(r) for r in cur.fetchall()]
