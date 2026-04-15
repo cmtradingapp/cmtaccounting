@@ -36,7 +36,13 @@ def _db_retry(fn, max_attempts: int = 4, base_delay: float = 1.0):
         except psycopg2.Error as exc:
             msg = str(exc)
             code = getattr(exc, 'pgcode', '') or ''
-            is_conflict = 'conflict with recovery' in msg or code in ('57014', '40001')
+            is_conflict = (
+                'conflict with recovery' in msg
+                or 'server closed the connection unexpectedly' in msg
+                or 'connection to server' in msg and 'failed' in msg
+                or 'SSL connection has been closed unexpectedly' in msg
+                or code in ('57014', '40001', '08006', '08001', '08004')
+            )
             if is_conflict and attempt < max_attempts - 1:
                 last_exc = exc
                 time.sleep(base_delay * (attempt + 1))   # 1s, 2s, 3s
