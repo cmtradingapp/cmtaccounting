@@ -131,6 +131,13 @@ def recon_groups(month):
     hide_noncash  = request.args.get("hide_noncash") == "1"
     status_filter = request.args.get("status", "all")
 
+    # Auto-match bank transactions to CRM before building reconciliation
+    # (idempotent — only processes unmatched txns, fast when nothing to match)
+    try:
+        queries.auto_match_bank_to_crm(year, mon)
+    except Exception:
+        pass  # bank matching is optional; don't block recon if it fails
+
     try:
         rows      = queries.reconcile(year, mon)
         cache_age = queries.cache_age(year, mon)
