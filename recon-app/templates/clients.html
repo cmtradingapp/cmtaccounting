@@ -11,6 +11,38 @@
   .cl-span-btn:hover { border-color:rgba(255,255,255,.2); color:var(--text); }
   .cl-span-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.08); }
 
+  /* Custom date range picker */
+  .cl-daterange {
+    display:inline-flex; align-items:center; gap:6px;
+    height:30px; padding:0 12px;
+    border:1px solid var(--border); border-radius:999px;
+    background:transparent; cursor:pointer;
+    transition:border-color .15s, background .15s;
+    position:relative;
+  }
+  .cl-daterange:hover { border-color:rgba(255,255,255,.2); }
+  .cl-daterange.active { border-color:var(--accent); background:rgba(79,142,247,.08); }
+  .cl-daterange-icon { font-size:12px; color:var(--muted); flex-shrink:0; }
+  .cl-date-input {
+    background:transparent; border:none; outline:none;
+    color:var(--text); font-size:12px; font-weight:600;
+    font-family:inherit; color-scheme:dark; cursor:pointer;
+    width:94px; padding:0;
+  }
+  .cl-date-input::-webkit-calendar-picker-indicator {
+    opacity:0; position:absolute; width:100%; height:100%; cursor:pointer;
+  }
+  .cl-daterange-sep {
+    font-size:11px; color:var(--muted); font-weight:400; flex-shrink:0;
+  }
+  .cl-daterange-clear {
+    background:none; border:none; color:var(--muted); cursor:pointer;
+    font-size:14px; line-height:1; padding:0 2px; opacity:0;
+    transition:opacity .15s, color .15s; flex-shrink:0;
+  }
+  .cl-daterange.active .cl-daterange-clear { opacity:1; }
+  .cl-daterange-clear:hover { color:var(--red); }
+
   .cl-stats { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:var(--sp-4); }
   .cl-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 18px; }
   .cl-stat .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:5px; }
@@ -79,11 +111,23 @@
       {{ span_label }} &nbsp;<span id="clCacheAge"></span>
     </div>
   </div>
-  <div style="display:flex;gap:6px;align-items:center;">
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
     {% for s,lbl in [('1w','1W'),('1m','1M'),('3m','3M'),('6m','6M'),('1y','1Y'),('2y','2Y'),('all','All')] %}
     <a class="cl-span-btn {% if span==s %}active{% endif %}"
        href="/clients?span={{ s }}" onclick="event.preventDefault();switchSpan('{{ s }}',this)">{{ lbl }}</a>
     {% endfor %}
+
+    <!-- Custom date range picker -->
+    <div class="cl-daterange" id="clDateRange" onclick="focusDatePicker(event)">
+      <span class="cl-daterange-icon">&#128197;</span>
+      <input type="date" id="clDateFrom" class="cl-date-input" placeholder="From"
+             onchange="onDateChange()" title="Start date">
+      <span class="cl-daterange-sep">&#8594;</span>
+      <input type="date" id="clDateTo" class="cl-date-input" placeholder="To"
+             onchange="onDateChange()" title="End date">
+      <button class="cl-daterange-clear" id="clDateClear"
+              onclick="clearDateRange(event)" title="Clear custom range">&#10005;</button>
+    </div>
   </div>
 </div>
 
@@ -410,6 +454,45 @@ document.querySelectorAll('#clTable th[data-col]').forEach(function(th){
   });
 });
 
+var _customFrom = '', _customTo = '';
+
+function focusDatePicker(e) {
+  // If click lands outside the inputs, focus the empty one
+  if (e.target.classList.contains('cl-date-input') || e.target.classList.contains('cl-daterange-clear')) return;
+  var from = document.getElementById('clDateFrom');
+  var to   = document.getElementById('clDateTo');
+  if (!from.value) { from.showPicker && from.showPicker(); from.focus(); }
+  else if (!to.value) { to.showPicker && to.showPicker(); to.focus(); }
+}
+
+function onDateChange() {
+  var from = document.getElementById('clDateFrom').value;
+  var to   = document.getElementById('clDateTo').value;
+  var wrap = document.getElementById('clDateRange');
+  if (from && to && from <= to) {
+    _customFrom = from; _customTo = to;
+    wrap.classList.add('active');
+    // Deactivate preset span buttons
+    document.querySelectorAll('a.cl-span-btn').forEach(function(b){b.classList.remove('active');});
+    history.replaceState(null,'','/clients?date_from='+from+'&date_to='+to);
+    loadData('custom');
+  } else if (from || to) {
+    wrap.classList.add('active');
+  }
+}
+
+function clearDateRange(e) {
+  e.stopPropagation();
+  _customFrom = ''; _customTo = '';
+  document.getElementById('clDateFrom').value = '';
+  document.getElementById('clDateTo').value   = '';
+  document.getElementById('clDateRange').classList.remove('active');
+  // Reactivate 1Y
+  var btn1y = document.querySelector('a.cl-span-btn[href="/clients?span=1y"]') ||
+              document.querySelector('a.cl-span-btn');
+  if (btn1y) { btn1y.classList.add('active'); switchSpan('1y', btn1y); }
+}
+
 function loadData(span){
   _span=span; document.getElementById('clScroller').style.display='none';
   var overlay=document.getElementById('cl-overlay');
@@ -427,7 +510,10 @@ function loadData(span){
     idx=Math.min(idx,3); // don't advance to step 4 (group) until data arrives
     if(idx!==curStep){document.getElementById(stepIds[curStep]).className='cl-step done';curStep=idx;document.getElementById(stepIds[curStep]).className='cl-step active';}
   },500);
-  fetch('/clients/data?span='+span)
+  var fetchUrl = '/clients/data?span='+span;
+  if (_customFrom && _customTo && span==='custom')
+    fetchUrl = '/clients/data?date_from='+_customFrom+'&date_to='+_customTo;
+  fetch(fetchUrl)
     .then(function(r){return r.json();})
     .then(function(data){
       clearInterval(ticker);
@@ -470,7 +556,11 @@ function downloadEquityReport(){
   setTimeout(function(){btn.textContent='\u2193 Equity Report';btn.style.pointerEvents='';},3000);
 }
 function switchSpan(s,btn){
-  document.querySelectorAll('.cl-span-btn').forEach(function(b){b.classList.remove('active');});
+  _customFrom=''; _customTo='';
+  document.getElementById('clDateFrom').value='';
+  document.getElementById('clDateTo').value='';
+  document.getElementById('clDateRange').classList.remove('active');
+  document.querySelectorAll('a.cl-span-btn').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active'); history.replaceState(null,'','/clients?span='+s); loadData(s);
 }
 

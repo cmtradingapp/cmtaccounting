@@ -214,14 +214,25 @@ def clients_equity_report():
 def clients_data():
     """JSON endpoint for client list — used by the JS virtual table."""
     import datetime as _dt
-    span = request.args.get("span", "1y")
-    span_map = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365,"2y":730,"all":0}
+    span  = request.args.get("span", "1y")
     today = _dt.date.today()
-    if span == "all":
-        date_from = _dt.date(2021,1,1)
+    # Custom explicit date range overrides span
+    df_str = request.args.get("date_from", "")
+    dt_str = request.args.get("date_to",   "")
+    if df_str and dt_str:
+        try:
+            date_from = _dt.date.fromisoformat(df_str)
+            date_to   = _dt.date.fromisoformat(dt_str) + _dt.timedelta(days=1)
+        except ValueError:
+            date_from = today - _dt.timedelta(days=365)
+            date_to   = today + _dt.timedelta(days=1)
     else:
-        date_from = today - _dt.timedelta(days=span_map.get(span,365))
-    date_to = today + _dt.timedelta(days=1)
+        span_map = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365,"2y":730,"all":0}
+        if span == "all":
+            date_from = _dt.date(2021,1,1)
+        else:
+            date_from = today - _dt.timedelta(days=span_map.get(span,365))
+        date_to = today + _dt.timedelta(days=1)
     try:
         rows = queries.client_list(date_from, date_to)
         cache_age = queries.cache_age_key(f"client_list:{date_from}:{date_to}")
