@@ -1,6 +1,29 @@
 {% extends "base.html" %}
 {% block title %} — Bank Statements{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<style>
+  /* Tom Select — dark theme */
+  .ts-wrapper { width: 100%; }
+  .ts-wrapper.single .ts-control {
+    background: rgba(0,0,0,.25) !important; border: 1px solid rgba(255,255,255,.07) !important;
+    border-radius: var(--radius-sm) !important; min-height: 40px !important; height: 40px;
+    padding: 0 36px 0 12px !important; box-shadow: none !important;
+    display: flex; align-items: center; cursor: pointer !important;
+  }
+  .ts-wrapper.focus .ts-control { border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(79,142,247,.1) !important; }
+  .ts-wrapper.single .ts-control .item { color: var(--text) !important; font-size: 13px; display: flex; align-items: center; gap: 6px; flex: 1; }
+  .ts-wrapper.single .ts-control input { color: var(--text) !important; font-size: 13px !important; background: transparent !important; height: 38px !important; flex: 1; min-width: 0; }
+  .ts-wrapper.single:after { content:''; display:block; position:absolute; right:14px; top:50%; width:8px; height:8px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:translateY(-65%) rotate(45deg); pointer-events:none; }
+  .ts-dropdown { background: var(--surface-alt) !important; border: 1px solid rgba(255,255,255,.1) !important; border-radius: var(--radius-sm) !important; box-shadow: 0 8px 24px rgba(0,0,0,.5) !important; font-size: 13px !important; }
+  .ts-dropdown .ts-dropdown-content { max-height: 220px; }
+  .ts-dropdown .option { padding: 7px 12px !important; display: flex; align-items: center; gap: 8px; color: var(--text) !important; }
+  .ts-dropdown .option:hover, .ts-dropdown .option.active { background: rgba(255,255,255,.06) !important; }
+  .ts-dropdown .option.selected { color: var(--accent) !important; background: rgba(79,142,247,.08) !important; }
+  .fi { font-size: 14px; flex-shrink: 0; border-radius: 2px; }
+</style>
 <style>
   .tab-bar {
     display: flex; gap: 2px; margin-bottom: var(--sp-3);
@@ -316,11 +339,7 @@
                    placeholder="e.g. Client Funds, Marketing">
           </label>
           <label>Currency
-            <select name="currency" id="f_currency">
-              {% for c in ['USD','EUR','GBP','ZAR','AED','NGN','KES'] %}
-              <option value="{{ c }}">{{ c }}</option>
-              {% endfor %}
-            </select>
+            <select name="currency" id="f_currency"></select>
           </label>
         </div>
         <div class="form-row cols-1">
@@ -349,13 +368,66 @@ function switchTab(tab) {
   });
 }
 
+/* ── Currency picker (same data as fees page) ─────────────────────────── */
+var CURRENCIES_DATA = [
+  {v:'USD',s:'$',l:'US Dollar',i:'us'},{v:'EUR',s:'€',l:'Euro',i:'eu'},
+  {v:'GBP',s:'£',l:'British Pound',i:'gb'},{v:'ZAR',s:'R',l:'South African Rand',i:'za'},
+  {v:'AED',s:'د.إ',l:'UAE Dirham',i:'ae'},{v:'NGN',s:'₦',l:'Nigerian Naira',i:'ng'},
+  {v:'KES',s:'KSh',l:'Kenyan Shilling',i:'ke'},{v:'GHS',s:'GH₵',l:'Ghanaian Cedi',i:'gh'},
+  {v:'JPY',s:'¥',l:'Japanese Yen',i:'jp'},{v:'CHF',s:'Fr',l:'Swiss Franc',i:'ch'},
+  {v:'CAD',s:'C$',l:'Canadian Dollar',i:'ca'},{v:'AUD',s:'A$',l:'Australian Dollar',i:'au'},
+  {v:'HKD',s:'HK$',l:'Hong Kong Dollar',i:'hk'},{v:'SGD',s:'S$',l:'Singapore Dollar',i:'sg'},
+  {v:'SAR',s:'SR',l:'Saudi Riyal',i:'sa'},{v:'QAR',s:'QR',l:'Qatari Riyal',i:'qa'},
+  {v:'KWD',s:'KD',l:'Kuwaiti Dinar',i:'kw'},{v:'BHD',s:'BD',l:'Bahraini Dinar',i:'bh'},
+  {v:'OMR',s:'RO',l:'Omani Rial',i:'om'},{v:'EGP',s:'E£',l:'Egyptian Pound',i:'eg'},
+  {v:'MAD',s:'DH',l:'Moroccan Dirham',i:'ma'},{v:'TRY',s:'₺',l:'Turkish Lira',i:'tr'},
+  {v:'INR',s:'₹',l:'Indian Rupee',i:'in'},{v:'CNY',s:'¥',l:'Chinese Yuan',i:'cn'},
+  {v:'BRL',s:'R$',l:'Brazilian Real',i:'br'},{v:'MXN',s:'$',l:'Mexican Peso',i:'mx'},
+  {v:'SEK',s:'kr',l:'Swedish Krona',i:'se'},{v:'NOK',s:'kr',l:'Norwegian Krone',i:'no'},
+  {v:'PLN',s:'zł',l:'Polish Złoty',i:'pl'},{v:'UGX',s:'USh',l:'Ugandan Shilling',i:'ug'},
+  {v:'TZS',s:'TSh',l:'Tanzanian Shilling',i:'tz'},{v:'ZMW',s:'ZK',l:'Zambian Kwacha',i:'zm'},
+  {v:'BWP',s:'P',l:'Botswana Pula',i:'bw'},{v:'MUR',s:'₨',l:'Mauritian Rupee',i:'mu'},
+  {v:'XOF',s:'CFA',l:'West African CFA',i:'sn'},{v:'XAF',s:'FCFA',l:'Central African CFA',i:'cm'},
+];
+
+function currencyFlagHtml(iso) {
+  return iso ? '<span class="fi fi-' + iso + '"></span>' : '';
+}
+
+var currencyTS = new TomSelect('#f_currency', {
+  valueField:  'v',
+  labelField:  'v',
+  searchField: ['v', 'l', 's'],
+  options:     CURRENCIES_DATA,
+  items:       ['USD'],
+  maxItems:    1,
+  allowEmptyOption: false,
+  maxOptions:  100,
+  render: {
+    option: function(d) {
+      return '<div style="display:flex;align-items:center;gap:10px;">' +
+             currencyFlagHtml(d.i) +
+             '<span style="background:rgba(255,255,255,.1);border-radius:4px;padding:1px 7px;' +
+             'font-family:monospace;font-weight:700;font-size:12px;min-width:28px;text-align:center;">' + d.s + '</span>' +
+             '<span style="font-weight:600;">' + d.v + '</span>' +
+             '<span style="color:var(--muted);font-size:12px;">' + d.l + '</span></div>';
+    },
+    item: function(d) {
+      return '<div style="display:flex;align-items:center;gap:7px;">' +
+             currencyFlagHtml(d.i) +
+             '<span style="font-family:monospace;font-weight:700;font-size:13px;color:var(--accent);">' + d.s + '</span>' +
+             '<span>' + d.v + '</span></div>';
+    },
+  }
+});
+
 function openAddAccount() {
   document.getElementById('modalTitle').textContent = 'Add Bank Account';
   document.getElementById('accountForm').action = '/banks/accounts/add';
   document.getElementById('f_bank_name').value = '';
   document.getElementById('f_account_number').value = '';
   document.getElementById('f_account_label').value = '';
-  document.getElementById('f_currency').value = 'USD';
+  currencyTS.setValue('USD', true);
   document.getElementById('f_entity').value = '';
   document.getElementById('accountModal').classList.add('open');
 }
@@ -366,7 +438,7 @@ function openEditAccount(id, bank, acctNum, label, ccy, entity) {
   document.getElementById('f_bank_name').value = bank;
   document.getElementById('f_account_number').value = acctNum;
   document.getElementById('f_account_label').value = label;
-  document.getElementById('f_currency').value = ccy;
+  currencyTS.setValue(ccy || 'USD', true);
   document.getElementById('f_entity').value = entity;
   document.getElementById('accountModal').classList.add('open');
 }
