@@ -1468,9 +1468,6 @@ def _compute_client_list(date_from, date_to) -> list:
     def _fetch_mt4():
         with dealio() as cur:
             cur.execute(f"SET statement_timeout = {stmt_timeout}")
-            # Zero-activity filter: SUM(0)=0, so excluding all-zero rows never
-            # changes the result — but reduces scanned rows by ~75× for wide spans.
-            # last_active now shows last day with a real deposit or closed trade.
             cur.execute("""
                 SELECT
                     login,
@@ -1480,7 +1477,6 @@ def _compute_client_list(date_from, date_to) -> list:
                     MAX(date)                 AS last_active
                 FROM dealio.daily_profits
                 WHERE date >= %s AND date < %s
-                  AND (convertednetdeposit != 0 OR convertedclosedpnl != 0)
                 GROUP BY login
             """, (date_from, date_to))
             rows = {r["login"]: dict(r) for r in cur.fetchall()}
