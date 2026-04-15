@@ -261,7 +261,8 @@ def clients_data():
             "computing": computing, "error": error_msg}
     if computing:
         prog = queries.get_client_list_progress(date_from, date_to)
-        resp["stage"] = prog["stage"] if prog else "Starting computation\u2026"
+        resp["stage"]     = prog["stage"] if prog else "Starting computation\u2026"
+        resp["stage_num"] = prog["num"]   if prog else 0
     return jsonify(resp)
 
 

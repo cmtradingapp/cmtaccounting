@@ -1462,14 +1462,19 @@ def _compute_client_list(date_from, date_to) -> list:
     span_days = (_dt2.date.today() - date_from).days
     wide_span = span_days > 365
     _prog_key = f"client_list:{date_from}:{date_to}"
-    def _set_stage(s):
-        _CLIENT_LIST_PROGRESS[_prog_key] = {"stage": s, "started": _CLIENT_LIST_PROGRESS.get(_prog_key, {}).get("started", _time.time())}
+    _stage_n = [0]
+    def _set_stage(s, n):
+        _stage_n[0] = n
+        _CLIENT_LIST_PROGRESS[_prog_key] = {
+            "stage": s, "num": n,
+            "started": _CLIENT_LIST_PROGRESS.get(_prog_key, {}).get("started", _time.time())
+        }
     # Floating P&L: always use a narrow 90-day window — we only want the most
     # recent value, no need to scan years of history (16× speedup vs full range)
     float_from = max(date_from, date_to - _dt2.timedelta(days=90))
     stmt_timeout = 300000 if wide_span else 120000
 
-    _set_stage("Querying MT4 deposits & P&L\u2026")
+    _set_stage("Querying MT4 deposits & P&L\u2026", 1)
 
     def _fetch_mt4():
         with dealio() as cur:
@@ -1501,7 +1506,7 @@ def _compute_client_list(date_from, date_to) -> list:
                     rows[r["login"]]["client_floating_eod"] = r["client_floating_eod"]
             return rows
 
-    _set_stage("Loading CRM account mappings\u2026")
+    _set_stage("Loading CRM account mappings\u2026", 2)
     # CID mapping (cached — fast)
     account_map, _fallback_cids = _load_praxis_account_map()
     login_to_cid = {}
@@ -1537,7 +1542,7 @@ def _compute_client_list(date_from, date_to) -> list:
             pass
         return result
 
-    _set_stage("Querying MT4 + fetching client names\u2026")
+    _set_stage("Querying MT4 + fetching client names\u2026", 3)
     # Run MT4 and CRM names in parallel (different DBs, both I/O-bound)
     cids_for_names = all_cids if wide_span else []
     with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
@@ -1577,7 +1582,7 @@ def _compute_client_list(date_from, date_to) -> list:
     except Exception:
         praxis_names = {}
 
-    _set_stage("Building result rows\u2026")
+    _set_stage("Building result rows\u2026", 4)
     rows = []
     for login, m in mt4.items():
         net_dep    = float(m["net_deposit"] or 0)

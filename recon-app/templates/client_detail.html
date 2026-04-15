@@ -223,8 +223,8 @@
         {% if mt4_rows %}
           {% set totals = namespace(net=0, pnl=0) %}
           {% for r in mt4_rows %}
-          {% set _ = totals.__setattr__('net', totals.net + (r.convertednetdeposit or 0)) %}
-          {% set _ = totals.__setattr__('pnl', totals.pnl + (r.closedpnl or 0)) %}
+          {% set totals.net = totals.net + (r.convertednetdeposit or 0) %}
+          {% set totals.pnl = totals.pnl + (r.closedpnl or 0) %}
           <tr>
             <td>{{ r.date }}</td>
             <td class="num {% if (r.netdeposit or 0) > 0 %}pos{% else %}neg{% endif %}">{{ "{:+,.2f}".format(r.netdeposit or 0) }}</td>

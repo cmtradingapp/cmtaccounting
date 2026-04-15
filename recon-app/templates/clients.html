@@ -535,7 +535,7 @@ function clearDateRange(e) {
 }
 
 // Retry state — persists across loadData calls for background computation
-var _retryCount = 0, _retryT0 = 0, _retryTicker = null;
+var _retryCount = 0, _retryT0 = 0, _retryTicker = null, _maxStageNum = 0;
 
 function loadData(span){
   _span=span;
@@ -582,7 +582,12 @@ function loadData(span){
         // Show real progress from server
         var progWrap = document.getElementById('cl-progress-wrap');
         progWrap.style.display = '';
-        document.getElementById('cl-progress-stage').textContent = data.stage || 'Working\u2026';
+        // Only update stage text if stage is advancing (never go backward)
+        var newNum = data.stage_num || 0;
+        if (newNum >= _maxStageNum) {
+          _maxStageNum = newNum;
+          document.getElementById('cl-progress-stage').textContent = data.stage || 'Working\u2026';
+        }
         document.getElementById('cl-progress-text').textContent =
           'Attempt ' + _retryCount + ' \u00b7 ' + totalSec + 's total';
         // Live elapsed timer while waiting
@@ -644,7 +649,7 @@ function downloadEquityReport(){
   setTimeout(function(){btn.textContent='\u2193 Equity Report';btn.style.pointerEvents='';},3000);
 }
 function switchSpan(s,btn){
-  _customFrom=''; _customTo=''; _retryCount=0; _retryT0=0;
+  _customFrom=''; _customTo=''; _retryCount=0; _retryT0=0; _maxStageNum=0;
   if(_retryTicker){clearInterval(_retryTicker);_retryTicker=null;}
   document.getElementById('clDateFrom').value='';
   document.getElementById('clDateTo').value='';
