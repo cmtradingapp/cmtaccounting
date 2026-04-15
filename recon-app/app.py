@@ -25,11 +25,11 @@ except Exception as e:
     print(f"WARNING: Could not create fee tables: {e}")
 
 # Pre-warm the "all" span cache in the background after startup.
-# Runs once 60s after the server starts; result cached for 6h.
-# Prevents the first user request for ?span=all from timing out.
+# Runs 10s after server start; result cached for 6h.
+# User requests before this finishes get an empty "computing" response + auto-retry.
 def _warm_all_span_cache():
     import time, datetime as _dt
-    time.sleep(60)
+    time.sleep(10)
     try:
         df = _dt.date(2021, 1, 1)
         dt = _dt.date.today() + _dt.timedelta(days=1)
@@ -249,8 +249,11 @@ def clients_data():
     except Exception:
         rows = []
         cache_age = None
+    # If empty result AND background computation is running, tell frontend to retry
+    computing = not rows and queries.is_client_list_computing()
     return jsonify({"rows": rows, "cache_age": cache_age,
-                    "date_from": str(date_from), "date_to": str(date_to)})
+                    "date_from": str(date_from), "date_to": str(date_to),
+                    "computing": computing})
 
 
 @app.route("/clients")

@@ -1431,6 +1431,10 @@ def equity_report(date_from=None, date_to=None) -> list:
     return rows
 
 
+def is_client_list_computing():
+    return bool(_CLIENT_LIST_REFRESHING)
+
+
 def _compute_client_list(date_from, date_to) -> list:
     """Inner worker: runs all DB queries and builds the client list rows.
     Called by client_list() — either synchronously (first load) or from a
@@ -1624,7 +1628,27 @@ def client_list(date_from=None, date_to=None) -> list:
             _thr.Thread(target=_bg_refresh, daemon=True).start()
         return stale  # instant response with stale data
 
-    # 3. No cache — must compute synchronously (first time ever for this key)
+    # 3. No cache — for wide spans, compute in background and return empty
+    #    (avoids Cloudflare 524 — first load served by startup warmup or retry)
+    if span_days > 365:
+        if key not in _CLIENT_LIST_REFRESHING:
+            _CLIENT_LIST_REFRESHING.add(key)
+            def _bg_first():
+                try:
+                    rows = _compute_client_list(date_from, date_to)
+                    if rows:
+                        _cache_set(key, rows)
+                        _CLIENT_LIST_STALE[key] = rows
+                        print(f"[client_list] first compute done: {key} ({len(rows)} rows)")
+                except Exception as e:
+                    print(f"[client_list] first compute failed: {key}: {e}")
+                finally:
+                    _CLIENT_LIST_REFRESHING.discard(key)
+            import threading as _thr
+            _thr.Thread(target=_bg_first, daemon=True).start()
+        return []  # frontend will detect empty + computing flag and auto-retry
+
+    # For narrow spans (≤1 year): compute synchronously — fast enough (<30s)
     rows = _compute_client_list(date_from, date_to)
     if rows:
         _cache_set(key, rows)
