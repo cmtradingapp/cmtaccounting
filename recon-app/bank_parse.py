@@ -530,16 +530,36 @@ def _extract_html_metadata(file_bytes):
 
     # Currency — common name → ISO code
     _CCY_MAP = {
+        # full phrases first (matched before single words)
+        "us dollar": "USD", "united states dollar": "USD",
+        "australian dollar": "AUD", "canadian dollar": "CAD",
+        "hong kong dollar": "HKD", "new zealand dollar": "NZD",
+        "singapore dollar": "SGD",
+        "british pound": "GBP", "pound sterling": "GBP",
+        "south african rand": "ZAR",
+        "uae dirham": "AED", "emirati dirham": "AED",
+        "saudi riyal": "SAR", "qatari riyal": "QAR",
+        "west african cfa": "XOF", "central african cfa": "XAF",
+        # single words — tried last
         "naira": "NGN", "dollar": "USD", "euro": "EUR", "pound": "GBP",
         "rand": "ZAR", "dirham": "AED", "cedi": "GHS", "shilling": "KES",
-        "franc": "XOF",
+        "franc": "XOF", "riyal": "SAR", "rial": "OMR",
+        "rupee": "INR", "lira": "TRY", "won": "KRW", "yen": "JPY",
+        "yuan": "CNY", "renminbi": "CNY", "kwacha": "ZMW",
     }
-    m = re.search(r"Currency[:\s]+([A-Za-z\s]{3,20}?)(?:\s{2,}|\n|Period|Opening)", plain, re.IGNORECASE)
+    m = re.search(r"Currency[:\s]+([A-Za-z\s]{3,40}?)(?:\s{2,}|\n|Period|Opening|Account)", plain, re.IGNORECASE)
     if m:
         ccy_raw = m.group(1).strip().lower()
-        meta["currency"] = _CCY_MAP.get(ccy_raw, ccy_raw.upper()[:3])
-    # Also check for explicit ISO code
-    m2 = re.search(r"\b(NGN|USD|EUR|GBP|ZAR|AED|GHS|KES|XOF|XAF)\b", plain)
+        # Try full phrase first, then word-by-word (last word = most specific, e.g. "US Dollar" → "dollar")
+        ccy = _CCY_MAP.get(ccy_raw)
+        if not ccy:
+            for word in reversed(ccy_raw.split()):
+                ccy = _CCY_MAP.get(word)
+                if ccy:
+                    break
+        meta["currency"] = ccy or ccy_raw.upper()[:3].strip()
+    # Also check for explicit ISO code anywhere in the header
+    m2 = re.search(r"\b(NGN|USD|EUR|GBP|ZAR|AED|GHS|KES|XOF|XAF|SAR|QAR|AUD|CAD|HKD|SGD)\b", plain)
     if m2 and "currency" not in meta:
         meta["currency"] = m2.group(1)
 
