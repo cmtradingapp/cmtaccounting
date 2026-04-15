@@ -207,6 +207,13 @@
         <div>Transactions</div>
         <div class="val" id="txCount">0</div>
       </div>
+      <div class="summary-item" style="margin-left:auto;">
+        <div>Currency</div>
+        <div class="val" style="font-size:18px;">
+          {% set ccy = (account.currency if account else None) or result.get('currency') or '?' %}
+          {{ ccy }}
+        </div>
+      </div>
     </div>
 
     <!-- Transaction table -->
@@ -261,16 +268,112 @@
 
     <div class="form-footer" style="margin-top:24px;">
       <div class="form-footer-actions">
+        {% if not account and not manual_mode|default(false) %}
+        <button type="button" class="btn btn-primary" id="saveBtn" onclick="showSaveConfirm()">
+          &#10003; Save Statement ({{ transactions|length }} transactions)
+        </button>
+        {% else %}
         <button type="submit" class="btn btn-primary" id="saveBtn">
           &#10003; Save Statement ({{ transactions|length }} transactions)
         </button>
+        {% endif %}
         <a href="/banks" class="btn btn-cancel">Discard</a>
       </div>
     </div>
   </form>
 </div>
 
+<!-- New-account confirmation modal -->
+{% if not account and not manual_mode|default(false) %}
+<div id="saveConfirmModal" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:28px 32px;max-width:480px;width:calc(100% - 32px);box-shadow:0 16px 48px rgba(0,0,0,.5);">
+    <div style="font-size:16px;font-weight:700;margin-bottom:6px;">Create new bank account?</div>
+    <div style="font-size:13px;color:var(--text-2);margin-bottom:20px;">The following account will be created and this statement will be saved under it.</div>
+
+    <div style="background:var(--surface-alt);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:20px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;font-size:13px;">
+        <div><span style="color:var(--muted);font-size:11px;display:block;margin-bottom:2px;">BANK</span><strong id="mc_bank"></strong></div>
+        <div><span style="color:var(--muted);font-size:11px;display:block;margin-bottom:2px;">ACCOUNT NO.</span><strong id="mc_acct"></strong></div>
+        <div><span style="color:var(--muted);font-size:11px;display:block;margin-bottom:2px;">LABEL</span><span id="mc_label" style="color:var(--text-2);">—</span></div>
+        <div><span style="color:var(--muted);font-size:11px;display:block;margin-bottom:2px;">CURRENCY</span><strong id="mc_ccy"></strong></div>
+        <div style="grid-column:span 2;"><span style="color:var(--muted);font-size:11px;display:block;margin-bottom:2px;">ENTITY</span><span id="mc_entity" style="color:var(--text-2);">—</span></div>
+      </div>
+    </div>
+
+    {% if accounts %}
+    <div style="margin-bottom:20px;padding:12px 14px;background:rgba(79,142,247,.06);border:1px solid rgba(79,142,247,.15);border-radius:var(--radius-sm);">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Or save under an existing account instead:</div>
+      <select id="modalExistingSelect" onchange="modalPickExisting(this)"
+              style="width:100%;height:34px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:13px;padding:0 10px;">
+        <option value="">— create new account (above) —</option>
+        {% for a in accounts %}
+        <option value="{{ a.id }}">{{ a.bank_name }} — {{ a.account_number }}{% if a.account_label %} ({{ a.account_label }}){% endif %} [{{ a.currency }}]</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+
+    <div style="display:flex;gap:10px;">
+      <button type="button" class="btn btn-primary" style="flex:1;" onclick="doSave()">&#10003; Confirm &amp; Save</button>
+      <button type="button" class="btn btn-cancel" onclick="hideSaveConfirm()">Cancel</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
+/* ── Save-confirm modal (new account creation) ───────────────────────────── */
+function showSaveConfirm() {
+  var modal = document.getElementById('saveConfirmModal');
+  if (!modal) { document.getElementById('confirmForm').submit(); return; }
+
+  // Populate modal summary from form fields
+  document.getElementById('mc_bank').textContent   = document.querySelector('[name="new_bank_name"]').value    || '—';
+  document.getElementById('mc_acct').textContent   = document.querySelector('[name="new_account_number"]').value || '—';
+  document.getElementById('mc_label').textContent  = document.querySelector('[name="new_account_label"]').value || '—';
+  document.getElementById('mc_ccy').textContent    = document.querySelector('[name="new_currency"]').value      || '—';
+  document.getElementById('mc_entity').textContent = document.querySelector('[name="new_entity"]').value        || '—';
+
+  // Reset existing-account override picker
+  var sel = document.getElementById('modalExistingSelect');
+  if (sel) sel.value = '';
+
+  modal.style.display = 'flex';
+}
+function hideSaveConfirm() {
+  var modal = document.getElementById('saveConfirmModal');
+  if (modal) modal.style.display = 'none';
+}
+function doSave() {
+  hideSaveConfirm();
+  document.getElementById('confirmForm').submit();
+}
+function modalPickExisting(sel) {
+  var val = sel.value;
+  var hidden = document.querySelector('input[name="bank_account_id"]');
+  if (!hidden) return;
+  if (val) {
+    hidden.value = val;
+    // Clear new-account fields so the route uses the existing account
+    ['new_bank_name','new_account_number','new_account_label','new_entity'].forEach(function(n) {
+      var el = document.querySelector('[name="' + n + '"]');
+      if (el) el.value = '';
+    });
+    // Update modal summary to reflect choice
+    document.getElementById('mc_bank').closest('div').parentElement.previousElementSibling &&
+      (document.getElementById('mc_bank').textContent = sel.options[sel.selectedIndex].text);
+  } else {
+    hidden.value = '';
+  }
+}
+// Close modal on backdrop click
+document.addEventListener('DOMContentLoaded', function() {
+  var modal = document.getElementById('saveConfirmModal');
+  if (modal) modal.addEventListener('click', function(e) {
+    if (e.target === modal) hideSaveConfirm();
+  });
+});
+
 /* If user picks an existing account from the override dropdown,
    inject it as bank_account_id and clear the new-account fields. */
 function overrideToExisting(sel) {

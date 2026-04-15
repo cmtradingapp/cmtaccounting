@@ -1962,6 +1962,7 @@ def bank_upload_confirm():
                 "currency":       new_currency,
                 "entity":         new_entity,
             })
+            account = queries.get_bank_account(account_id)
         else:
             return render_template("bank_upload.html",
                                    accounts=queries.get_bank_accounts(),
