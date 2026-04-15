@@ -591,6 +591,14 @@ function loadData(span){
       }
       // Data received — reset retry state
       _retryCount = 0; _retryT0 = 0;
+      // Show server-side error if query failed
+      if (data.error && !data.rows.length) {
+        document.getElementById('cl-load-title').textContent = 'Query failed — see details below';
+        document.getElementById('cl-load-title').style.color = 'var(--red)';
+        overlay.classList.remove('hidden');
+        document.getElementById('cl-elapsed').textContent = 'Error: ' + data.error;
+        return;
+      }
       for(var i=0;i<4;i++) document.getElementById(stepIds[i]).className='cl-step done';
       document.getElementById(stepIds[4]).className='cl-step active';
       var rows=data.rows||[];

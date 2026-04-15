@@ -1539,8 +1539,9 @@ def _compute_client_list(date_from, date_to) -> list:
         _f_names = _ex.submit(_fetch_crm_names_for, cids_for_names)
         try:
             mt4 = _f_mt4.result()
-        except Exception:
-            mt4 = {}
+        except Exception as _mt4_err:
+            print(f"[client_list] MT4 query FAILED ({date_from}→{date_to}): {_mt4_err}")
+            raise   # propagate so caller gets a real error, not silent empty
         crm_names_wide = _f_names.result()
 
     if wide_span:

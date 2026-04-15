@@ -243,17 +243,22 @@ def clients_data():
         else:
             date_from = today - _dt.timedelta(days=span_map.get(span,365))
         date_to = today + _dt.timedelta(days=1)
+    error_msg = None
     try:
         rows = queries.client_list(date_from, date_to)
         cache_age = queries.cache_age_key(f"client_list:{date_from}:{date_to}")
-    except Exception:
+    except Exception as e:
         rows = []
         cache_age = None
+        error_msg = str(e)
+        import traceback, sys
+        print(f"[clients/data] ERROR {span}/{date_from}→{date_to}: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
     # If empty result AND background computation is running, tell frontend to retry
     computing = not rows and queries.is_client_list_computing()
     resp = {"rows": rows, "cache_age": cache_age,
             "date_from": str(date_from), "date_to": str(date_to),
-            "computing": computing}
+            "computing": computing, "error": error_msg}
     if computing:
         prog = queries.get_client_list_progress(date_from, date_to)
         resp["stage"] = prog["stage"] if prog else "Starting computation\u2026"
