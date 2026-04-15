@@ -127,7 +127,9 @@ def _parse_date(val):
         return None
     s = str(val).strip()
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d",
-                "%d-%m-%Y", "%d %b %Y", "%d %B %Y", "%Y%m%d"):
+                "%d-%m-%Y", "%d-%b-%Y", "%d-%B-%Y",
+                "%d %b %Y", "%d %B %Y", "%Y%m%d",
+                "%b %d, %Y", "%B %d, %Y"):
         try:
             return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
         except ValueError:
@@ -488,7 +490,16 @@ def _read_xlsx(file_bytes):
 
 
 def _read_xls(file_bytes):
-    """Read old XLS format using xlrd (if available) or fallback."""
+    """Read old XLS format using xlrd, with HTML-as-XLS fallback.
+
+    Many banks (GTBank, Access Bank, etc.) export HTML tables with a .xls
+    extension. Excel opens them fine; xlrd rejects them. Detect and handle.
+    """
+    # Detect HTML-disguised-as-XLS
+    preview = file_bytes[:512].lstrip()
+    if preview.startswith(b'<') or preview.startswith(b'\r\n<') or preview.startswith(b'\n<'):
+        return _read_html_table(file_bytes)
+
     try:
         import xlrd
         wb = xlrd.open_workbook(file_contents=file_bytes)
@@ -512,6 +523,52 @@ def _read_xls(file_bytes):
         raise ImportError(
             "xlrd is required for .xls files. Install with: pip install xlrd"
         )
+    except Exception as e:
+        # Final fallback: try HTML if xlrd chokes (e.g. "Expected BOF record")
+        if b'<' in file_bytes[:1024]:
+            return _read_html_table(file_bytes)
+        raise
+
+
+def _read_html_table(file_bytes):
+    """Parse an HTML file (often exported as .xls by banks) into a list of rows."""
+    import html
+    from html.parser import HTMLParser
+
+    class _TableParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.rows = []
+            self._cur_row = None
+            self._cur_cell = None
+            self._in_cell = False
+
+        def handle_starttag(self, tag, attrs):
+            if tag == 'tr':
+                self._cur_row = []
+            elif tag in ('td', 'th') and self._cur_row is not None:
+                self._cur_cell = []
+                self._in_cell = True
+
+        def handle_endtag(self, tag):
+            if tag == 'tr' and self._cur_row is not None:
+                if any(c for c in self._cur_row):
+                    self.rows.append(self._cur_row)
+                self._cur_row = None
+            elif tag in ('td', 'th') and self._cur_row is not None:
+                text = html.unescape(''.join(self._cur_cell)).strip()
+                self._cur_row.append(text)
+                self._cur_cell = None
+                self._in_cell = False
+
+        def handle_data(self, data):
+            if self._in_cell and self._cur_cell is not None:
+                self._cur_cell.append(data)
+
+    text = file_bytes.decode('utf-8', errors='replace')
+    parser = _TableParser()
+    parser.feed(text)
+    return parser.rows
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
