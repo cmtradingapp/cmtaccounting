@@ -134,6 +134,7 @@ def _conn_praxis():
         user=os.environ["PRAXIS_USER"],
         password=os.environ["PRAXIS_PASS"],
         connect_timeout=10,
+        sslmode="disable",
     )
 
 def _conn_crm():
