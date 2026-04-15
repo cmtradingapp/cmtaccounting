@@ -2,6 +2,12 @@
 {% block title %} — Clients{% endblock %}
 {% block content %}
 <style>
+  /* Last-active colour coding */
+  .la-today { color: var(--green);  }
+  .la-week  { color: var(--text);   font-weight: 600; }
+  .la-month { color: var(--yellow); }
+  /* .muted already defined in base.html */
+
   .cl-span-btn {
     font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px;
     border:1px solid var(--border); background:transparent; color:var(--muted);
@@ -192,12 +198,12 @@
     <colgroup>
       <col style="width:115px">
       <col style="width:auto">
-      <col style="width:130px">
-      <col style="width:105px">
-      <col style="width:100px">
-      <col style="width:100px">
-      <col style="width:52px">
-      <col style="width:100px">
+      <col style="width:122px">
+      <col style="width:96px">
+      <col style="width:90px">
+      <col style="width:90px">
+      <col style="width:58px">
+      <col style="width:112px">
     </colgroup>
     <thead>
       <tr>
@@ -243,6 +249,16 @@ function fmt(n) {
   return (n >= 0 ? '+' : '\u2212') + s;
 }
 function clr(n) { return n > 1 ? 'pos' : n < -1 ? 'neg' : ''; }
+
+function lastActiveCls(dateStr) {
+  if (!dateStr) return 'muted';
+  var d = new Date((dateStr + '').slice(0, 10));
+  var days = (Date.now() - d.getTime()) / 86400000;
+  if (days <= 1)  return 'la-today';   // green
+  if (days <= 7)  return 'la-week';    // white/bright
+  if (days <= 30) return 'la-month';   // amber
+  return 'muted';                      // gray
+}
 function fmtCompact(n) {
   if (!n) return '';
   var abs = Math.abs(n), sign = n >= 0 ? '+' : '\u2212';
@@ -332,7 +348,7 @@ function makeGroupRow(g) {
     '<td class="num '+clr(floatAmt)+'">'+fmt(floatAmt)+'</td>'+
     '<td class="num">'+fmt(agg.net_deposit)+'</td>'+
     '<td>'+(agg.currency||'\u2014')+'</td>'+
-    '<td style="color:var(--muted)">'+(agg.last_active||'\u2014')+'</td>';
+    '<td class="'+lastActiveCls(agg.last_active)+'">'+(agg.last_active||'\u2014').slice(0,10)+'</td>';
   return tr;
 }
 
@@ -356,7 +372,7 @@ function makeLoginRow(g, r) {
     '<td class="num '+clr(rFloatAmt)+'">'+fmt(rFloatAmt)+'</td>'+
     '<td class="num">'+fmt(r.net_deposit)+'</td>'+
     '<td>'+(r.currency||'\u2014')+'</td>'+
-    '<td style="color:var(--muted)">'+(r.last_active||'\u2014')+'</td>';
+    '<td class="'+lastActiveCls(r.last_active)+'">'+(r.last_active||'\u2014').slice(0,10)+'</td>';
   return tr;
 }
 
