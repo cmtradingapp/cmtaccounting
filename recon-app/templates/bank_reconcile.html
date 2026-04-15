@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block title %} — Bank ↔ CRM Matching — {{ month }}{% endblock %}
+{% block content %}
+<style>
+  .match-stats { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+  .m-stat {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 12px 18px; flex: 1;
+  }
+  .m-stat .lbl {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: 4px;
+  }
+  .m-stat .val { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .match-panels {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--sp-3); align-items: start;
+  }
+  .match-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); overflow: hidden;
+  }
+  .panel-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-title {
+    font-size: 13px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted);
+  }
+  .panel-body { max-height: 65vh; overflow-y: auto; }
+
+  .m-table { width: 100%; border-collapse: collapse; }
+  .m-table th {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted); text-align: left;
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+  }
+  .m-table td { padding: 8px 10px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.03); }
+  .m-table tr { cursor: pointer; transition: background .15s; }
+  .m-table tr:hover { background: rgba(255,255,255,.03); }
+  .m-table tr.selected { background: rgba(79,142,247,.08); }
+  .m-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .conf-badge {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 6px;
+    border-radius: 999px; font-size: 10px; font-weight: 700;
+  }
+  .conf-high   { background: rgba(34,197,94,.12);  color: var(--green); }
+  .conf-medium { background: rgba(245,158,11,.12); color: var(--yellow); }
+  .conf-low    { background: rgba(239,68,68,.12);  color: var(--red); }
+
+  .btn-match {
+    height: 24px; padding: 0 10px; font-size: 11px; font-weight: 600;
+    border-radius: var(--radius-sm); cursor: pointer; border: none;
+    transition: background .15s;
+  }
+  .btn-match-link  { background: rgba(34,197,94,.12); color: var(--green); }
+  .btn-match-link:hover  { background: rgba(34,197,94,.2); }
+  .btn-match-excl  { background: rgba(100,116,139,.1); color: var(--muted); }
+  .btn-match-excl:hover  { background: rgba(100,116,139,.2); }
+  .btn-match-undo  { background: rgba(79,142,247,.1); color: var(--accent); }
+  .btn-match-undo:hover  { background: rgba(79,142,247,.2); }
+</style>
+
+<a href="/recon/{{ month }}" class="back-link">&larr; Reconciliation — {{ month }}</a>
+
+<div class="page-header">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <div class="page-title">Bank ↔ CRM Matching</div>
+    <div style="font-size:13px;color:var(--text-2);">{{ month }}</div>
+    <form method="post" action="/recon/{{ month }}/bank-match/auto" style="margin-left:12px;">
+      <button class="btn btn-primary" style="height:32px;font-size:12px;"
+              onclick="this.textContent='Matching…';this.disabled=true;this.form.submit();">
+        &#9654; Auto-Match
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Stats bar -->
+<div class="match-stats">
+  <div class="m-stat">
+    <div class="lbl">Bank Transactions</div>
+    <div class="val">{{ bank_txns|length }}</div>
+  </div>
+  <div class="m-stat">
+    <div class="lbl">Matched</div>
+    <div class="val" style="color:var(--green);">{{ matched|length }}</div>
+  </div>
+  <div class="m-stat">
+    <div class="lbl">Unmatched</div>
+    <div class="val" style="color:{{ 'var(--yellow)' if unmatched else 'var(--muted)' }};">{{ unmatched|length }}</div>
+  </div>
+  <div class="m-stat">
+    <div class="lbl">Excluded</div>
+    <div class="val" style="color:var(--muted);">{{ excluded|length }}</div>
+  </div>
+  <div class="m-stat">
+    <div class="lbl">CRM Transactions</div>
+    <div class="val">{{ crm_txns|length }}</div>
+  </div>
+</div>
+
+<!-- Two-panel layout -->
+<div class="match-panels">
+
+  <!-- Left: Unmatched bank transactions -->
+  <div class="match-panel">
+    <div class="panel-header">
+      <div class="panel-title">Unmatched Bank Transactions ({{ unmatched|length }})</div>
+    </div>
+    <div class="panel-body">
+      {% if unmatched %}
+      <table class="m-table">
+        <thead>
+          <tr><th>Date</th><th class="num">Amount</th><th>Reference</th><th>Description</th><th>Bank</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for b in unmatched %}
+          <tr onclick="selectBank({{ b.id }}, this)" data-bank-id="{{ b.id }}">
+            <td style="white-space:nowrap;">{{ b.tx_date }}</td>
+            <td class="num {{ 'pos' if b.amount > 0 else 'neg' }}">{{ "{:,.2f}".format(b.amount) }}</td>
+            <td style="font-family:monospace;font-size:11px;">{{ (b.reference or '')[:20] }}</td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ b.description }}">{{ b.description or '' }}</td>
+            <td style="font-size:11px;color:var(--muted);">{{ b.bank_name }}</td>
+            <td>
+              <form method="post" action="/recon/{{ month }}/bank-match/exclude" style="display:inline;">
+                <input type="hidden" name="bank_tx_id" value="{{ b.id }}">
+                <button class="btn-match btn-match-excl" title="Exclude (fee, internal, etc.)"
+                        onclick="event.stopPropagation();">&#10005;</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div style="padding:40px;text-align:center;color:var(--muted);font-size:13px;">
+        All bank transactions are matched or excluded.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Right: CRM candidates / matched pairs -->
+  <div class="match-panel">
+    <div class="panel-header">
+      <div class="panel-title" id="rightPanelTitle">Select a bank transaction</div>
+    </div>
+    <div class="panel-body" id="crmPanel">
+      <div style="padding:40px;text-align:center;color:var(--muted);font-size:13px;">
+        Click an unmatched bank transaction on the left to see matching CRM candidates.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Matched pairs section -->
+{% if matched %}
+<div class="section-title" style="margin-top:var(--sp-5);">Matched Pairs ({{ matched|length }})</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Bank Date</th>
+        <th class="num">Bank Amount</th>
+        <th>Bank Reference</th>
+        <th>Bank Description</th>
+        <th>Confidence</th>
+        <th>CRM ID</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in matched %}
+      <tr>
+        <td>{{ b.tx_date }}</td>
+        <td class="num {{ 'pos' if b.amount > 0 else 'neg' }}">{{ "{:,.2f}".format(b.amount) }}</td>
+        <td style="font-family:monospace;font-size:12px;">{{ b.reference or '' }}</td>
+        <td style="max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;" title="{{ b.description }}">{{ b.description or '' }}</td>
+        <td>
+          {% set conf = b.match_confidence or 0 %}
+          <span class="conf-badge {% if conf >= 0.9 %}conf-high{% elif conf >= 0.75 %}conf-medium{% else %}conf-low{% endif %}">
+            {{ (conf * 100)|round|int }}%
+          </span>
+        </td>
+        <td style="font-family:monospace;font-size:12px;">{{ b.matched_crm_id }}</td>
+        <td>
+          <form method="post" action="/recon/{{ month }}/bank-match/unmatch" style="display:inline;">
+            <input type="hidden" name="bank_tx_id" value="{{ b.id }}">
+            <button class="btn-match btn-match-undo" title="Undo match">↩</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<script>
+var _crmTxns = {{ crm_txns | tojson }};
+var _selectedBankId = null;
+
+function selectBank(bankId, tr) {
+  _selectedBankId = bankId;
+  // Highlight selected row
+  document.querySelectorAll('.m-table tr.selected').forEach(function(r) { r.classList.remove('selected'); });
+  tr.classList.add('selected');
+
+  // Find the bank transaction data
+  var bankRow = tr;
+  var bankDate = bankRow.querySelector('td').textContent.trim();
+  var bankAmt  = parseFloat(bankRow.querySelectorAll('td')[1].textContent.replace(/[^0-9.\-]/g, ''));
+
+  // Filter CRM candidates: similar date (±3 days) and/or similar amount
+  var candidates = _crmTxns.filter(function(c) {
+    var cDate = (c.conf_date || '').substring(0, 10);
+    var dayDiff = Math.abs((new Date(bankDate) - new Date(cDate)) / 86400000);
+    var amtDiff = Math.abs(Math.abs(bankAmt) - Math.abs(c.usdamount || 0));
+    return dayDiff <= 5 || amtDiff < 10;
+  });
+
+  // Sort by amount similarity
+  candidates.sort(function(a, b) {
+    return Math.abs(Math.abs(bankAmt) - Math.abs(a.usdamount || 0))
+         - Math.abs(Math.abs(bankAmt) - Math.abs(b.usdamount || 0));
+  });
+
+  var panel = document.getElementById('crmPanel');
+  document.getElementById('rightPanelTitle').textContent =
+    'CRM Candidates for bank tx ' + bankDate + ' ' + bankAmt.toLocaleString('en-US', {minimumFractionDigits:2});
+
+  if (!candidates.length) {
+    panel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">No close CRM matches found.</div>';
+    return;
+  }
+
+  var html = '<table class="m-table"><thead><tr>' +
+    '<th>Login</th><th class="num">Amount</th><th>Date</th><th>Method</th><th>PSP Ref</th><th></th>' +
+    '</tr></thead><tbody>';
+
+  candidates.slice(0, 30).forEach(function(c) {
+    var amtDiff = Math.abs(Math.abs(bankAmt) - Math.abs(c.usdamount || 0));
+    var highlight = amtDiff < 2 ? ' style="background:rgba(34,197,94,.06);"' : '';
+    html += '<tr' + highlight + '>' +
+      '<td style="font-family:monospace;">' + c.login + '</td>' +
+      '<td class="num">' + (c.usdamount || 0).toLocaleString('en-US', {minimumFractionDigits:2}) + '</td>' +
+      '<td>' + (c.conf_date || '').substring(0, 10) + '</td>' +
+      '<td style="font-size:11px;">' + (c.payment_method || '') + '</td>' +
+      '<td style="font-family:monospace;font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;">' +
+        (c.psp_transaction_id || '—') + '</td>' +
+      '<td>' +
+        '<form method="post" action="/recon/{{ month }}/bank-match/save" style="display:inline;">' +
+        '<input type="hidden" name="bank_tx_id" value="' + bankId + '">' +
+        '<input type="hidden" name="crm_tx_id" value="' + c.transactionid + '">' +
+        '<button class="btn-match btn-match-link" title="Link this CRM tx to the selected bank tx">Link</button>' +
+        '</form>' +
+      '</td></tr>';
+  });
+
+  html += '</tbody></table>';
+  panel.innerHTML = html;
+}
+</script>
+{% endblock %}

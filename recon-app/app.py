@@ -550,6 +550,97 @@ def _expected_fee(usd_amount: float, payment_method: str, direction: str,
     return 0.0
 
 
+# ── Bank ↔ CRM Matching Dashboard ───────────────────────────────────────────
+
+@app.route("/recon/<month>/bank-match")
+@require_recon_auth
+def bank_match_page(month):
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+    except (ValueError, IndexError):
+        abort(400)
+    bank_txns = queries.bank_transactions_for_period(year, mon)
+    crm_txns  = queries.crm_cash_transactions_individual(year, mon)
+    months    = queries.available_months()
+    matched   = [b for b in bank_txns if b.get("match_status") == "matched"]
+    unmatched = [b for b in bank_txns if (b.get("match_status") or "unmatched") == "unmatched"]
+    excluded  = [b for b in bank_txns if b.get("match_status") == "excluded"]
+    return render_template("bank_reconcile.html",
+                           month=month, months=months,
+                           bank_txns=bank_txns, crm_txns=crm_txns,
+                           matched=matched, unmatched=unmatched, excluded=excluded)
+
+
+@app.route("/recon/<month>/bank-match/auto", methods=["POST"])
+@require_recon_auth
+def bank_match_auto(month):
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+    except (ValueError, IndexError):
+        abort(400)
+    stats = queries.auto_match_bank_to_crm(year, mon)
+    queries.cache_invalidate(year, mon)
+    return redirect(f"/recon/{month}/bank-match")
+
+
+@app.route("/recon/<month>/bank-match/save", methods=["POST"])
+@require_recon_auth
+def bank_match_save(month):
+    bank_tx_id = request.form.get("bank_tx_id", type=int)
+    crm_tx_id  = request.form.get("crm_tx_id", type=int)
+    if not bank_tx_id or not crm_tx_id:
+        abort(400)
+    from db import fees_db as _fdb
+    with _fdb() as conn:
+        conn.execute("""
+            UPDATE bank_transactions
+            SET matched_crm_id=?, match_confidence=1.0, match_status='manual'
+            WHERE id=?
+        """, (crm_tx_id, bank_tx_id))
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+        queries.cache_invalidate(year, mon)
+    except Exception:
+        pass
+    return redirect(f"/recon/{month}/bank-match")
+
+
+@app.route("/recon/<month>/bank-match/exclude", methods=["POST"])
+@require_recon_auth
+def bank_match_exclude(month):
+    bank_tx_id = request.form.get("bank_tx_id", type=int)
+    if not bank_tx_id:
+        abort(400)
+    from db import fees_db as _fdb
+    with _fdb() as conn:
+        conn.execute(
+            "UPDATE bank_transactions SET match_status='excluded' WHERE id=?",
+            (bank_tx_id,)
+        )
+    return redirect(f"/recon/{month}/bank-match")
+
+
+@app.route("/recon/<month>/bank-match/unmatch", methods=["POST"])
+@require_recon_auth
+def bank_match_unmatch(month):
+    bank_tx_id = request.form.get("bank_tx_id", type=int)
+    if not bank_tx_id:
+        abort(400)
+    from db import fees_db as _fdb
+    with _fdb() as conn:
+        conn.execute("""
+            UPDATE bank_transactions
+            SET matched_crm_id=NULL, match_confidence=NULL, match_status='unmatched'
+            WHERE id=?
+        """, (bank_tx_id,))
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+        queries.cache_invalidate(year, mon)
+    except Exception:
+        pass
+    return redirect(f"/recon/{month}/bank-match")
+
+
 @app.route("/recon/<month>/export")
 @require_recon_auth
 def export(month):
@@ -580,13 +671,15 @@ def export(month):
     ws1.title = "Summary"
     ws1.append(["Login", "MT4 Net (USD)", "CRM Cash Net (USD)", "CRM Deposits (USD)",
                  "CRM Withdrawals (USD)", "Praxis Net (USD)", "Praxis Deposits (USD)",
-                 "Praxis Withdrawals (USD)", "Difference (MT4 vs CRM)",
+                 "Praxis Withdrawals (USD)", "Bank Net", "Bank Matched Txns",
+                 "Difference (MT4 vs CRM)",
                  "Status", "Payment Methods", "CRM Tx Count", "Praxis Tx Count", "Currency"])
     for r in recon_rows:
         ws1.append([
             r["login"], r["mt4_net"], r["crm_cash_net"],
             r["crm_cash_dep"], r["crm_cash_with"],
             r["praxis_net"], r["praxis_deposits"], r["praxis_withdrawals"],
+            r.get("bank_net", 0), r.get("bank_matched", 0),
             r["difference"], r["status"],
             r["payment_methods"], r["tx_count"], r["praxis_tx_count"], r["currency"],
         ])
@@ -683,6 +776,32 @@ def export(month):
             round(actual, 2), expected, round(actual - expected, 2),
             int(r["tx_count"] or 0),
         ])
+
+    # ── Sheet 6: Bank Settlements ───────────────────────────────────────────
+    ws6 = wb.create_sheet("Bank Settlements")
+    ws6.append([
+        "Date", "Amount", "Currency", "Reference", "Description",
+        "Type", "Bank", "Account", "Match Status",
+        "Matched CRM ID", "Confidence"
+    ])
+    try:
+        bank_txns = queries.bank_transactions_for_period(year, mon)
+        for b in bank_txns:
+            ws6.append([
+                str(b.get("tx_date") or ""),
+                float(b.get("amount") or 0),
+                b.get("acct_currency") or b.get("currency") or "",
+                b.get("reference") or "",
+                b.get("description") or "",
+                b.get("tx_type") or "",
+                b.get("bank_name") or "",
+                b.get("account_number") or "",
+                b.get("match_status") or "unmatched",
+                b.get("matched_crm_id") or "",
+                round(b.get("match_confidence") or 0, 2) if b.get("match_confidence") else "",
+            ])
+    except Exception:
+        pass  # bank data is optional
 
     buf = io.BytesIO()
     wb.save(buf)
