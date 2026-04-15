@@ -316,33 +316,38 @@ function toggleGroup(cidSafe) {
 }
 
 // Virtual scroll
+var _vsRendering=false;
 function vsRender(force) {
-  var scroller=document.getElementById('clScroller');
-  var n=_flatItems.length;
-  var tbody=document.getElementById('clTbody');
-  var padTop=document.getElementById('clPadTop');
-  var padBot=document.getElementById('clPadBot');
-  if(!n){
-    padTop.style.height='0'; padBot.style.height='0';
-    Array.from(tbody.querySelectorAll('tr:not(#clPadTop):not(#clPadBot)')).forEach(function(r){r.remove();});
-    return;
+  if(_vsRendering) return;              // prevent any re-entrant call
+  _vsRendering=true;
+  try {
+    var scroller=document.getElementById('clScroller');
+    var n=_flatItems.length;
+    var tbody=document.getElementById('clTbody');
+    var padTop=document.getElementById('clPadTop');
+    var padBot=document.getElementById('clPadBot');
+    if(!n){
+      padTop.style.height='0'; padBot.style.height='0';
+      Array.from(tbody.querySelectorAll('tr.cl-group-row,tr.cl-login-row')).forEach(function(r){r.remove();});
+      return;
+    }
+    var scrollTop=scroller.scrollTop, viewH=scroller.clientHeight||600;
+    var newStart=Math.max(0,Math.floor(scrollTop/ROW_H)-OVERSCAN);
+    var newEnd=Math.min(n,Math.ceil((scrollTop+viewH)/ROW_H)+OVERSCAN);
+    if(!force && newStart===_vsStart && newEnd===_vsEnd) return;
+    _vsStart=newStart; _vsEnd=newEnd;
+    padTop.style.height=(newStart*ROW_H)+'px';
+    padBot.style.height=Math.max(0,(n-newEnd)*ROW_H)+'px';
+    Array.from(tbody.querySelectorAll('tr.cl-group-row,tr.cl-login-row')).forEach(function(r){r.remove();});
+    var frag=document.createDocumentFragment();
+    for(var i=newStart;i<newEnd;i++){
+      var item=_flatItems[i];
+      frag.appendChild(item.type==='group'?makeGroupRow(item.g):makeLoginRow(item.g,item.r));
+    }
+    tbody.insertBefore(frag,padBot);
+  } finally {
+    _vsRendering=false;
   }
-  var scrollTop=scroller.scrollTop, viewH=scroller.clientHeight||600;
-  var newStart=Math.max(0,Math.floor(scrollTop/ROW_H)-OVERSCAN);
-  var newEnd=Math.min(n,Math.ceil((scrollTop+viewH)/ROW_H)+OVERSCAN);
-  if(!force && newStart===_vsStart && newEnd===_vsEnd) return;
-  _vsStart=newStart; _vsEnd=newEnd;
-  padTop.style.height=(newStart*ROW_H)+'px';
-  padBot.style.height=Math.max(0,(n-newEnd)*ROW_H)+'px';
-  Array.from(tbody.querySelectorAll('tr:not(#clPadTop):not(#clPadBot)')).forEach(function(r){r.remove();});
-  var frag=document.createDocumentFragment();
-  for(var i=newStart;i<newEnd;i++){
-    var item=_flatItems[i];
-    frag.appendChild(item.type==='group'?makeGroupRow(item.g):makeLoginRow(item.g,item.r));
-  }
-  tbody.insertBefore(frag,padBot);
-  var first=tbody.querySelector('tr.cl-group-row,tr.cl-login-row');
-  if(first&&first.offsetHeight>0&&first.offsetHeight!==ROW_H){ROW_H=first.offsetHeight;_vsEnd=0;vsRender(true);}
 }
 
 // Apply filter + sort
@@ -438,6 +443,13 @@ function loadData(span){
           applyView();
           overlay.classList.add('hidden');
           document.getElementById('clScroller').style.display='';
+          // One-time ROW_H calibration — deferred so layout has settled
+          setTimeout(function(){
+            var first=document.querySelector('#clTbody tr.cl-group-row,#clTbody tr.cl-login-row');
+            if(first&&first.offsetHeight>0&&first.offsetHeight!==ROW_H){
+              ROW_H=first.offsetHeight; _vsStart=0; _vsEnd=0; vsRender(true);
+            }
+          },100);
           var age=data.cache_age, ageEl=document.getElementById('clCacheAge');
           if(ageEl) ageEl.textContent=age!=null?'· cached '+age+'s ago':'';
           if(!_allGroups.length) document.getElementById('clCount').textContent='No data — click Refresh to retry';
@@ -463,7 +475,10 @@ function switchSpan(s,btn){
 }
 
 document.addEventListener('DOMContentLoaded',function(){
-  document.getElementById('clScroller').addEventListener('scroll',function(){vsRender(false);},{passive:true});
+  var _rafPending=false;
+  document.getElementById('clScroller').addEventListener('scroll',function(){
+    if(!_rafPending){_rafPending=true;requestAnimationFrame(function(){_rafPending=false;vsRender(false);});}
+  },{passive:true});
   loadData(_span);
 });
 </script>
