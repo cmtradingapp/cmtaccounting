@@ -3239,6 +3239,19 @@ def _ensure_bank_tables():
         """
     with fees_db() as conn:
         conn.executescript(_ddl)
+        # Migration: add active column to bank_statements if missing
+        if not _PG:
+            try:
+                conn.execute("ALTER TABLE bank_statements ADD COLUMN active INTEGER DEFAULT 1")
+                conn.execute("UPDATE bank_statements SET active = 1 WHERE active IS NULL")
+            except Exception:
+                pass
+        else:
+            try:
+                conn.execute("ALTER TABLE bank_statements ADD COLUMN IF NOT EXISTS active INTEGER DEFAULT 1")
+                conn.execute("UPDATE bank_statements SET active = 1 WHERE active IS NULL")
+            except Exception:
+                pass
 
 
 # --- Bank Accounts ---
@@ -3285,20 +3298,44 @@ def update_bank_account(account_id, data):
 
 
 def delete_bank_account(account_id):
+    """Soft-delete: moves to Historical Accounts."""
     with fees_db() as conn:
         conn.execute("UPDATE bank_accounts SET active = 0 WHERE id = ?", (account_id,))
 
 
+def restore_bank_account(account_id):
+    with fees_db() as conn:
+        conn.execute("UPDATE bank_accounts SET active = 1 WHERE id = ?", (account_id,))
+
+
+def purge_bank_account(account_id):
+    """Permanently delete account and all its statements/transactions."""
+    with fees_db() as conn:
+        conn.execute("""
+            DELETE FROM bank_transactions WHERE bank_account_id = ?
+        """, (account_id,))
+        conn.execute("DELETE FROM bank_statements WHERE bank_account_id = ?", (account_id,))
+        conn.execute("DELETE FROM bank_accounts WHERE id = ?", (account_id,))
+
+
+def get_historical_accounts():
+    with fees_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM bank_accounts WHERE active = 0 ORDER BY bank_name, account_number"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 # --- Bank Statements ---
 
-def get_bank_statements(bank_account_id=None, limit=50):
+def get_bank_statements(bank_account_id=None, limit=200):
     with fees_db() as conn:
         if bank_account_id:
             rows = conn.execute("""
                 SELECT s.*, a.bank_name, a.account_number, a.account_label, a.currency AS acct_currency
                 FROM bank_statements s
                 JOIN bank_accounts a ON a.id = s.bank_account_id
-                WHERE s.bank_account_id = ?
+                WHERE s.bank_account_id = ? AND (s.active IS NULL OR s.active = 1)
                 ORDER BY s.period_end DESC, s.uploaded_at DESC
                 LIMIT ?
             """, (bank_account_id, limit)).fetchall()
@@ -3307,9 +3344,23 @@ def get_bank_statements(bank_account_id=None, limit=50):
                 SELECT s.*, a.bank_name, a.account_number, a.account_label, a.currency AS acct_currency
                 FROM bank_statements s
                 JOIN bank_accounts a ON a.id = s.bank_account_id
+                WHERE s.active IS NULL OR s.active = 1
                 ORDER BY s.uploaded_at DESC
                 LIMIT ?
             """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_historical_statements(limit=200):
+    with fees_db() as conn:
+        rows = conn.execute("""
+            SELECT s.*, a.bank_name, a.account_number, a.account_label, a.currency AS acct_currency
+            FROM bank_statements s
+            JOIN bank_accounts a ON a.id = s.bank_account_id
+            WHERE s.active = 0
+            ORDER BY s.uploaded_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -3374,6 +3425,18 @@ def create_bank_statement(data, file_data=None):
 
 
 def delete_bank_statement(statement_id):
+    """Soft-delete: moves to Historical Statements."""
+    with fees_db() as conn:
+        conn.execute("UPDATE bank_statements SET active = 0 WHERE id = ?", (statement_id,))
+
+
+def restore_bank_statement(statement_id):
+    with fees_db() as conn:
+        conn.execute("UPDATE bank_statements SET active = 1 WHERE id = ?", (statement_id,))
+
+
+def purge_bank_statement(statement_id):
+    """Permanently delete statement and all its transactions."""
     with fees_db() as conn:
         conn.execute("DELETE FROM bank_transactions WHERE statement_id = ?", (statement_id,))
         conn.execute("DELETE FROM bank_statements WHERE id = ?", (statement_id,))

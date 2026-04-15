@@ -62,6 +62,14 @@
     <button class="tab-btn" id="tab-accounts-btn" onclick="switchTab('accounts')">
       Accounts <span class="tab-count">{{ accounts|length }}</span>
     </button>
+    <button class="tab-btn" id="tab-hist-statements-btn" onclick="switchTab('hist-statements')"
+            style="{% if not hist_statements %}opacity:.5;{% endif %}">
+      Historical Statements <span class="tab-count">{{ hist_statements|length }}</span>
+    </button>
+    <button class="tab-btn" id="tab-hist-accounts-btn" onclick="switchTab('hist-accounts')"
+            style="{% if not hist_accounts %}opacity:.5;{% endif %}">
+      Historical Accounts <span class="tab-count">{{ hist_accounts|length }}</span>
+    </button>
   </div>
 </div>
 
@@ -179,6 +187,113 @@
   {% endif %}
 </div>
 
+<!-- Historical Statements tab -->
+<div id="tab-hist-statements" style="display:none;">
+  {% if hist_statements %}
+  <div class="table-meta" style="color:var(--muted);">{{ hist_statements|length }} archived statement{{ 's' if hist_statements|length != 1 }} — restore or permanently delete below</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Bank</th>
+          <th>Account</th>
+          <th>Period</th>
+          <th class="num">Credits</th>
+          <th class="num">Debits</th>
+          <th class="num">Txns</th>
+          <th>Source</th>
+          <th>Uploaded</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in hist_statements %}
+        <tr style="opacity:.55;">
+          <td>
+            <div style="font-weight:600;">{{ s.bank_name }}</div>
+            {% if s.account_label %}<div style="font-size:11px;color:var(--muted);">{{ s.account_label }}</div>{% endif %}
+          </td>
+          <td style="font-family:monospace;font-size:12px;">{{ s.account_number }}</td>
+          <td>
+            {% if s.period_start and s.period_end %}
+              {{ s.period_start }} &rarr; {{ s.period_end }}
+            {% elif s.period_start %}
+              {{ s.period_start }}
+            {% else %}<span class="muted">&mdash;</span>{% endif %}
+          </td>
+          <td class="num pos">{% if s.total_credits %}+{{ "{:,.2f}".format(s.total_credits) }}{% else %}&mdash;{% endif %}</td>
+          <td class="num neg">{% if s.total_debits %}{{ "{:,.2f}".format(s.total_debits) }}{% else %}&mdash;{% endif %}</td>
+          <td class="num">{{ s.tx_count or 0 }}</td>
+          <td><span class="badge mt4_only">{{ s.source }}</span></td>
+          <td style="font-size:12px;color:var(--muted);">{{ s.uploaded_at[:16] if s.uploaded_at else '' }}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <form method="post" action="/banks/{{ s.id }}/restore" style="display:inline;">
+              <button class="btn" style="height:26px;font-size:12px;padding:0 10px;color:var(--green);border-color:rgba(34,197,94,.3);">&#8635; Restore</button>
+            </form>
+            <form method="post" action="/banks/{{ s.id }}/purge" style="display:inline;"
+                  onsubmit="return confirm('Permanently delete this statement and all {{ s.tx_count or 0 }} transactions? This cannot be undone.')">
+              <button class="btn btn-danger-sm" style="height:26px;font-size:12px;padding:0 10px;opacity:1;">&#128465; Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:32px;margin-bottom:12px;opacity:.4;">&#128464;</div>
+    <div style="font-size:13px;color:var(--muted);">No archived statements.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Historical Accounts tab -->
+<div id="tab-hist-accounts" style="display:none;">
+  {% if hist_accounts %}
+  <div class="table-meta" style="color:var(--muted);">{{ hist_accounts|length }} archived account{{ 's' if hist_accounts|length != 1 }} — restore or permanently delete below</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Bank</th>
+          <th>Account Number</th>
+          <th>Label</th>
+          <th>Currency</th>
+          <th>Entity</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in hist_accounts %}
+        <tr style="opacity:.55;">
+          <td style="font-weight:600;">{{ a.bank_name }}</td>
+          <td style="font-family:monospace;">{{ a.account_number }}</td>
+          <td>{{ a.account_label or '' }}</td>
+          <td>{{ a.currency }}</td>
+          <td style="font-size:12px;color:var(--text-2);">{{ a.entity or '' }}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <form method="post" action="/banks/accounts/{{ a.id }}/restore" style="display:inline;">
+              <button class="btn" style="height:26px;font-size:12px;padding:0 10px;color:var(--green);border-color:rgba(34,197,94,.3);">&#8635; Restore</button>
+            </form>
+            <form method="post" action="/banks/accounts/{{ a.id }}/purge" style="display:inline;"
+                  onsubmit="return confirm('Permanently delete this account and ALL its statements and transactions? This cannot be undone.')">
+              <button class="btn btn-danger-sm" style="height:26px;font-size:12px;padding:0 10px;opacity:1;">&#128465; Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:32px;margin-bottom:12px;opacity:.4;">&#128464;</div>
+    <div style="font-size:13px;color:var(--muted);">No archived accounts.</div>
+  </div>
+  {% endif %}
+</div>
+
 <!-- Add/Edit Account Modal -->
 <div class="modal-backdrop" id="accountModal">
   <div class="modal-box">
@@ -226,11 +341,12 @@
 </div>
 
 <script>
+var _tabs = ['statements', 'accounts', 'hist-statements', 'hist-accounts'];
 function switchTab(tab) {
-  document.getElementById('tab-statements').style.display = tab === 'statements' ? '' : 'none';
-  document.getElementById('tab-accounts').style.display   = tab === 'accounts'   ? '' : 'none';
-  document.getElementById('tab-statements-btn').classList.toggle('active', tab === 'statements');
-  document.getElementById('tab-accounts-btn').classList.toggle('active', tab === 'accounts');
+  _tabs.forEach(function(t) {
+    document.getElementById('tab-' + t).style.display = t === tab ? '' : 'none';
+    document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === tab);
+  });
 }
 
 function openAddAccount() {

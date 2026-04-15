@@ -1848,8 +1848,12 @@ BANK_UPLOAD_EXTS = {"csv", "xls", "xlsx", "pdf"}
 @require_recon_auth
 def banks_main():
     accounts   = queries.get_bank_accounts()
-    statements = queries.get_bank_statements(limit=50)
-    return render_template("banks.html", accounts=accounts, statements=statements)
+    statements = queries.get_bank_statements()
+    hist_accounts   = queries.get_historical_accounts()
+    hist_statements = queries.get_historical_statements()
+    return render_template("banks.html",
+                           accounts=accounts, statements=statements,
+                           hist_accounts=hist_accounts, hist_statements=hist_statements)
 
 
 @app.route("/banks/accounts/add", methods=["POST"])
@@ -1882,6 +1886,20 @@ def bank_account_edit(account_id):
 @require_recon_auth
 def bank_account_delete(account_id):
     queries.delete_bank_account(account_id)
+    return redirect(url_for("banks_main"))
+
+
+@app.route("/banks/accounts/<int:account_id>/restore", methods=["POST"])
+@require_recon_auth
+def bank_account_restore(account_id):
+    queries.restore_bank_account(account_id)
+    return redirect(url_for("banks_main"))
+
+
+@app.route("/banks/accounts/<int:account_id>/purge", methods=["POST"])
+@require_recon_auth
+def bank_account_purge(account_id):
+    queries.purge_bank_account(account_id)
     return redirect(url_for("banks_main"))
 
 
@@ -2061,6 +2079,20 @@ def bank_download(statement_id):
 @require_recon_auth
 def bank_delete(statement_id):
     queries.delete_bank_statement(statement_id)
+    return redirect(url_for("banks_main"))
+
+
+@app.route("/banks/<int:statement_id>/restore", methods=["POST"])
+@require_recon_auth
+def bank_restore(statement_id):
+    queries.restore_bank_statement(statement_id)
+    return redirect(url_for("banks_main"))
+
+
+@app.route("/banks/<int:statement_id>/purge", methods=["POST"])
+@require_recon_auth
+def bank_purge(statement_id):
+    queries.purge_bank_statement(statement_id)
     return redirect(url_for("banks_main"))
 
 

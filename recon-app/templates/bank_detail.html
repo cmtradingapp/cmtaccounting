@@ -51,8 +51,8 @@
     <a href="/banks/{{ statement.id }}/download" class="btn">&#8595; Download</a>
     {% endif %}
     <form method="post" action="/banks/{{ statement.id }}/delete"
-          onsubmit="return confirm('Delete this statement and all its transactions?')">
-      <button class="btn btn-danger">Delete</button>
+          onsubmit="return confirm('Move this statement to Historical? You can restore or permanently delete it from the Bank Statements page.')">
+      <button class="btn btn-danger">&#8964; Archive</button>
     </form>
   </div>
 </div>
