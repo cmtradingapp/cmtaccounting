@@ -511,6 +511,7 @@ def reconcile(year: int, month: int):
     mt4    = mt4_summary(year, month)
     praxis = praxis_summary(year, month)
     fees   = crm_expected_fees(year, month)   # {login: expected_fee_usd}
+    bank   = bank_recon_summary(year, month)  # {login: {bank_deposits, bank_withdrawals, ...}}
 
     rows = []
     for login in set(crm) | set(mt4):
@@ -541,6 +542,7 @@ def reconcile(year: int, month: int):
         praxis_net = round(
             p.get("praxis_deposits", 0) - p.get("praxis_withdrawals", 0), 2
         )
+        bk = bank.get(login, {})
         rows.append({
             "login":              login,
             "mt4_net":            mt4_net,
@@ -561,6 +563,10 @@ def reconcile(year: int, month: int):
             "praxis_deposits":    round(p.get("praxis_deposits", 0), 2),
             "praxis_withdrawals": round(p.get("praxis_withdrawals", 0), 2),
             "praxis_tx_count":    p.get("praxis_tx_count", 0),
+            "bank_net":           round(bk.get("bank_net", 0), 2),
+            "bank_deposits":      round(bk.get("bank_deposits", 0), 2),
+            "bank_withdrawals":   round(bk.get("bank_withdrawals", 0), 2),
+            "bank_matched":       bk.get("bank_matched", 0),
         })
 
     rows.sort(key=lambda r: r["abs_diff"], reverse=True)
@@ -676,6 +682,10 @@ def reconcile_grouped(year: int, month: int) -> list:
             "praxis_deposits":round(sum(r["praxis_deposits"]for r in logins), 2),
             "praxis_withdrawals":round(sum(r["praxis_withdrawals"]for r in logins),2),
             "praxis_tx_count":sum(r["praxis_tx_count"]      for r in logins),
+            "bank_net":       round(sum(r.get("bank_net",0) for r in logins), 2),
+            "bank_deposits":  round(sum(r.get("bank_deposits",0) for r in logins), 2),
+            "bank_withdrawals":round(sum(r.get("bank_withdrawals",0) for r in logins), 2),
+            "bank_matched":   sum(r.get("bank_matched",0)   for r in logins),
             "tx_count":       sum(r["tx_count"]             for r in logins),
             "currency":       logins[0]["currency"],
         }
@@ -3501,6 +3511,285 @@ def _recompute_statement_totals(conn, statement_id):
         SET tx_count=?, total_credits=?, total_debits=?
         WHERE id=?
     """, (r[0], r[1] or 0, r[2] or 0, statement_id))
+
+
+# ── Bank ↔ CRM Reconciliation Matching ──────────────────────────────────────
+
+def bank_transactions_for_period(year: int, month: int) -> list:
+    """All bank transactions in the given month, across all active bank accounts."""
+    from datetime import date as _date
+    start = _date(year, month, 1).isoformat()
+    end   = _date(year + (month // 12), (month % 12) + 1, 1).isoformat()
+    key = f"bank_txns:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+    with fees_db() as conn:
+        rows = conn.execute("""
+            SELECT t.*, a.bank_name, a.account_number, a.currency AS acct_currency
+            FROM bank_transactions t
+            JOIN bank_statements s ON s.id = t.statement_id
+            JOIN bank_accounts a ON a.id = t.bank_account_id
+            WHERE t.tx_date >= ? AND t.tx_date < ?
+              AND (s.active IS NULL OR s.active = 1)
+            ORDER BY t.tx_date, t.id
+        """, (start, end)).fetchall()
+    result = [dict(r) for r in rows]
+    _cache_set(key, result)
+    return result
+
+
+def crm_cash_transactions_individual(year: int, month: int) -> list:
+    """Individual CRM cash transactions for matching (not grouped)."""
+    from datetime import date as _date
+    start = _date(year, month, 1).isoformat()
+    end   = _date(year + (month // 12), (month % 12) + 1, 1).isoformat()
+    key = f"crm_individual:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+    try:
+        def _fetch():
+            with crm() as cur:
+                cur.execute("""
+                    SELECT login, usdamount, CAST(confirmation_time AS DATE) AS conf_date,
+                           payment_method, payment_processor,
+                           psp_transaction_id, transactionid,
+                           transactiontype, transactionapproval
+                    FROM report.vtiger_mttransactions
+                    WHERE confirmation_time >= %s AND confirmation_time < %s
+                      AND transactionapproval = 'Approved'
+                      AND (deleted IS NULL OR deleted = 0)
+                """, (start, end))
+                return [dict(r) for r in cur.fetchall()]
+        raw = _db_retry(_fetch)
+    except Exception:
+        raw = []
+    # Filter to cash-only
+    result = [r for r in raw if _is_cash(r.get("payment_method", ""), r.get("transactiontype", ""))]
+    _cache_set(key, result)
+    return result
+
+
+def auto_match_bank_to_crm(year: int, month: int) -> dict:
+    """4-pass matching of bank transactions to CRM transactions.
+
+    Updates bank_transactions rows in-place (matched_crm_id, match_confidence,
+    match_status). Returns stats dict.
+    """
+    import re
+    from datetime import datetime as _dt, timedelta as _td
+
+    bank_txns = bank_transactions_for_period(year, month)
+    crm_txns  = crm_cash_transactions_individual(year, month)
+
+    if not bank_txns or not crm_txns:
+        return {"matched": 0, "unmatched": len(bank_txns), "by_pass": {1: 0, 2: 0, 3: 0, 4: 0}}
+
+    # Build CRM lookup structures
+    crm_by_psp_ref: dict = {}   # psp_transaction_id → [crm_tx, ...]
+    crm_by_login: dict = {}     # login → [crm_tx, ...]
+    crm_matched_ids: set = set()
+
+    for c in crm_txns:
+        ref = str(c.get("psp_transaction_id") or "").strip()
+        if ref:
+            crm_by_psp_ref.setdefault(ref, []).append(c)
+        login = c.get("login")
+        if login:
+            crm_by_login.setdefault(int(login), []).append(c)
+
+    def _parse_date(d):
+        if isinstance(d, str):
+            try:
+                return _dt.strptime(d[:10], "%Y-%m-%d")
+            except (ValueError, TypeError):
+                return None
+        if hasattr(d, "year"):
+            return _dt(d.year, d.month, d.day)
+        return None
+
+    stats = {"matched": 0, "unmatched": 0, "by_pass": {1: 0, 2: 0, 3: 0, 4: 0}}
+    matches: list = []   # (bank_tx_id, crm_transactionid, confidence, pass_num)
+
+    # Filter to unmatched deposit bank txns only (credits)
+    unmatched = [b for b in bank_txns if (b.get("match_status") or "unmatched") == "unmatched"]
+
+    # ── Pass 1: Reference exact match ──────────────────────────────────────
+    still_unmatched = []
+    for b in unmatched:
+        b_ref = str(b.get("reference") or "").strip()
+        if b_ref and b_ref in crm_by_psp_ref:
+            candidates = [c for c in crm_by_psp_ref[b_ref]
+                          if c["transactionid"] not in crm_matched_ids]
+            if len(candidates) == 1:
+                matches.append((b["id"], candidates[0]["transactionid"], 0.95, 1))
+                crm_matched_ids.add(candidates[0]["transactionid"])
+                stats["by_pass"][1] += 1
+                continue
+        still_unmatched.append(b)
+
+    # ── Pass 2: Reference substring ────────────────────────────────────────
+    unmatched2 = []
+    for b in still_unmatched:
+        b_ref = str(b.get("reference") or "").strip()
+        b_desc = str(b.get("description") or "")
+        found = None
+        for c in crm_txns:
+            if c["transactionid"] in crm_matched_ids:
+                continue
+            c_ref = str(c.get("psp_transaction_id") or "").strip()
+            if not c_ref or len(c_ref) < 5:
+                continue
+            if (b_ref and c_ref in b_ref) or (b_ref and b_ref in c_ref) or (c_ref in b_desc):
+                if found is None:
+                    found = c
+                else:
+                    found = None  # ambiguous — skip
+                    break
+        if found:
+            matches.append((b["id"], found["transactionid"], 0.85, 2))
+            crm_matched_ids.add(found["transactionid"])
+            stats["by_pass"][2] += 1
+        else:
+            unmatched2.append(b)
+
+    # ── Pass 3: Login number in bank description ───────────────────────────
+    unmatched3 = []
+    login_re = re.compile(r"\b(1[234]\d{7})\b")   # MT4 logins: 130M–149M range
+    for b in unmatched2:
+        b_desc = str(b.get("reference") or "") + " " + str(b.get("description") or "")
+        login_matches = login_re.findall(b_desc)
+        if not login_matches:
+            unmatched3.append(b)
+            continue
+        b_date = _parse_date(b.get("tx_date"))
+        b_amt  = abs(b.get("amount") or 0)
+        found = None
+        for login_str in login_matches:
+            login = int(login_str)
+            for c in crm_by_login.get(login, []):
+                if c["transactionid"] in crm_matched_ids:
+                    continue
+                c_amt = abs(c.get("usdamount") or 0)
+                c_date = _parse_date(c.get("conf_date"))
+                if c_date and b_date and abs((b_date - c_date).days) <= 3 and abs(b_amt - c_amt) < 2:
+                    if found is None:
+                        found = c
+                    else:
+                        found = None
+                        break
+            if found is None and login_matches:
+                break
+        if found:
+            matches.append((b["id"], found["transactionid"], 0.80, 3))
+            crm_matched_ids.add(found["transactionid"])
+            stats["by_pass"][3] += 1
+        else:
+            unmatched3.append(b)
+
+    # ── Pass 4: Amount + date proximity (wire transfers only) ──────────────
+    for b in unmatched3:
+        b_amt  = b.get("amount") or 0
+        if b_amt <= 50:  # skip small amounts / fees
+            continue
+        b_date = _parse_date(b.get("tx_date"))
+        if not b_date:
+            continue
+        found = None
+        for c in crm_txns:
+            if c["transactionid"] in crm_matched_ids:
+                continue
+            pm = (c.get("payment_method") or "").lower()
+            if "wire" not in pm and "external" not in pm:
+                continue
+            c_amt = abs(c.get("usdamount") or 0)
+            c_date = _parse_date(c.get("conf_date"))
+            if c_date and abs((b_date - c_date).days) <= 3 and abs(abs(b_amt) - c_amt) < 2:
+                if found is None:
+                    found = c
+                else:
+                    found = None  # ambiguous
+                    break
+        if found:
+            matches.append((b["id"], found["transactionid"], 0.70, 4))
+            crm_matched_ids.add(found["transactionid"])
+            stats["by_pass"][4] += 1
+
+    # ── Persist matches ────────────────────────────────────────────────────
+    if matches:
+        with fees_db() as conn:
+            for bank_tx_id, crm_tx_id, confidence, _ in matches:
+                conn.execute("""
+                    UPDATE bank_transactions
+                    SET matched_crm_id = ?, match_confidence = ?, match_status = 'matched'
+                    WHERE id = ?
+                """, (crm_tx_id, confidence, bank_tx_id))
+
+    stats["matched"]   = len(matches)
+    stats["unmatched"]  = len(bank_txns) - len(matches)
+
+    # Invalidate caches that depend on bank match state
+    _CACHE.pop(f"bank_txns:{year}:{month}", None)
+    _CACHE.pop(f"bank_recon:{year}:{month}", None)
+
+    return stats
+
+
+def bank_recon_summary(year: int, month: int) -> dict:
+    """Aggregate matched bank transactions per MT4 login.
+
+    Returns {login: {"bank_deposits": X, "bank_withdrawals": Y,
+                     "bank_net": Z, "bank_matched": N}}
+    """
+    key = f"bank_recon:{year}:{month}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    # Get all matched bank txns for the period
+    bank_txns = bank_transactions_for_period(year, month)
+    matched = [b for b in bank_txns if b.get("match_status") == "matched" and b.get("matched_crm_id")]
+
+    if not matched:
+        result = {}
+        _cache_set(key, result)
+        return result
+
+    # Map CRM transactionid → login
+    crm_txns = crm_cash_transactions_individual(year, month)
+    crm_id_to_login = {}
+    for c in crm_txns:
+        tid = c.get("transactionid")
+        login = c.get("login")
+        if tid and login:
+            crm_id_to_login[int(tid) if isinstance(tid, (int, float)) else tid] = int(login)
+
+    # Aggregate per login
+    result: dict = {}
+    for b in matched:
+        crm_id = b["matched_crm_id"]
+        login = crm_id_to_login.get(crm_id)
+        if not login:
+            continue
+        if login not in result:
+            result[login] = {"bank_deposits": 0, "bank_withdrawals": 0, "bank_net": 0, "bank_matched": 0}
+        amt = b.get("amount") or 0
+        if amt > 0:
+            result[login]["bank_deposits"]  += amt
+        else:
+            result[login]["bank_withdrawals"] += amt
+        result[login]["bank_net"]     += amt
+        result[login]["bank_matched"] += 1
+
+    # Round
+    for v in result.values():
+        v["bank_deposits"]    = round(v["bank_deposits"], 2)
+        v["bank_withdrawals"] = round(v["bank_withdrawals"], 2)
+        v["bank_net"]         = round(v["bank_net"], 2)
+
+    _cache_set(key, result)
+    return result
 
 
 def get_bank_statement_file(statement_id):

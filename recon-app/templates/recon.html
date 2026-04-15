@@ -131,6 +131,7 @@
   .noncash-col { opacity: .5; font-size: 11px !important; }
   .th-noncash  { opacity: .6; }
   .praxis-col { background: rgba(167,139,250,.03); color: var(--muted); font-style: italic; }
+  .bank-col { background: rgba(34,197,94,.03); }
   td.diff-cell { font-weight: 600; }
 </style>
 
@@ -249,10 +250,11 @@
         <th data-reconSort="7" class="num" title="MT4 Net minus CRM Net. Should be ~0 for correctly processed transactions. Differences under $1 are auto-matched (FX rounding on ZAR/NGN/KES deposits).">Difference</th>
         <th data-reconSort="8" class="num" title="Expected PSP fee for this login's deposits, computed from fee agreements. Informational only — the company pays these fees directly, they don't affect the match status.">Fee</th>
         <th data-reconSort="9" class="num" style="border-top:2px solid rgba(167,139,250,.35);" title="Net Praxis deposits for this CID (deposits minus withdrawals). Only populated when the CID maps to exactly one MT4 account — ambiguous multi-account CIDs are excluded.">Praxis</th>
-        <th data-reconSort="10" title="matched = difference under $1 · discrepancy = real gap between MT4 and CRM · crm only = CRM has transactions but MT4 shows no deposit · mt4 only = MT4 shows a deposit but no CRM record">Status</th>
-        <th data-reconSort="11" title="Payment methods used for real (non-internal) transactions this month">Method</th>
-        <th data-reconSort="12" class="num" title="Total number of approved CRM transactions for this login (all types including internal)">Txns</th>
-        <th data-reconSort="13" title="Account currency from MT4">Ccy</th>
+        <th data-reconSort="10" class="num" style="border-top:2px solid rgba(34,197,94,.35);" title="Bank-verified settlement amount from uploaded bank statements. Matched to CRM transactions by reference, login number, or amount+date.">Bank</th>
+        <th data-reconSort="11" title="matched = difference under $1 · discrepancy = real gap between MT4 and CRM · crm only = CRM has transactions but MT4 shows no deposit · mt4 only = MT4 shows a deposit but no CRM record">Status</th>
+        <th data-reconSort="12" title="Payment methods used for real (non-internal) transactions this month">Method</th>
+        <th data-reconSort="13" class="num" title="Total number of approved CRM transactions for this login (all types including internal)">Txns</th>
+        <th data-reconSort="14" title="Account currency from MT4">Ccy</th>
       </tr>
     </thead>
     <tbody>
@@ -277,6 +279,7 @@
             {{ "{:+,.2f}".format(r.fee_adj_diff) if r.expected_fees else '—' }}
           </td>
           <td class="num praxis-col">{{ "{:,.2f}".format(r.praxis_net) if r.praxis_net else '—' }}</td>
+          <td class="num bank-col">{% if r.bank_net %}<span class="{{ 'pos' if r.bank_net > 0 else 'neg' }}">{{ "{:,.2f}".format(r.bank_net) }}</span>{% else %}—{% endif %}</td>
           <td>
             {%- if r.status == 'matched' %}<span class="badge matched">✓ matched</span>
             {%- elif r.status == 'discrepancy' %}<span class="badge discrepancy">⚠ discrepancy</span>
@@ -310,6 +313,7 @@
             {{ "{:+,.2f}".format(a.fee_adj_diff) if a.expected_fees else '—' }}
           </td>
           <td class="num praxis-col">{{ "{:,.2f}".format(a.praxis_net) if a.praxis_net else '—' }}</td>
+          <td class="num bank-col">{% if a.bank_net %}<span class="{{ 'pos' if a.bank_net > 0 else 'neg' }}">{{ "{:,.2f}".format(a.bank_net) }}</span>{% else %}—{% endif %}</td>
           <td>
             {%- if a.status == 'matched' %}<span class="badge matched">✓ matched</span>
             {%- elif a.status == 'discrepancy' %}<span class="badge discrepancy">⚠ discrepancy</span>
@@ -533,7 +537,7 @@ var _reconMonth  = '{{ month }}';
 var _reconSortCol = null, _reconSortAsc = false;
 var _reconKeys = ['cid','mt4_net','crm_cash_dep','crm_cash_with','crm_cash_net',
   'crm_noncash_in','crm_noncash_out','difference','fee_adj_diff','praxis_net',
-  'status','cash_methods','tx_count','currency'];
+  'bank_net','status','cash_methods','tx_count','currency'];
 
 function _fmt(n) {
   if (n == null || n === '') return '—';
@@ -571,6 +575,7 @@ function _buildCells(a) {
     '<td class="num ' + diffCls + '"' + diffStyle + '>' + diffStr + '</td>',
     '<td class="num ' + (a.fee_adj_diff > 1 ? 'pos' : a.fee_adj_diff < -1 ? 'neg' : 'muted') + '" title="Expected fees: $' + _fmtP(a.expected_fees) + '">' + (a.expected_fees ? _fmt(a.fee_adj_diff) : '—') + '</td>',
     '<td class="num praxis-col">' + (a.praxis_net ? _fmtP(a.praxis_net) : '—') + '</td>',
+    '<td class="num bank-col">' + (a.bank_net ? '<span class="' + (a.bank_net > 0 ? 'pos' : 'neg') + '">' + _fmtP(a.bank_net) + '</span>' : '—') + '</td>',
     (function(){
     var icons = {matched:'✓ matched', discrepancy:'⚠ discrepancy', crm_only:'↓ crm only', mt4_only:'↑ mt4 only'};
     return '<td><span class="badge ' + a.status + '">' + (icons[a.status] || a.status.replace('_',' ')) + '</span></td>';
