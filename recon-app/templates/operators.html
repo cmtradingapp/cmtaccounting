@@ -149,16 +149,26 @@ function lastLoginCls(s) {
 }
 
 function loadOperators() {
+  var mc = document.getElementById('matrixContainer');
+  var t0 = Date.now();
+  mc.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">' +
+    '<div style="font-size:14px;font-weight:600;">Loading operator data from CRM\u2026</div>' +
+    '<div id="opElapsed" style="font-size:12px;margin-top:6px;">0s</div></div>';
+  var tick = setInterval(function(){
+    var el = document.getElementById('opElapsed');
+    if (el) el.textContent = Math.round((Date.now()-t0)/1000) + 's';
+  }, 1000);
   fetch('/operators/data')
     .then(function(r){ return r.json(); })
     .then(function(data){
-      if (data.error) { document.getElementById('matrixContainer').textContent = 'Error: ' + data.error; return; }
+      clearInterval(tick);
+      if (data.error) { mc.innerHTML = '<div style="color:var(--red);padding:20px;">Error: ' + data.error + '</div>'; return; }
       _allOps = data.operators || [];
       updateStats();
       buildMatrix();
       applyOpView();
     })
-    .catch(function(e){ document.getElementById('matrixContainer').textContent = 'Failed to load: ' + e; });
+    .catch(function(e){ clearInterval(tick); mc.innerHTML = '<div style="color:var(--red);padding:20px;">Failed to load: ' + e + '</div>'; });
 }
 
 function updateStats() {

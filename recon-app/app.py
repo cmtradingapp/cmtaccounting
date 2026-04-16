@@ -2344,11 +2344,18 @@ def operators_page():
 @app.route("/operators/data")
 @require_retention_auth
 def operators_data():
+    import concurrent.futures as _cf
     try:
-        ops = queries.operator_list()
-        client_stats = queries.operator_client_stats()
-        ftd_stats = queries.operator_ftd_stats()
+        # Run all three CRM queries in parallel (each opens its own connection)
+        with _cf.ThreadPoolExecutor(max_workers=3) as ex:
+            f_ops   = ex.submit(queries.operator_list)
+            f_cs    = ex.submit(queries.operator_client_stats)
+            f_ftd   = ex.submit(queries.operator_ftd_stats)
+            ops          = f_ops.result()
+            client_stats = f_cs.result()
+            ftd_stats    = f_ftd.result()
     except Exception as e:
+        import traceback; traceback.print_exc()
         return jsonify({"error": str(e), "operators": []}), 500
 
     # Merge stats into each operator row
