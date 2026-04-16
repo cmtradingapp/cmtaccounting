@@ -32,8 +32,9 @@ def _warm_wide_span_caches():
     time.sleep(10)
     today = _dt.date.today()
     spans = [
-        (_dt.date(2021, 1, 1),         today + _dt.timedelta(days=1), "all"),
         (today - _dt.timedelta(days=365), today + _dt.timedelta(days=1), "1y"),
+        (today - _dt.timedelta(days=730), today + _dt.timedelta(days=1), "2y"),
+        (_dt.date(2021, 1, 1),           today + _dt.timedelta(days=1), "all"),
     ]
     for df, dt, label in spans:
         try:
