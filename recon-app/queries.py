@@ -2291,6 +2291,11 @@ def client_mt4_detail(login: int, date_from, date_to) -> list:
                 FROM dealio.daily_profits
                 WHERE login = %s
                   AND date >= %s AND date < %s
+                  AND (
+                      ABS(COALESCE(netdeposit, 0))   > 0.001
+                   OR ABS(COALESCE(closedpnl, 0))    > 0.001
+                   OR ABS(COALESCE(floatingpnl, 0))  > 0.001
+                  )
                 ORDER BY date
             """, (login, date_from, date_to))
             return [dict(r) for r in cur.fetchall()]
