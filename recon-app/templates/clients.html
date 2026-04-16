@@ -465,7 +465,11 @@ function applyView() {
     if(parseInt(th.getAttribute('data-col'))===_sortCol) th.classList.add(asc?'asc':'desc');
   });
   _flatItems=rebuildFlat(_viewGroups);
-  document.getElementById('clScroller').scrollTop=0; _vsStart=0; _vsEnd=0; vsRender(true);
+  var _sortScr=document.getElementById('clScroller');
+  _sortScr.scrollTop=0; _vsStart=0; _vsEnd=0; vsRender(true);
+  // Second pass in next frame: ensures any scroll events queued by scrollTop=0
+  // don't overwrite the correct render before the browser paints
+  requestAnimationFrame(function(){_sortScr.scrollTop=0; _vsStart=0; _vsEnd=0; vsRender(true);});
   var profitable=0,losing=0,tv=0;
   _viewGroups.forEach(function(g){
     if(g.agg.company_total>1)profitable++;
