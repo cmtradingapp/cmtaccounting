@@ -73,7 +73,7 @@
   .badge-off { display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(100,116,139,.1);color:var(--muted); }
 
   /* Column filter dropdown */
-  .col-filter { position:relative; display:inline; }
+  .col-filter { position:relative; display:inline-block; }
   .col-filter-icon { color:var(--muted); font-size:10px; margin-left:3px; cursor:pointer; }
   .col-filter-icon.active-filter { color:var(--accent); }
   .col-filter-drop { display:none; position:absolute; top:100%; left:0; z-index:50; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:250px; overflow-y:auto; min-width:160px; }
@@ -171,11 +171,11 @@
     <thead><tr>
       <th data-col="0" data-sort="name">Name</th>
       <th data-col="1" data-sort="email">Email</th>
-      <th data-col="2" data-sort="department" data-filterable="department">Department <span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('department',this)">&#9662;</span></th>
-      <th data-col="3" data-sort="office" data-filterable="office">Office <span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('office',this)">&#9662;</span></th>
-      <th data-col="4" data-sort="status" data-filterable="status">Status <span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('status',this)">&#9662;</span></th>
-      <th data-col="5" data-sort="role_type" data-filterable="role_type">Role <span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('role_type',this)">&#9662;</span></th>
-      <th data-col="6" data-sort="position" data-filterable="position">Position <span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('position',this)">&#9662;</span></th>
+      <th data-col="2" data-sort="department" data-filterable="department">Department <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('department',this)">&#9662;</span></span></th>
+      <th data-col="3" data-sort="office" data-filterable="office">Office <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('office',this)">&#9662;</span></span></th>
+      <th data-col="4" data-sort="status" data-filterable="status">Status <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('status',this)">&#9662;</span></span></th>
+      <th data-col="5" data-sort="role_type" data-filterable="role_type">Role <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('role_type',this)">&#9662;</span></span></th>
+      <th data-col="6" data-sort="position" data-filterable="position">Position <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('position',this)">&#9662;</span></span></th>
       <th data-col="7" data-sort="last_login">Last Login</th>
       <th data-col="8" data-sort="id" class="num">Joined</th>
       <th data-col="9" data-sort="total_clients" class="num">Clients</th>
@@ -401,8 +401,7 @@ function toggleColFilter(field, icon){
     '<span class="cf-clear" onclick="clearColFilter(\''+field+'\')">Clear filter</span>'+
     '<span class="cf-clear" onclick="unselectAllFilter(\''+field+'\')">Unselect all</span></div>';
   drop.innerHTML=html;
-  icon.closest('th').style.position='relative';
-  icon.closest('th').appendChild(drop);
+  icon.closest('.col-filter').appendChild(drop);
 }
 
 function onColFilterChange(field,val,checked){
@@ -447,6 +446,15 @@ document.addEventListener('click',function(e){
     document.querySelectorAll('.col-filter-drop.open').forEach(function(d){d.classList.remove('open');});
 });
 
+function clearAllColFilters(){
+  _colFilters={};
+  document.querySelectorAll('.col-filter-drop').forEach(function(d){
+    d.querySelectorAll('input[type=checkbox]').forEach(function(cb){cb.checked=true;});
+    d.classList.remove('open');
+  });
+  updateFilterIcons(); buildTable();
+}
+
 // ── Main table ──────────────────────────────────────────────────────────
 function buildTable(){
   var dept=document.getElementById('deptPicker').value;
@@ -470,6 +478,19 @@ function buildTable(){
     return _opSortAsc?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
   });
   _currentView=filtered;
+  if(!filtered.length){
+    document.getElementById('mainBody').innerHTML=
+      '<tr><td colspan="12" style="text-align:center;padding:32px;color:var(--muted);font-size:13px;">'+
+      'No operators match the current filters \u2014 '+
+      '<span onclick="clearAllColFilters()" style="color:var(--accent);cursor:pointer;font-weight:600;">Clear all filters</span>'+
+      '</td></tr>';
+    document.getElementById('opCount').textContent='0 of '+_allOps.length;
+    document.querySelectorAll('#mainTable th[data-sort]').forEach(function(th){
+      th.classList.remove('asc','desc');
+      if(th.getAttribute('data-sort')===_opSortKey)th.classList.add(_opSortAsc?'asc':'desc');
+    });
+    return;
+  }
   var html='';
   filtered.forEach(function(o,i){
     var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
