@@ -537,6 +537,18 @@ function clearDateRange(e) {
 // Retry state — persists across loadData calls for background computation
 var _retryCount = 0, _retryT0 = 0, _retryTicker = null, _maxStageNum = 0;
 
+// Drive step checkmarks from the real backend stage_num
+// stage 1→step 0 active, 2→step 1 active, 3→step 2 active, 4→step 3 active
+function setStepsFromStageNum(n, stepIds) {
+  var activeIdx = n <= 1 ? 0 : n === 2 ? 1 : n === 3 ? 2 : 3;
+  stepIds.forEach(function(id, i) {
+    var el = document.getElementById(id);
+    if (i < activeIdx)        el.className = 'cl-step done';
+    else if (i === activeIdx) el.className = 'cl-step active';
+    else                      el.className = 'cl-step';
+  });
+}
+
 function loadData(span){
   _span=span;
   var overlay=document.getElementById('cl-overlay');
@@ -551,6 +563,7 @@ function loadData(span){
     overlay.classList.remove('hidden');
     document.getElementById('cl-progress-wrap').style.display='none';
     document.getElementById('cl-load-title').style.color='';
+    document.querySelector('.cl-load-steps').style.display='';
     stepIds.forEach(function(s){document.getElementById(s).className='cl-step';});
     document.getElementById(stepIds[0]).className='cl-step active';
     document.getElementById('cl-load-title').textContent=span==='all'?'Loading all-time data\u2026':'Loading client data\u2026';
@@ -578,15 +591,15 @@ function loadData(span){
         var totalSec = Math.round((Date.now() - _retryT0) / 1000);
         document.getElementById('cl-load-title').textContent = 'Server is computing all-time data\u2026';
         document.getElementById('cl-load-title').style.color = 'var(--yellow)';
-        stepIds.forEach(function(s){document.getElementById(s).className='cl-step done';});
         // Show real progress from server
         var progWrap = document.getElementById('cl-progress-wrap');
         progWrap.style.display = '';
-        // Only update stage text if stage is advancing (never go backward)
+        // Only update stage + steps if stage is advancing (never go backward)
         var newNum = data.stage_num || 0;
         if (newNum >= _maxStageNum) {
           _maxStageNum = newNum;
           document.getElementById('cl-progress-stage').textContent = data.stage || 'Working\u2026';
+          setStepsFromStageNum(_maxStageNum, stepIds);   // drive checkmarks from real stage
         }
         document.getElementById('cl-progress-text').textContent =
           'Attempt ' + _retryCount + ' \u00b7 ' + totalSec + 's total';
@@ -610,6 +623,8 @@ function loadData(span){
         document.getElementById('cl-elapsed').textContent = 'Error: ' + data.error;
         return;
       }
+      // Restore step list (may have been hidden during background computation)
+      document.querySelector('.cl-load-steps').style.display = '';
       for(var i=0;i<4;i++) document.getElementById(stepIds[i]).className='cl-step done';
       document.getElementById(stepIds[4]).className='cl-step active';
       var rows=data.rows||[];
