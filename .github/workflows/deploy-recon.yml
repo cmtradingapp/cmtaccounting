@@ -14,16 +14,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2   # need HEAD~1 for requirements diff check
+          fetch-depth: 2
 
       - name: Rsync files to server
         env:
           SSHPASS: ${{ secrets.SERVER_PASS }}
         run: |
-          # sshpass lets us use password auth without interactive prompt
           sudo apt-get install -y -q sshpass
-
-          # rsync: only transfers changed files, skips DB and secrets
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=no" \
             --exclude='fees.db' \
@@ -34,54 +31,22 @@ jobs:
             --exclude='*.db-wal' \
             recon-app/ root@213.199.45.213:/root/recon-app/
 
-      - name: Inject all secrets into server .env
+      - name: Inject secrets into server .env
         env:
           SSHPASS: ${{ secrets.SERVER_PASS }}
-          E_ADMIN_USER: ${{ secrets.ADMIN_USER }}
-          E_ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
-          E_CRM_USER: ${{ secrets.CRM_USER }}
-          E_CRM_PASS: ${{ secrets.CRM_PASS }}
-          E_RECON_PASS: ${{ secrets.RECON_PASS }}
-          E_FEES_PASS: ${{ secrets.FEES_PASS }}
-          E_FX_PASS: ${{ secrets.FX_PASS }}
-          E_DEALIO_PASS: ${{ secrets.DEALIO_PASS }}
-          E_FLASK_SECRET: ${{ secrets.FLASK_SECRET }}
-          E_PRAXIS_PASS: ${{ secrets.PRAXIS_PASS }}
-          E_FEES_PG_PASS: ${{ secrets.FEES_PG_PASS }}
-          E_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          # Write secrets to a local temp file using env vars (no ${{ }} in shell cmds)
-          printf '%s\n' \
-            "ADMIN_USER=${E_ADMIN_USER}" \
-            "ADMIN_PASS=${E_ADMIN_PASS}" \
-            "CRM_USER=${E_CRM_USER}" \
-            "CRM_PASS=${E_CRM_PASS}" \
-            "RECON_PASS=${E_RECON_PASS}" \
-            "FEES_PASS=${E_FEES_PASS}" \
-            "FX_PASS=${E_FX_PASS}" \
-            "DEALIO_PASS=${E_DEALIO_PASS}" \
-            "FLASK_SECRET=${E_FLASK_SECRET}" \
-            "PRAXIS_PASS=${E_PRAXIS_PASS}" \
-            "FEES_PG_PASS=${E_FEES_PG_PASS}" \
-            "ANTHROPIC_API_KEY=${E_ANTHROPIC_API_KEY}" \
-            > /tmp/new_secrets.env
-          # Strip old values from server .env and append new ones
-          sshpass -e scp -o StrictHostKeyChecking=no /tmp/new_secrets.env root@213.199.45.213:/tmp/new_secrets.env
-          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-            'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
+          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 "touch /root/recon-app/.env && sed -i '/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d' /root/recon-app/.env && printf 'ADMIN_USER=${{ secrets.ADMIN_USER }}\nADMIN_PASS=${{ secrets.ADMIN_PASS }}\nCRM_USER=${{ secrets.CRM_USER }}\nCRM_PASS=${{ secrets.CRM_PASS }}\nRECON_PASS=${{ secrets.RECON_PASS }}\nFEES_PASS=${{ secrets.FEES_PASS }}\nFX_PASS=${{ secrets.FX_PASS }}\nDEALIO_PASS=${{ secrets.DEALIO_PASS }}\nFLASK_SECRET=${{ secrets.FLASK_SECRET }}\nPRAXIS_PASS=${{ secrets.PRAXIS_PASS }}\nFEES_PG_PASS=${{ secrets.FEES_PG_PASS }}\nANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}\n' >> /root/recon-app/.env"
 
       - name: Restart or rebuild container
         env:
           SSHPASS: ${{ secrets.SERVER_PASS }}
         run: |
-          # Only rebuild the image when dependencies actually changed.
-          # Otherwise a plain restart is ~10x faster.
           if git diff HEAD~1 HEAD -- recon-app/requirements.txt | grep -q .; then
             echo "requirements.txt changed — full rebuild"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/recon-app && docker compose up -d --build && docker compose ps"
           else
-            echo "Code-only change — force-recreate to reload templates + flush caches"
+            echo "Code-only change — force-recreate recon container"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/recon-app && docker compose up -d --force-recreate recon && sleep 3 && docker compose ps"
           fi
