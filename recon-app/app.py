@@ -2341,6 +2341,19 @@ def operators_page():
     return render_template("operators.html")
 
 
+def _clean_department(raw: str) -> str:
+    """Normalize verbose CRM department names to top-level categories.
+    'Retention - English Desk Bulgaria' → 'Retention', 'Sales (New)' → 'Sales'.
+    Already-clean values like 'Support' pass through unchanged.
+    """
+    if not raw:
+        return raw
+    for sep in (" - ", " – ", " (", " /", " \\"):
+        if sep in raw:
+            return raw.split(sep)[0].strip()
+    return raw.strip()
+
+
 @app.route("/operators/data")
 @require_retention_auth
 def operators_data():
@@ -2349,6 +2362,8 @@ def operators_data():
         ops = queries.operator_list()
         for op in ops:
             op["last_login"] = str(op.get("last_login") or "")[:16]
+            if op.get("department"):
+                op["department"] = _clean_department(op["department"])
         return jsonify({"operators": ops})
     except Exception as e:
         import traceback; traceback.print_exc()

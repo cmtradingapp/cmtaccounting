@@ -4023,14 +4023,15 @@ def operator_list() -> list:
             with crm() as cur:
                 cur.execute("""
                     SELECT
-                        id, user_name, first_name, last_name, email,
-                        department, office, status, position,
-                        fax AS role_type,
-                        last_login, phone AS desk_label
-                    FROM report.vtiger_users
+                        u.id, u.user_name, u.first_name, u.last_name, u.email,
+                        u.department, u.office, u.status, u.position,
+                        COALESCE(r.rolename, u.fax) AS role_name,
+                        u.last_login, u.phone AS desk_label
+                    FROM report.vtiger_users u
+                    LEFT JOIN report.vtiger_role r ON u.roleid = r.roleid
                     ORDER BY
-                        CASE WHEN status='Active' THEN 0 ELSE 1 END,
-                        department, office, first_name
+                        CASE WHEN u.status='Active' THEN 0 ELSE 1 END,
+                        u.department, u.office, u.first_name
                 """)
                 return [dict(r) for r in cur.fetchall()]
         rows = _db_retry(_fetch)
