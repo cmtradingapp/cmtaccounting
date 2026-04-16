@@ -108,6 +108,18 @@
   <div class="act-card"><div class="act-title" style="color:var(--green);">&#9679; Newest Operators</div><div id="newestList"></div></div>
   <div class="act-card"><div class="act-title" style="color:var(--red);">&#9679; Recently Deactivated</div><div id="deactivatedList"></div></div>
 </div>
+<!-- Yesterday → Today Activated / Deactivated -->
+<div class="act-row" style="margin-top:0;">
+  <div class="act-card" style="border-color:rgba(34,197,94,.25);">
+    <div class="act-title" style="color:var(--green);">&#9650; Activated (Yesterday → Today) <span id="activatedCount" style="font-weight:400;color:var(--muted);font-size:10px;"></span></div>
+    <div id="activatedList"></div>
+  </div>
+  <div class="act-card" style="border-color:rgba(239,68,68,.25);">
+    <div class="act-title" style="color:var(--red);">&#9660; Deactivated (Yesterday → Today) <span id="deactivatedTodayCount" style="font-weight:400;color:var(--muted);font-size:10px;"></span></div>
+    <div id="deactivatedTodayList"></div>
+  </div>
+</div>
+
 <!-- Daily Changes — two-panel comparison table -->
 <div class="section-title" id="changesTitle" style="margin-top:0;">Daily Changes — Yesterday vs Today</div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:var(--sp-4);">
@@ -240,6 +252,24 @@ function buildActivity(){
     var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
     return aItem(n,(o.department||'—')+' · '+(o.office||'—'),(o.last_login||'').slice(0,10),'color:var(--muted)');}).join('');
 
+  // Yesterday → Today Activated: Active operators whose last_login is today
+  var activatedToday=_allOps.filter(function(o){return o.status==='Active'&&(o.last_login||'').slice(0,10)===today;}).sort(function(a,b){return b.id-a.id;});
+  document.getElementById('activatedCount').textContent='('+activatedToday.length+')';
+  document.getElementById('activatedList').innerHTML=activatedToday.slice(0,8).map(function(o){
+    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),(o.last_login||'').slice(0,10),'color:var(--green)');
+  }).join('')+(activatedToday.length>8?'<div style="font-size:11px;color:var(--muted);padding:2px 0;">+'+(activatedToday.length-8)+' more</div>':'')
+    ||'<span style="color:var(--muted);font-size:12px;">None today</span>';
+
+  // Yesterday → Today Deactivated: Inactive operators whose last_login was yesterday
+  var deactivatedToday=_allOps.filter(function(o){return o.status==='Inactive'&&(o.last_login||'').slice(0,10)===yesterday;}).sort(function(a,b){return(b.last_login||'').localeCompare(a.last_login||'');});
+  document.getElementById('deactivatedTodayCount').textContent='('+deactivatedToday.length+')';
+  document.getElementById('deactivatedTodayList').innerHTML=deactivatedToday.slice(0,8).map(function(o){
+    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),(o.last_login||'').slice(0,10),'color:var(--red)');
+  }).join('')+(deactivatedToday.length>8?'<div style="font-size:11px;color:var(--muted);padding:2px 0;">+'+(deactivatedToday.length-8)+' more</div>':'')
+    ||'<span style="color:var(--muted);font-size:12px;">None detected</span>';
+
   // Daily Changes comparison tables
   var todayL={},yesterdayL={};
   _allOps.forEach(function(o){var ll=(o.last_login||'').slice(0,10);
@@ -259,7 +289,7 @@ function buildActivity(){
       '<td style="padding:6px 12px;text-align:right;'+cls+'">'+dateVal+'</td></tr>';
   }
   function renderChangeTable(id, rows, dateVal, cls, btnId){
-    var LIMIT=40;
+    var LIMIT=10;
     function html(subset){return subset.map(function(o){return tRow(o,dateVal(o),cls);}).join('');}
     var tbody=document.getElementById(id);
     var btn=document.getElementById(btnId);
