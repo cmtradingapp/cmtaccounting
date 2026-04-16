@@ -2572,6 +2572,51 @@ def ensure_fee_tables():
     _ensure_processor_mappings_table()
     _ensure_method_mappings_table()
     _ensure_bank_tables()
+    _ensure_operator_watermark_table()
+
+
+def _ensure_operator_watermark_table():
+    """Track max CRM operator ID seen — identifies truly new operators day-over-day."""
+    if _PG:
+        ddl = """CREATE TABLE IF NOT EXISTS operator_id_watermark (
+            key TEXT PRIMARY KEY,
+            max_id INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );"""
+        with fees_db() as conn:
+            conn.execute(ddl)
+    else:
+        ddl = """CREATE TABLE IF NOT EXISTS operator_id_watermark (
+            key TEXT PRIMARY KEY,
+            max_id INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now'))
+        );"""
+        with fees_db() as conn:
+            conn.executescript(ddl)
+
+
+def get_operator_watermark(key: str = 'default') -> dict:
+    with fees_db() as conn:
+        row = conn.execute(
+            "SELECT max_id, updated_at FROM operator_id_watermark WHERE key = ?", (key,)
+        ).fetchone()
+        return dict(row) if row else {"max_id": 0, "updated_at": None}
+
+
+def update_operator_watermark(new_max_id: int, key: str = 'default') -> None:
+    with fees_db() as conn:
+        if _PG:
+            conn.execute("""
+                INSERT INTO operator_id_watermark (key, max_id)
+                VALUES (%s, %s)
+                ON CONFLICT(key) DO UPDATE SET max_id=EXCLUDED.max_id, updated_at=NOW()
+            """, (key, new_max_id))
+        else:
+            conn.execute("""
+                INSERT INTO operator_id_watermark (key, max_id, updated_at)
+                VALUES (?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET max_id=excluded.max_id, updated_at=excluded.updated_at
+            """, (key, new_max_id))
 
 
 def _ensure_prompt_tables():

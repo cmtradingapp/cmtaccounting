@@ -156,6 +156,7 @@ jobs:
           check "/operators"
           check "/operators/data"
           check "/operators/stats"
+          check "/operators/watermark"
           # Admin auth — POST-only routes (GET returns 405, verify POST returns 401)
           check_post "/fees/mode"
           check_post "/fees/admin/snapshot/save"

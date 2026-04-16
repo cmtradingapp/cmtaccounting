@@ -2355,6 +2355,30 @@ def operators_data():
         return jsonify({"error": str(e), "operators": []})
 
 
+@app.route("/operators/watermark")
+@require_retention_auth
+def operators_watermark():
+    """Record/query the max operator ID watermark for new-operator detection."""
+    current_max = request.args.get("current_max", type=int, default=0)
+    stored = queries.get_operator_watermark()
+    prev_max  = stored["max_id"]
+    prev_date = (stored.get("updated_at") or "")[:10]
+    if current_max > prev_max:
+        queries.update_operator_watermark(current_max)
+    new_count = max(0, current_max - prev_max)
+    if prev_max == 0:
+        explanation = "First run — baseline ID #%d recorded. New operators will be tracked from next session." % current_max
+    else:
+        explanation = "Operators with ID > #%d (snapshot: %s) are new — %d found" % (prev_max, prev_date, new_count)
+    return jsonify({
+        "prev_max_id": prev_max,
+        "prev_date":   prev_date,
+        "current_max_id": current_max,
+        "new_count":   new_count,
+        "explanation": explanation,
+    })
+
+
 @app.route("/operators/stats")
 @require_retention_auth
 def operators_stats():

@@ -188,15 +188,16 @@
 
 <script>
 var _allOps=[], _currentView=[], _opFilter='all', _opSearch='', _opSortKey='last_login', _opSortAsc=false;
-var _colFilters = {};  // {field: Set of allowed values} — empty = no filter
-var _matrixNames = {};
+var _colFilters={}, _matrixNames={};
+// Watermark state for exact new-operator detection
+var _wmPrevMax=0, _wmDate='', _wmExplain='', _wmNewCount=0;
 
 function buildActCard(listId, btnId, rows, dateFn, cls, emptyMsg){
   var LIMIT=8;
   var list=document.getElementById(listId), btn=document.getElementById(btnId);
   function render(subset){
     return subset.map(function(o){var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-      return aItem(n,(o.department||'—')+' · '+(o.office||'—'),dateFn(o),cls);}).join('');
+      return aItem(n,(o.department||'—')+' · '+(o.office||'—'),dateFn(o),cls,o.id);}).join('');
   }
   if(!rows.length){list.innerHTML='<span style="color:var(--muted);font-size:12px;">'+emptyMsg+'</span>';if(btn)btn.style.display='none';return;}
   list.innerHTML=render(rows.slice(0,LIMIT));
@@ -208,7 +209,10 @@ function buildActCard(listId, btnId, rows, dateFn, cls, emptyMsg){
 }
 function fmtC(n){ if(!n) return '—'; var a=Math.abs(n),s=n<0?'-':''; return a>=1e6?s+'$'+(a/1e6).toFixed(1)+'M':a>=1e3?s+'$'+Math.round(a/1e3)+'K':s+'$'+a.toFixed(0); }
 function loginCls(s){ if(!s||s.length<10) return 'muted'; var d=(Date.now()-new Date(s.slice(0,10)).getTime())/864e5; return d<=1?'pos':d<=7?'':d<=30?'':'muted'; }
-function aItem(n,sub,right,cls){return '<div class="act-item"><span class="n">'+n+'</span><span class="d">'+sub+'</span><span class="r" style="'+(cls||'')+'">'+right+'</span></div>';}
+function aItem(n,sub,right,cls,opId){
+  var evts=opId!=null?' onmouseenter="showAgentById(event,'+opId+')" onmouseleave="hideAgent()" style="cursor:default;"':'';
+  return '<div class="act-item"'+evts+'><span class="n">'+n+'</span><span class="d">'+sub+'</span><span class="r" style="'+(cls||'')+'">'+right+'</span></div>';
+}
 function af(l,v){return '<div class="agent-tip-field"><div class="fl">'+l+'</div><div class="fv">'+v+'</div></div>';}
 
 function loadOperators(){
@@ -216,6 +220,13 @@ function loadOperators(){
     if(data.error){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">'+data.error+'</span>';return;}
     _allOps=data.operators||[];
     buildAll();
+    // Watermark: record max ID, get explanation for activated card
+    var maxId=Math.max.apply(null,_allOps.map(function(o){return o.id;}));
+    fetch('/operators/watermark?current_max='+maxId).then(function(r){return r.json();}).then(function(wm){
+      _wmPrevMax=wm.prev_max_id; _wmDate=wm.prev_date;
+      _wmExplain=wm.explanation; _wmNewCount=wm.new_count;
+      buildActivatedCard();  // rebuild with DB-backed watermark
+    }).catch(function(){});
     fetch('/operators/stats').then(function(r){return r.json();}).then(function(sd){
       if(!sd.stats)return;
       _allOps.forEach(function(o){var s=sd.stats[String(o.id)]||{};
@@ -254,6 +265,19 @@ function buildComparison(){
     '<div class="cmp-card"><div class="cmp-label">Recently Deactivated</div><div class="cmp-val neg">'+rd+'</div></div>';
 }
 
+function buildActivatedCard(){
+  // Use DB-backed watermark: operators with ID above prev snapshot are definitively new
+  var newOps=_allOps.filter(function(o){
+    return o.status==='Active' && o.id > _wmPrevMax;
+  }).sort(function(a,b){return b.id-a.id;});
+  buildActCard('activatedList','actExpandBtn',newOps,function(o){return(o.last_login||'').slice(0,10);},'color:var(--green)','None today');
+  if(_wmExplain){
+    var explain='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;padding:4px 0;border-bottom:1px solid var(--border);">&#8505; '+_wmExplain+'</div>';
+    document.getElementById('activatedList').insertAdjacentHTML('afterbegin',explain);
+  }
+  document.getElementById('activatedCount').textContent='('+newOps.length+')';
+}
+
 function buildActivity(){
   var today=new Date().toISOString().slice(0,10), yesterday=new Date(Date.now()-864e5).toISOString().slice(0,10);
   var active=_allOps.filter(function(o){return o.status==='Active';});
@@ -261,13 +285,13 @@ function buildActivity(){
   document.getElementById('newestList').innerHTML=newest.map(function(o){
     var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
     var date=(o.last_login||'').slice(0,10)||'—';
-    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),date,'color:var(--green)');}).join('');
+    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),date,'color:var(--green)',o.id);}).join('');
 
   var inactive=_allOps.filter(function(o){return o.status==='Inactive'&&o.last_login&&o.last_login.length>=10;});
   var deact=inactive.sort(function(a,b){return(b.last_login||'').localeCompare(a.last_login||'');}).slice(0,8);
   document.getElementById('deactivatedList').innerHTML=deact.map(function(o){
     var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),(o.last_login||'').slice(0,10),'color:var(--muted)');}).join('');
+    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),(o.last_login||'').slice(0,10),'color:var(--muted)',o.id);}).join('');
 
   // Yesterday → Today Activated: best available proxy — Active + high ID + last_login is today.
   // CRM has no first_login or created_at. High ID = recently created account. If they also
@@ -301,7 +325,7 @@ function buildActivity(){
   document.getElementById('goneCount').textContent='('+gone.length+' total)';
   function tRow(o,dateVal,cls){
     var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    return '<tr style="border-bottom:1px solid rgba(255,255,255,.03);">'+
+    return '<tr onmouseenter="showAgentById(event,'+o.id+')" onmouseleave="hideAgent()" style="border-bottom:1px solid rgba(255,255,255,.03);cursor:default;">'+
       '<td style="padding:6px 12px;font-weight:600;color:var(--text);">'+n+'</td>'+
       '<td style="padding:6px 12px;color:var(--muted);font-size:11px;">'+(o.department||'—')+' · '+(o.office||'—')+'</td>'+
       '<td style="padding:6px 12px;text-align:right;'+cls+'">'+dateVal+'</td></tr>';
@@ -480,11 +504,9 @@ document.querySelectorAll('#mainTable th[data-sort]').forEach(function(th){
   });
 });
 
-function showAgent(e,idx){
-  var o=_currentView[idx];if(!o)return;
+function _agentTipHtml(o){
   var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-  var tip=document.getElementById('agentTip');
-  tip.innerHTML='<div class="agent-tip-name">'+name+'</div><div class="agent-tip-grid">'+
+  return '<div class="agent-tip-name">'+name+'</div><div class="agent-tip-grid">'+
     af('Email',o.email||'—')+af('Username',o.user_name||'—')+
     af('Department',o.department||'—')+af('Office',o.office||'—')+
     af('Status',o.status||'—')+af('Role Type',o.role_type||'—')+
@@ -493,10 +515,15 @@ function showAgent(e,idx){
     af('Clients',(o.total_clients||0).toLocaleString())+af('Funded',(o.funded_clients||0).toLocaleString())+
     af('Total Deposits',fmtC(o.total_deposit_volume))+af('Net Deposits',fmtC(o.net_deposit_volume))+
     af('FTD Count',(o.ftd_count||0).toLocaleString())+af('FTD Volume',fmtC(o.ftd_volume))+'</div>';
-  tip.style.display='block';
+}
+function _showTip(e,html){
+  var tip=document.getElementById('agentTip');
+  tip.innerHTML=html; tip.style.display='block';
   tip.style.left=Math.min(e.clientX+16,window.innerWidth-340)+'px';
   tip.style.top=Math.min(e.clientY-20,window.innerHeight-tip.offsetHeight-20)+'px';
 }
+function showAgent(e,idx){ var o=_currentView[idx];if(!o)return;_showTip(e,_agentTipHtml(o)); }
+function showAgentById(e,id){ var o=_allOps.find(function(x){return x.id===id;});if(!o)return;_showTip(e,_agentTipHtml(o)); }
 function hideAgent(){document.getElementById('agentTip').style.display='none';}
 function showMxTip(e,td){var k=td.getAttribute('data-mxkey');if(!k)return;var names=_matrixNames[k];if(!names||!names.length)return;
   var p=k.split('|'),tip=document.getElementById('mxTip');document.getElementById('mxTipTitle').textContent=p[0]+' \u2014 '+p[1];
