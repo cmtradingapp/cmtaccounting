@@ -82,8 +82,9 @@
   .col-filter-drop label { display:flex; align-items:center; gap:6px; padding:3px 4px; font-size:12px; cursor:pointer; border-radius:3px; color:var(--text); font-weight:400; text-transform:none; letter-spacing:0; }
   .col-filter-drop label:hover { background:rgba(255,255,255,.04); }
   .col-filter-drop input[type=checkbox] { width:14px; height:14px; accent-color:var(--accent); cursor:pointer; }
-  .col-filter-drop .cf-clear { font-size:11px; color:var(--accent); cursor:pointer; margin-top:6px; padding-top:6px; border-top:1px solid var(--border); }
-  .col-filter-drop .cf-clear:hover { text-decoration:underline; }
+  .cf-actions { display:flex; gap:6px; margin-top:6px; padding-top:6px; border-top:1px solid var(--border); }
+  .cf-btn { flex:1; text-align:center; font-size:11px; font-weight:600; color:var(--accent); cursor:pointer; padding:5px 0; border:1px solid rgba(79,142,247,.3); border-radius:4px; background:rgba(79,142,247,.06); transition:background .12s; }
+  .cf-btn:hover { background:rgba(79,142,247,.18); }
 
   /* Agent tooltip */
   .agent-tip { display:none; position:fixed; z-index:200; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px 20px; box-shadow:0 12px 36px rgba(0,0,0,.6); width:320px; pointer-events:none; }
@@ -406,9 +407,9 @@ function toggleColFilter(field, icon){
   sorted.forEach(function(v){
     var checked=!_colFilters[field]||_colFilters[field].has(v)?'checked':'';
     html+='<label><input type="checkbox" '+checked+' onchange="onColFilterChange(\''+field+'\',\''+v.replace(/'/g,"\\'")+'\',this.checked)"> '+v+' <span style="color:var(--muted);margin-left:auto;font-size:10px;">'+vals[v]+'</span></label>';});
-  html+='<div style="display:flex;gap:10px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">'+
-    '<span class="cf-clear" onclick="clearColFilter(\''+field+'\')">Clear filter</span>'+
-    '<span class="cf-clear" onclick="unselectAllFilter(\''+field+'\')">Unselect all</span></div>';
+  html+='<div class="cf-actions">'+
+    '<span class="cf-btn" onclick="clearColFilter(\''+field+'\')">Clear</span>'+
+    '<span class="cf-btn" onclick="unselectAllFilter(\''+field+'\')">Unselect all</span></div>';
   drop.innerHTML=html;
   // Attach to body with position:fixed so it's never clipped by overflow:auto ancestors
   drop.style.position='fixed';
