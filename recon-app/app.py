@@ -2338,7 +2338,10 @@ def bank_purge(statement_id):
 @app.route("/operators")
 @require_retention_auth
 def operators_page():
-    return render_template("operators.html")
+    from flask import make_response
+    resp = make_response(render_template("operators.html"))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
 
 
 # ── Operator department / role derivation ─────────────────────────────────
