@@ -524,11 +524,11 @@ function applyView() {
     }
   });
   _flatItems=rebuildFlat(_viewGroups);
+  // Clear stale rows BEFORE scrollTop reset so nothing wrong is visible
+  var _sortTbody=document.getElementById('clTbody');
+  Array.from(_sortTbody.querySelectorAll('tr.cl-group-row,tr.cl-login-row')).forEach(function(r){r.remove();});
   var _sortScr=document.getElementById('clScroller');
   _sortScr.scrollTop=0; _vsStart=0; _vsEnd=0; vsRender(true);
-  // Second pass in next frame: ensures any scroll events queued by scrollTop=0
-  // don't overwrite the correct render before the browser paints
-  requestAnimationFrame(function(){_sortScr.scrollTop=0; _vsStart=0; _vsEnd=0; vsRender(true);});
   var profitable=0,losing=0,tv=0;
   _viewGroups.forEach(function(g){
     if(g.agg.company_total>1)profitable++;
@@ -554,7 +554,7 @@ function setFilter(f,btn){
 function filterClients(q){_search=q;applyView();}
 
 document.querySelectorAll('#clTable th[data-col]').forEach(function(th){
-  th.addEventListener('click',function(){
+  th.addEventListener('click',function(e){
     var c=parseInt(th.getAttribute('data-col'));
     if(e.shiftKey && c!==_sortCol){
       // Shift+click a different column → add/toggle secondary sort
