@@ -121,6 +121,7 @@
       </tr></thead>
       <tbody id="cameTable"></tbody>
     </table>
+    <div style="padding:8px 12px;border-top:1px solid var(--border);"><button id="cameExpand" style="display:none;background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;font-weight:600;padding:0;">Show all ▾</button></div>
   </div>
   <div style="background:var(--surface);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius-md);overflow:hidden;">
     <div style="padding:10px 14px;border-bottom:1px solid rgba(239,68,68,.15);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--red);">&#9679; Not Online Today <span id="goneCount" style="margin-left:6px;font-weight:400;color:var(--muted);"></span></div>
@@ -132,6 +133,7 @@
       </tr></thead>
       <tbody id="goneTable"></tbody>
     </table>
+    <div style="padding:8px 12px;border-top:1px solid var(--border);"><button id="goneExpand" style="display:none;background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;font-weight:600;padding:0;">Show all ▾</button></div>
   </div>
 </div>
 
@@ -256,12 +258,25 @@ function buildActivity(){
       '<td style="padding:6px 12px;color:var(--muted);font-size:11px;">'+(o.department||'—')+' · '+(o.office||'—')+'</td>'+
       '<td style="padding:6px 12px;text-align:right;'+cls+'">'+dateVal+'</td></tr>';
   }
-  document.getElementById('cameTable').innerHTML=came.length
-    ? came.map(function(o){return tRow(o,(o.last_login||'—').slice(0,16),'color:var(--green);font-size:11px;');}).join('')
-    : '<tr><td colspan="3" style="padding:12px;color:var(--muted);text-align:center;font-size:12px;">No one new today</td></tr>';
-  document.getElementById('goneTable').innerHTML=gone.length
-    ? gone.map(function(o){return tRow(o,(o.last_login||'—').slice(0,10),'color:var(--muted);font-size:11px;');}).join('')
-    : '<tr><td colspan="3" style="padding:12px;color:var(--muted);text-align:center;font-size:12px;">No changes from yesterday</td></tr>';
+  function renderChangeTable(id, rows, dateVal, cls, btnId){
+    var LIMIT=40;
+    function html(subset){return subset.map(function(o){return tRow(o,dateVal(o),cls);}).join('');}
+    var tbody=document.getElementById(id);
+    var btn=document.getElementById(btnId);
+    if(!rows.length){tbody.innerHTML='<tr><td colspan="3" style="padding:12px;color:var(--muted);text-align:center;font-size:12px;">No changes</td></tr>';btn.style.display='none';return;}
+    tbody.innerHTML=html(rows.slice(0,LIMIT));
+    if(rows.length>LIMIT){
+      btn.style.display='';btn.textContent='Show all '+rows.length+' \u25be';
+      btn._expanded=false;
+      btn.onclick=function(){
+        btn._expanded=!btn._expanded;
+        tbody.innerHTML=html(btn._expanded?rows:rows.slice(0,LIMIT));
+        btn.textContent=btn._expanded?'Show less \u25b4':'Show all '+rows.length+' \u25be';
+      };
+    } else { btn.style.display='none'; }
+  }
+  renderChangeTable('cameTable',came,function(o){return(o.last_login||'—').slice(0,16);},'color:var(--green);font-size:11px;','cameExpand');
+  renderChangeTable('goneTable',gone,function(o){return(o.last_login||'—').slice(0,10);},'color:var(--muted);font-size:11px;','goneExpand');
 }
 
 
