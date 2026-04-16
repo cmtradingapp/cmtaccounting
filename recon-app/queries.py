@@ -1485,7 +1485,12 @@ def _compute_client_list(date_from, date_to) -> list:
                     SUM(convertednetdeposit)  AS net_deposit,
                     SUM(convertedclosedpnl)   AS client_realised_pnl,
                     MAX(groupcurrency)        AS currency,
-                    MAX(date)                 AS last_active
+                    MAX(CASE
+                        WHEN ABS(COALESCE(netdeposit, 0))   > 0.001
+                          OR ABS(COALESCE(closedpnl, 0))    > 0.001
+                          OR ABS(COALESCE(floatingpnl, 0))  > 0.001
+                        THEN date ELSE NULL
+                    END) AS last_active
                 FROM dealio.daily_profits
                 WHERE date >= %s AND date < %s
                 GROUP BY login
