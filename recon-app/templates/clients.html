@@ -427,7 +427,6 @@ function toggleGroup(cidSafe) {
   var tog=document.getElementById('tog-'+cidSafe);
   if(tog) tog.textContent=g.expanded?'\u25be':'\u25b8';
   _flatItems=rebuildFlat(_viewGroups);
-  document.getElementById('clScroller').scrollTop=0;  // reset scroll so vsRender shows row 0 of new order
   _vsStart=0; _vsEnd=0; vsRender(true);
 }
 
