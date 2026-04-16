@@ -373,7 +373,9 @@ function toggleColFilter(field, icon){
   sorted.forEach(function(v){
     var checked=!_colFilters[field]||_colFilters[field].has(v)?'checked':'';
     html+='<label><input type="checkbox" '+checked+' onchange="onColFilterChange(\''+field+'\',\''+v.replace(/'/g,"\\'")+'\',this.checked)"> '+v+' <span style="color:var(--muted);margin-left:auto;font-size:10px;">'+vals[v]+'</span></label>';});
-  html+='<div class="cf-clear" onclick="clearColFilter(\''+field+'\')">Clear filter</div>';
+  html+='<div style="display:flex;gap:10px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">'+
+    '<span class="cf-clear" onclick="clearColFilter(\''+field+'\')">Clear filter</span>'+
+    '<span class="cf-clear" onclick="unselectAllFilter(\''+field+'\')">Unselect all</span></div>';
   drop.innerHTML=html;
   icon.closest('th').style.position='relative';
   icon.closest('th').appendChild(drop);
@@ -393,6 +395,13 @@ function onColFilterChange(field,val,checked){
   updateFilterIcons(); buildTable();
 }
 
+function unselectAllFilter(field){
+  // Set filter to empty set (nothing passes → show nothing for this field)
+  _colFilters[field]=new Set();
+  var drop=document.querySelector('.col-filter-drop[data-field="'+field+'"]');
+  if(drop) drop.querySelectorAll('input[type=checkbox]').forEach(function(cb){cb.checked=false;});
+  updateFilterIcons(); buildTable();
+}
 function clearColFilter(field){
   delete _colFilters[field];
   var drop=document.querySelector('.col-filter-drop[data-field="'+field+'"]');
