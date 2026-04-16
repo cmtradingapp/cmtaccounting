@@ -213,8 +213,8 @@ function buildActCard(listId, btnId, rows, dateFn, cls, emptyMsg){
 function fmtC(n){ if(!n) return '—'; var a=Math.abs(n),s=n<0?'-':''; return a>=1e6?s+'$'+(a/1e6).toFixed(1)+'M':a>=1e3?s+'$'+Math.round(a/1e3)+'K':s+'$'+a.toFixed(0); }
 function loginCls(s){ if(!s||s.length<10) return 'muted'; var d=(Date.now()-new Date(s.slice(0,10)).getTime())/864e5; return d<=1?'pos':d<=7?'':d<=30?'':'muted'; }
 function aItem(n,sub,right,cls,opId){
-  var evts=opId!=null?' onmouseenter="showAgentById(event,'+opId+')" onmouseleave="hideAgent()" style="cursor:default;"':'';
-  return '<div class="act-item"'+evts+'><span class="n">'+n+'</span><span class="d">'+sub+'</span><span class="r" style="'+(cls||'')+'">'+right+'</span></div>';
+  var nameEvts=opId!=null?' onmouseenter="showAgentById(event,'+opId+')" onmouseleave="hideAgent()" style="cursor:default;"':'';
+  return '<div class="act-item"><span class="n"'+nameEvts+'>'+n+'</span><span class="d">'+sub+'</span><span class="r" style="'+(cls||'')+'">'+right+'</span></div>';
 }
 function af(l,v){return '<div class="agent-tip-field"><div class="fl">'+l+'</div><div class="fv">'+v+'</div></div>';}
 
@@ -329,8 +329,8 @@ function buildActivity(){
   document.getElementById('goneCount').textContent='('+gone.length+' total)';
   function tRow(o,dateVal,cls){
     var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    return '<tr onmouseenter="showAgentById(event,'+o.id+')" onmouseleave="hideAgent()" style="border-bottom:1px solid rgba(255,255,255,.03);cursor:default;">'+
-      '<td style="padding:6px 12px;font-weight:600;color:var(--text);">'+n+'</td>'+
+    return '<tr style="border-bottom:1px solid rgba(255,255,255,.03);">'+
+      '<td style="padding:6px 12px;font-weight:600;color:var(--text);cursor:default;" onmouseenter="showAgentById(event,'+o.id+')" onmouseleave="hideAgent()">'+n+'</td>'+
       '<td style="padding:6px 12px;color:var(--muted);font-size:11px;">'+(o.department||'—')+' · '+(o.office||'—')+'</td>'+
       '<td style="padding:6px 12px;text-align:right;'+cls+'">'+dateVal+'</td></tr>';
   }
@@ -509,8 +509,8 @@ function buildTable(){
   filtered.forEach(function(o,i){
     var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
     var st=o.status==='Active'?'<span class="badge-on">Active</span>':'<span class="badge-off">Inactive</span>';
-    html+='<tr onmouseenter="showAgent(event,'+i+')" onmouseleave="hideAgent()">'+
-      '<td style="font-weight:600;">'+name+'</td>'+
+    html+='<tr>'+
+      '<td style="font-weight:600;cursor:default;" onmouseenter="showAgent(event,'+i+')" onmouseleave="hideAgent()">'+name+'</td>'+
       '<td style="color:var(--muted);font-size:11px;">'+((o.email||'').split('@')[0]||'—')+'</td>'+
       '<td>'+(o.department||'—')+'</td><td>'+(o.office||'—')+'</td><td>'+st+'</td>'+
       '<td style="color:var(--muted);">'+(o.role_name||'—')+'</td>'+
