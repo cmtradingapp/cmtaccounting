@@ -1460,7 +1460,7 @@ def _compute_client_list(date_from, date_to) -> list:
     """
     import datetime as _dt2, concurrent.futures as _cf, time as _time
     span_days = (_dt2.date.today() - date_from).days
-    wide_span = span_days > 365
+    wide_span = span_days >= 270
     _prog_key = f"client_list:{date_from}:{date_to}"
     _stage_n = [0]
     def _set_stage(s, n):
@@ -1630,7 +1630,7 @@ def client_list(date_from=None, date_to=None) -> list:
 
     key = f"client_list:{date_from}:{date_to}"
     span_days = (_dt.date.today() - date_from).days
-    ttl = _TTL_CLIENT_LIST_WIDE if span_days > 365 else _TTL_CLIENT_LIST
+    ttl = _TTL_CLIENT_LIST_WIDE if span_days >= 270 else _TTL_CLIENT_LIST
 
     # 1. Fresh cache
     cached = _cache_get(key, ttl)
@@ -1659,7 +1659,7 @@ def client_list(date_from=None, date_to=None) -> list:
 
     # 3. No cache — for wide spans, compute in background and return empty
     #    (avoids Cloudflare 524 — first load served by startup warmup or retry)
-    if span_days > 365:
+    if span_days >= 270:
         if key not in _CLIENT_LIST_REFRESHING:
             _CLIENT_LIST_REFRESHING.add(key)
             def _bg_first():

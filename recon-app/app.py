@@ -25,21 +25,25 @@ except Exception as e:
     print(f"WARNING: Could not create fee tables: {e}")
 
 # Pre-warm the "all" span cache in the background after startup.
-# Runs 10s after server start; result cached for 6h.
-# User requests before this finishes get an empty "computing" response + auto-retry.
-def _warm_all_span_cache():
+# Warm 1Y and All caches 10s after start (both use background computation path).
+# Users hitting these spans immediately get "computing" overlay + auto-retry.
+def _warm_wide_span_caches():
     import time, datetime as _dt
     time.sleep(10)
-    try:
-        df = _dt.date(2021, 1, 1)
-        dt = _dt.date.today() + _dt.timedelta(days=1)
-        queries.client_list(df, dt)
-        print("[warmup] client_list(all) cache populated")
-    except Exception as e:
-        print(f"[warmup] client_list(all) failed: {e}")
+    today = _dt.date.today()
+    spans = [
+        (_dt.date(2021, 1, 1),         today + _dt.timedelta(days=1), "all"),
+        (today - _dt.timedelta(days=365), today + _dt.timedelta(days=1), "1y"),
+    ]
+    for df, dt, label in spans:
+        try:
+            queries.client_list(df, dt)
+            print(f"[warmup] client_list({label}) populated")
+        except Exception as e:
+            print(f"[warmup] client_list({label}) failed: {e}")
 
 import threading as _threading
-_threading.Thread(target=_warm_all_span_cache, daemon=True).start()
+_threading.Thread(target=_warm_wide_span_caches, daemon=True).start()
 
 _RECON_USER  = os.environ.get("RECON_USER",  "")
 _RECON_PASS  = os.environ.get("RECON_PASS",  "")
