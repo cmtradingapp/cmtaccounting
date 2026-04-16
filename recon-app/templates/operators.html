@@ -170,9 +170,8 @@
 <div class="op-table-wrap">
   <table class="dept-table" id="mainTable">
     <colgroup>
-      <col style="width:13%"><col style="width:9%"><col style="width:9%"><col style="width:8%">
-      <col style="width:6%"><col style="width:12%"><col style="width:9%"><col style="width:11%">
-      <col style="width:5%"><col style="width:6%"><col style="width:7%"><col style="width:5%">
+      <col style="width:16%"><col style="width:11%"><col style="width:11%"><col style="width:9%">
+      <col style="width:7%"><col style="width:14%"><col style="width:11%"><col style="width:14%"><col style="width:7%">
     </colgroup>
     <thead><tr>
       <th data-col="0" data-sort="name">Name <span class="sort-btn" onclick="doSort('name')">&#8597;</span></th>
@@ -184,9 +183,6 @@
       <th data-col="6" data-sort="position" data-filterable="position">Position <span class="sort-btn" onclick="doSort('position')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('position',this)">&#9662;</span></span></th>
       <th data-col="7" data-sort="last_login">Last Login <span class="sort-btn" onclick="doSort('last_login')">&#8597;</span></th>
       <th data-col="8" data-sort="id" class="num">Joined <span class="sort-btn" onclick="doSort('id')">&#8597;</span></th>
-      <th data-col="9" data-sort="total_clients" class="num">Clients <span class="sort-btn" onclick="doSort('total_clients')">&#8597;</span></th>
-      <th data-col="10" data-sort="total_deposit_volume" class="num">Deposits <span class="sort-btn" onclick="doSort('total_deposit_volume')">&#8597;</span></th>
-      <th data-col="11" data-sort="ftd_count" class="num">FTDs <span class="sort-btn" onclick="doSort('ftd_count')">&#8597;</span></th>
     </tr></thead>
     <tbody id="mainBody"></tbody>
   </table>
@@ -391,12 +387,18 @@ function buildDeptPicker(){
 }
 
 // ── Column filter dropdowns ──────────────────────────────────────────────
+function _closeAllDropdowns(exceptField){
+  document.querySelectorAll('.col-filter-drop').forEach(function(d){
+    if(d.getAttribute('data-field')!==exceptField){
+      if(d.parentNode) d.parentNode.removeChild(d);
+    }
+  });
+}
 function toggleColFilter(field, icon){
-  // Close any open dropdowns first
-  document.querySelectorAll('.col-filter-drop.open').forEach(function(d){if(d.getAttribute('data-field')!==field)d.classList.remove('open');});
   var existing=document.querySelector('.col-filter-drop[data-field="'+field+'"]');
-  if(existing){existing.classList.toggle('open');return;}
-  // Build dropdown
+  if(existing){_closeAllDropdowns(null);return;} // was open → close
+  _closeAllDropdowns(null);
+  // Build dropdown content
   var vals={};_allOps.forEach(function(o){var v=o[field]||'(none)';vals[v]=(vals[v]||0)+1;});
   var sorted=Object.keys(vals).sort();
   var drop=document.createElement('div');drop.className='col-filter-drop open';drop.setAttribute('data-field',field);
@@ -408,7 +410,14 @@ function toggleColFilter(field, icon){
     '<span class="cf-clear" onclick="clearColFilter(\''+field+'\')">Clear filter</span>'+
     '<span class="cf-clear" onclick="unselectAllFilter(\''+field+'\')">Unselect all</span></div>';
   drop.innerHTML=html;
-  icon.closest('.col-filter').appendChild(drop);
+  // Attach to body with position:fixed so it's never clipped by overflow:auto ancestors
+  drop.style.position='fixed';
+  drop.style.zIndex='9999';
+  document.body.appendChild(drop);
+  // Position below the icon
+  var rect=icon.getBoundingClientRect();
+  drop.style.top=(rect.bottom+4)+'px';
+  drop.style.left=Math.min(rect.left,window.innerWidth-drop.offsetWidth-8)+'px';
 }
 
 function onColFilterChange(field,val,checked){
@@ -426,7 +435,6 @@ function onColFilterChange(field,val,checked){
 }
 
 function unselectAllFilter(field){
-  // Set filter to empty set (nothing passes → show nothing for this field)
   _colFilters[field]=new Set();
   var drop=document.querySelector('.col-filter-drop[data-field="'+field+'"]');
   if(drop) drop.querySelectorAll('input[type=checkbox]').forEach(function(cb){cb.checked=false;});
@@ -434,8 +442,7 @@ function unselectAllFilter(field){
 }
 function clearColFilter(field){
   delete _colFilters[field];
-  var drop=document.querySelector('.col-filter-drop[data-field="'+field+'"]');
-  if(drop){drop.querySelectorAll('input[type=checkbox]').forEach(function(cb){cb.checked=true;});drop.classList.remove('open');}
+  _closeAllDropdowns(null);
   updateFilterIcons(); buildTable();
 }
 
@@ -450,15 +457,12 @@ function updateFilterIcons(){
 // Close dropdowns on outside click
 document.addEventListener('click',function(e){
   if(!e.target.closest('.col-filter-drop')&&!e.target.closest('.col-filter-icon'))
-    document.querySelectorAll('.col-filter-drop.open').forEach(function(d){d.classList.remove('open');});
+    _closeAllDropdowns(null);
 });
 
 function clearAllColFilters(){
   _colFilters={};
-  document.querySelectorAll('.col-filter-drop').forEach(function(d){
-    d.querySelectorAll('input[type=checkbox]').forEach(function(cb){cb.checked=true;});
-    d.classList.remove('open');
-  });
+  _closeAllDropdowns(null);
   updateFilterIcons(); buildTable();
 }
 
@@ -487,7 +491,7 @@ function buildTable(){
   _currentView=filtered;
   if(!filtered.length){
     document.getElementById('mainBody').innerHTML=
-      '<tr style="height:280px;"><td colspan="12" style="text-align:center;vertical-align:middle;color:var(--muted);font-size:13px;">'+
+      '<tr style="height:280px;"><td colspan="9" style="text-align:center;vertical-align:middle;color:var(--muted);font-size:13px;">'+
       'No operators match the current filters \u2014 '+
       '<span onclick="clearAllColFilters()" style="color:var(--accent);cursor:pointer;font-weight:600;">Clear all filters</span>'+
       '</td></tr>';
@@ -509,10 +513,7 @@ function buildTable(){
       '<td style="color:var(--muted);">'+(o.role_name||'—')+'</td>'+
       '<td style="color:var(--muted);">'+(o.position||'—')+'</td>'+
       '<td class="'+loginCls(o.last_login)+'">'+(o.last_login||'—')+'</td>'+
-      '<td class="num" style="color:var(--muted);font-size:11px;">#'+o.id+'</td>'+
-      '<td class="num">'+(o.total_clients?o.total_clients.toLocaleString():'—')+'</td>'+
-      '<td class="num">'+fmtC(o.total_deposit_volume)+'</td>'+
-      '<td class="num">'+(o.ftd_count?o.ftd_count.toLocaleString():'—')+'</td></tr>';
+      '<td class="num" style="color:var(--muted);font-size:11px;">#'+o.id+'</td></tr>';
   });
   document.getElementById('mainBody').innerHTML=html;
   document.getElementById('opCount').textContent=filtered.length+' of '+_allOps.length;
