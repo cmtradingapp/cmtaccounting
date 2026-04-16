@@ -739,7 +739,10 @@ function loadData(span){
 function downloadEquityReport(){
   var btn=document.getElementById('clEquityBtn');
   btn.textContent='\u23f3 Generating\u2026'; btn.style.pointerEvents='none';
-  window.location='/clients/equity-report?span='+_span;
+  var url = (_customFrom && _customTo)
+    ? '/clients/equity-report?date_from='+_customFrom+'&date_to='+_customTo
+    : '/clients/equity-report?span='+_span;
+  window.location=url;
   setTimeout(function(){btn.textContent='\u2193 Equity Report';btn.style.pointerEvents='';},3000);
 }
 function switchSpan(s,btn){

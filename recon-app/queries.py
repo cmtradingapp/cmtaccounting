@@ -1319,10 +1319,14 @@ def equity_report(date_from=None, date_to=None) -> list:
     if cached is not None:
         return cached
 
+    import concurrent.futures as _cf
+    span_days = (date_to - date_from).days
+    stmt_timeout = 300000 if span_days > 365 else 120000
+
     # Opening snapshot (first day per login in range)
     def _fetch_open():
         with dealio() as cur:
-            cur.execute("SET statement_timeout = 120000")
+            cur.execute(f"SET statement_timeout = {stmt_timeout}")
             cur.execute("""
                 SELECT DISTINCT ON (login)
                     login,
@@ -1338,7 +1342,7 @@ def equity_report(date_from=None, date_to=None) -> list:
     # Closing snapshot (last day per login in range)
     def _fetch_close():
         with dealio() as cur:
-            cur.execute("SET statement_timeout = 120000")
+            cur.execute(f"SET statement_timeout = {stmt_timeout}")
             cur.execute("""
                 SELECT DISTINCT ON (login)
                     login,
@@ -1355,7 +1359,7 @@ def equity_report(date_from=None, date_to=None) -> list:
     # Aggregate deposits / withdrawals / P&L
     def _fetch_agg():
         with dealio() as cur:
-            cur.execute("SET statement_timeout = 120000")
+            cur.execute(f"SET statement_timeout = {stmt_timeout}")
             cur.execute("""
                 SELECT
                     login,
@@ -1370,9 +1374,14 @@ def equity_report(date_from=None, date_to=None) -> list:
             """, (date_from, date_to))
             return {r["login"]: dict(r) for r in cur.fetchall()}
 
-    open_snap  = _db_retry(_fetch_open)
-    close_snap = _db_retry(_fetch_close)
-    agg        = _db_retry(_fetch_agg)
+    # Run all three dealio queries in parallel (each hits a separate connection)
+    with _cf.ThreadPoolExecutor(max_workers=3) as _ex:
+        _f_open  = _ex.submit(_db_retry, _fetch_open)
+        _f_close = _ex.submit(_db_retry, _fetch_close)
+        _f_agg   = _ex.submit(_db_retry, _fetch_agg)
+        open_snap  = _f_open.result()
+        close_snap = _f_close.result()
+        agg        = _f_agg.result()
 
     # CID + name mapping
     account_map, _fallback_cids = _load_praxis_account_map()  # {cid: [login, ...]}

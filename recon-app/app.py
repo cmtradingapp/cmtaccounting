@@ -190,13 +190,25 @@ def recon_groups(month):
 def clients_equity_report():
     import datetime as _dt
     span = request.args.get("span", "1y")
-    span_map = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365,"2y":730,"all":0}
     today = _dt.date.today()
-    if span == "all":
-        date_from = _dt.date(2021,1,1)
+    # Custom explicit date range overrides span
+    df_str = request.args.get("date_from", "")
+    dt_str = request.args.get("date_to",   "")
+    if df_str and dt_str:
+        try:
+            date_from = _dt.date.fromisoformat(df_str)
+            date_to   = _dt.date.fromisoformat(dt_str) + _dt.timedelta(days=1)
+            span = f"{df_str}_to_{dt_str}"
+        except ValueError:
+            date_from = today - _dt.timedelta(days=365)
+            date_to   = today + _dt.timedelta(days=1)
     else:
-        date_from = today - _dt.timedelta(days=span_map.get(span,365))
-    date_to = today + _dt.timedelta(days=1)
+        span_map = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365,"2y":730,"all":0}
+        if span == "all":
+            date_from = _dt.date(2021,1,1)
+        else:
+            date_from = today - _dt.timedelta(days=span_map.get(span,365))
+        date_to = today + _dt.timedelta(days=1)
     try:
         rows = queries.equity_report(date_from, date_to)
     except Exception as e:
