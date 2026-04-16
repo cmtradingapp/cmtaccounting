@@ -108,12 +108,32 @@
   <div class="act-card"><div class="act-title" style="color:var(--green);">&#9679; Newest Operators</div><div id="newestList"></div></div>
   <div class="act-card"><div class="act-title" style="color:var(--red);">&#9679; Recently Deactivated</div><div id="deactivatedList"></div></div>
 </div>
-<!-- Changes: collapsible -->
-<div class="changes-bar" id="changesBar" onclick="toggleChanges()">
-  <span style="font-size:12px;color:var(--muted);">&#9654;</span>
-  <span style="font-size:13px;font-weight:700;" id="changesTitle">Daily Changes</span>
+<!-- Daily Changes — two-panel comparison table -->
+<div class="section-title" id="changesTitle" style="margin-top:0;">Daily Changes — Yesterday vs Today</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:var(--sp-4);">
+  <div style="background:var(--surface);border:1px solid rgba(34,197,94,.2);border-radius:var(--radius-md);overflow:hidden;">
+    <div style="padding:10px 14px;border-bottom:1px solid rgba(34,197,94,.15);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--green);">&#9679; Came Online Today <span id="cameCount" style="margin-left:6px;font-weight:400;color:var(--muted);"></span></div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="background:rgba(255,255,255,.02);">
+        <th style="padding:6px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border-bottom:1px solid var(--border);">Name</th>
+        <th style="padding:6px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border-bottom:1px solid var(--border);">Dept · Office</th>
+        <th style="padding:6px 12px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border-bottom:1px solid var(--border);">Login</th>
+      </tr></thead>
+      <tbody id="cameTable"></tbody>
+    </table>
+  </div>
+  <div style="background:var(--surface);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius-md);overflow:hidden;">
+    <div style="padding:10px 14px;border-bottom:1px solid rgba(239,68,68,.15);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--red);">&#9679; Not Online Today <span id="goneCount" style="margin-left:6px;font-weight:400;color:var(--muted);"></span></div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="background:rgba(255,255,255,.02);">
+        <th style="padding:6px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border-bottom:1px solid var(--border);">Name</th>
+        <th style="padding:6px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border-bottom:1px solid var(--border);">Dept · Office</th>
+        <th style="padding:6px 12px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border-bottom:1px solid var(--border);">Last Login</th>
+      </tr></thead>
+      <tbody id="goneTable"></tbody>
+    </table>
+  </div>
 </div>
-<div class="changes-body" id="changesBody"><div id="changesList"></div></div>
 
 <div class="agent-tip" id="agentTip"></div>
 
@@ -209,38 +229,41 @@ function buildActivity(){
   var newest=active.slice().sort(function(a,b){return b.id-a.id;}).slice(0,8);
   document.getElementById('newestList').innerHTML=newest.map(function(o){
     var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),'ID #'+o.id,'color:var(--green)');}).join('');
+    var date=(o.last_login||'').slice(0,10)||'—';
+    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),date,'color:var(--green)');}).join('');
 
   var inactive=_allOps.filter(function(o){return o.status==='Inactive'&&o.last_login&&o.last_login.length>=10;});
   var deact=inactive.sort(function(a,b){return(b.last_login||'').localeCompare(a.last_login||'');}).slice(0,8);
   document.getElementById('deactivatedList').innerHTML=deact.map(function(o){
     var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),'Last: '+(o.last_login||'').slice(0,10),'color:var(--muted)');}).join('');
+    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),(o.last_login||'').slice(0,10),'color:var(--muted)');}).join('');
 
-  // Changes card
+  // Daily Changes comparison tables
   var todayL={},yesterdayL={};
   _allOps.forEach(function(o){var ll=(o.last_login||'').slice(0,10);
-    if(o.status==='Active'&&ll===today)todayL[o.id]=o;if(o.status==='Active'&&ll===yesterday)yesterdayL[o.id]=o;});
+    if(o.status==='Active'&&ll===today)todayL[o.id]=o;
+    if(o.status==='Active'&&ll===yesterday)yesterdayL[o.id]=o;});
   var came=[],gone=[];
   Object.keys(todayL).forEach(function(id){if(!yesterdayL[id])came.push(todayL[id]);});
   Object.keys(yesterdayL).forEach(function(id){if(!todayL[id])gone.push(yesterdayL[id]);});
-  document.getElementById('changesTitle').innerHTML='Daily Changes &mdash; <span class="pos">+'+came.length+'</span> came online, <span class="neg">&minus;'+gone.length+'</span> not online';
-  var ch='';
-  if(came.length){ch+='<div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:4px;">CAME ONLINE TODAY (+'+came.length+')</div>';
-    came.slice(0,10).forEach(function(o){var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name;
-      ch+=aItem(n,(o.department||'—')+' · '+(o.office||'—'),'+','color:var(--green)');});
-    if(came.length>10)ch+='<div style="font-size:11px;color:var(--muted);">+'+(came.length-10)+' more</div>';}
-  if(gone.length){ch+='<div style="font-size:10px;font-weight:700;color:var(--red);margin-top:10px;margin-bottom:4px;">NOT ONLINE TODAY (&minus;'+gone.length+')</div>';
-    gone.slice(0,10).forEach(function(o){var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name;
-      ch+=aItem(n,(o.department||'—')+' · '+(o.office||'—'),'\u2212','color:var(--red)');});
-    if(gone.length>10)ch+='<div style="font-size:11px;color:var(--muted);">'+(gone.length-10)+' more</div>';}
-  document.getElementById('changesList').innerHTML=ch||'<span style="color:var(--muted);">No changes</span>';
+  document.getElementById('changesTitle').textContent='Daily Changes — Yesterday vs Today  (+'+came.length+' came online, −'+gone.length+' not online)';
+  document.getElementById('cameCount').textContent='('+came.length+' total)';
+  document.getElementById('goneCount').textContent='('+gone.length+' total)';
+  function tRow(o,dateVal,cls){
+    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    return '<tr style="border-bottom:1px solid rgba(255,255,255,.03);">'+
+      '<td style="padding:6px 12px;font-weight:600;color:var(--text);">'+n+'</td>'+
+      '<td style="padding:6px 12px;color:var(--muted);font-size:11px;">'+(o.department||'—')+' · '+(o.office||'—')+'</td>'+
+      '<td style="padding:6px 12px;text-align:right;'+cls+'">'+dateVal+'</td></tr>';
+  }
+  document.getElementById('cameTable').innerHTML=came.length
+    ? came.map(function(o){return tRow(o,(o.last_login||'—').slice(0,16),'color:var(--green);font-size:11px;');}).join('')
+    : '<tr><td colspan="3" style="padding:12px;color:var(--muted);text-align:center;font-size:12px;">No one new today</td></tr>';
+  document.getElementById('goneTable').innerHTML=gone.length
+    ? gone.map(function(o){return tRow(o,(o.last_login||'—').slice(0,10),'color:var(--muted);font-size:11px;');}).join('')
+    : '<tr><td colspan="3" style="padding:12px;color:var(--muted);text-align:center;font-size:12px;">No changes from yesterday</td></tr>';
 }
 
-function toggleChanges(){
-  document.getElementById('changesBar').classList.toggle('open');
-  document.getElementById('changesBody').classList.toggle('open');
-}
 
 function buildMatrix(){
   var active=_allOps.filter(function(o){return o.status==='Active'&&o.department;});
