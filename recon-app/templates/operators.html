@@ -2,353 +2,294 @@
 {% block title %} — Operators{% endblock %}
 {% block content %}
 <style>
-  .op-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:var(--sp-4); }
-  .op-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px 20px; }
-  .op-stat .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:5px; }
-  .op-stat .value { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .op-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:var(--sp-4); }
+  .op-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 18px; }
+  .op-stat .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:4px; }
+  .op-stat .value { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
 
-  /* Matrix — uniform grid with cross-highlighting */
+  /* Matrix */
   .matrix-wrap { overflow:hidden; position:relative; border-radius:var(--radius-md); border:1px solid var(--border); margin-bottom:var(--sp-4); }
-  .matrix-table { border-collapse:collapse; font-size:11px; width:100%; table-layout:fixed; }
-  .matrix-table th { background:var(--surface); padding:8px 4px; font-weight:700; text-transform:uppercase;
-    letter-spacing:.03em; color:var(--muted); border-bottom:1px solid var(--border); text-align:center; font-size:9px;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .matrix-table { border-collapse:collapse; width:100%; table-layout:fixed; }
+  .matrix-table th { background:var(--surface); padding:7px 4px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); border-bottom:1px solid var(--border); text-align:center; font-size:9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .matrix-table th:first-child { width:140px; text-align:left; padding-left:12px; font-size:10px; }
-  .matrix-table th:last-child { width:55px; }
-  .matrix-table td { padding:8px 4px; text-align:center; font-variant-numeric:tabular-nums; font-weight:600; font-size:12px;
-    border-right:1px solid rgba(255,255,255,.03); position:relative; height:36px; cursor:default; }
+  .matrix-table th:last-child { width:50px; }
+  .matrix-table td { padding:7px 4px; text-align:center; font-variant-numeric:tabular-nums; font-weight:600; font-size:12px; border-right:1px solid rgba(255,255,255,.03); position:relative; height:34px; cursor:default; }
   .matrix-table td.has { color:var(--green); }
   .matrix-table td.empty { color:rgba(255,255,255,.06); font-size:10px; }
-  .matrix-table .dep { text-align:left; white-space:nowrap; font-weight:700; color:var(--text); font-size:12px;
-    padding-left:12px; border-right:1px solid var(--border); background:var(--surface); position:sticky; left:0; z-index:1; }
+  .matrix-table .dep { text-align:left; white-space:nowrap; font-weight:700; color:var(--text); font-size:12px; padding-left:12px; border-right:1px solid var(--border); background:var(--surface); position:sticky; left:0; z-index:1; }
   .matrix-table .total-col { color:var(--accent); font-weight:700; border-left:1px solid var(--border); }
   .matrix-table tfoot td { font-weight:700; border-top:1px solid var(--border); color:var(--accent); }
   .matrix-table tbody tr { border-bottom:1px solid rgba(255,255,255,.025); }
-  /* Cross-highlighting: row */
   .matrix-table tbody tr:hover td { background:rgba(79,142,247,.04); }
   .matrix-table tbody tr:hover .dep { background:rgba(79,142,247,.1); color:var(--accent); }
-  /* Cross-highlighting: column via pseudo-element */
-  .matrix-table td:not(.dep):not(.total-col):hover::after {
-    content:''; position:absolute; left:0; right:0;
-    top:-5000px; bottom:-5000px;
-    background:rgba(79,142,247,.06);
-    z-index:-1; pointer-events:none;
-  }
-  /* Highlight the hovered cell itself */
-  .matrix-table td:not(.dep):not(.total-col):hover {
-    background:rgba(79,142,247,.15) !important;
-    color:var(--text) !important;
-    border-radius:3px;
-  }
-  /* Custom tooltip for matrix cells */
-  .mx-tip {
-    display:none; position:fixed; z-index:100;
-    background:var(--surface); border:1px solid var(--border);
-    border-radius:var(--radius-sm); padding:10px 14px;
-    box-shadow:0 8px 24px rgba(0,0,0,.5); max-width:280px;
-    font-size:12px; pointer-events:none;
-  }
+  .matrix-table td:not(.dep):not(.total-col):hover::after { content:''; position:absolute; left:0; right:0; top:-5000px; bottom:-5000px; background:rgba(79,142,247,.06); z-index:-1; pointer-events:none; }
+  .matrix-table td:not(.dep):not(.total-col):hover { background:rgba(79,142,247,.15)!important; color:var(--text)!important; border-radius:3px; }
+  .mx-tip { display:none; position:fixed; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 14px; box-shadow:0 8px 24px rgba(0,0,0,.5); max-width:280px; font-size:12px; pointer-events:none; }
   .mx-tip-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
   .mx-tip-name { color:var(--text); padding:2px 0; }
 
-  /* Activity cards */
-  .activity-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:var(--sp-4); }
-  .activity-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px 20px; }
-  .activity-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
-  .activity-list { display:flex; flex-direction:column; gap:6px; }
-  .activity-item { display:flex; align-items:center; gap:10px; font-size:12px; padding:4px 0; }
-  .activity-item .name { font-weight:600; color:var(--text); min-width:140px; }
-  .activity-item .dept { color:var(--muted); font-size:11px; }
-  .activity-item .date { margin-left:auto; font-size:11px; font-variant-numeric:tabular-nums; }
-
-  /* Filter bar */
-  .op-filter-bar { display:flex; align-items:center; gap:10px; margin-bottom:var(--sp-3); flex-wrap:wrap; }
-  .op-filter-btn {
-    font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px;
-    border:1px solid var(--border); background:transparent; color:var(--muted);
-    cursor:pointer; display:inline-flex; align-items:center; transition:all .15s;
+  /* Collapsible sections */
+  .op-sec { margin-bottom:var(--sp-3); }
+  .op-sec-head {
+    display:flex; align-items:center; gap:10px; padding:12px 16px;
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md);
+    cursor:pointer; user-select:none; transition:background .15s;
   }
+  .op-sec-head:hover { background:rgba(255,255,255,.04); }
+  .op-sec-head.open { border-radius:var(--radius-md) var(--radius-md) 0 0; }
+  .op-sec-toggle { font-size:12px; color:var(--muted); transition:transform .2s; width:16px; text-align:center; }
+  .op-sec-head.open .op-sec-toggle { transform:rotate(90deg); }
+  .op-sec-title { font-size:14px; font-weight:700; }
+  .op-sec-badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:700; background:rgba(79,142,247,.12); color:var(--accent); }
+  .op-sec-body { display:none; border:1px solid var(--border); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); overflow:hidden; }
+  .op-sec-body.open { display:block; }
+
+  /* Compact department table */
+  .dept-table { width:100%; border-collapse:collapse; }
+  .dept-table th { background:var(--surface); padding:8px 12px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; }
+  .dept-table td { padding:8px 12px; font-size:12px; border-bottom:1px solid rgba(255,255,255,.03); }
+  .dept-table tr:hover { background:rgba(255,255,255,.03); }
+  .dept-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .badge-on { display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(34,197,94,.12);color:var(--green); }
+  .badge-off { display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(100,116,139,.1);color:var(--muted); }
+
+  /* Comparison cards */
+  .cmp-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-bottom:var(--sp-4); }
+  .cmp-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 18px; }
+  .cmp-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:4px; }
+  .cmp-val { font-size:18px; font-weight:700; }
+
+  /* Agent hover tooltip */
+  .agent-tip { display:none; position:fixed; z-index:200; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px 20px; box-shadow:0 12px 36px rgba(0,0,0,.6); width:320px; pointer-events:none; }
+  .agent-tip-name { font-size:15px; font-weight:700; margin-bottom:8px; }
+  .agent-tip-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 16px; }
+  .agent-tip-field { font-size:11px; }
+  .agent-tip-field .fl { color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:9px; }
+  .agent-tip-field .fv { color:var(--text); margin-top:1px; }
+
+  .op-filter-bar { display:flex; align-items:center; gap:10px; margin-bottom:var(--sp-3); flex-wrap:wrap; }
+  .op-filter-btn { font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:all .15s; }
   .op-filter-btn:hover { border-color:rgba(255,255,255,.2); color:var(--text); }
   .op-filter-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.08); }
-
-  .op-search {
-    display:flex; align-items:center; gap:6px;
-    background:var(--surface-alt); border:1px solid var(--border);
-    border-radius:var(--radius-sm); padding:0 10px; height:32px; width:280px;
-    transition:border-color .15s;
-  }
+  .op-search { display:flex; align-items:center; gap:6px; background:var(--surface-alt); border:1px solid var(--border); border-radius:var(--radius-sm); padding:0 10px; height:32px; width:280px; }
   .op-search:focus-within { border-color:var(--accent); }
   .op-search input { background:transparent; border:none; outline:none; color:var(--text); font-size:13px; width:100%; }
   .op-search input::placeholder { color:var(--muted); }
-
-  /* Operator table */
-  .op-table-wrap { max-height:calc(100vh - 320px); overflow:auto; border-radius:14px; border:1px solid var(--border); }
-  .op-table { width:100%; border-collapse:collapse; }
-  .op-table thead th { background:var(--surface); padding:10px 12px; font-size:10px; font-weight:700;
-    text-transform:uppercase; letter-spacing:.05em; color:var(--muted); border-bottom:1px solid var(--border);
-    position:sticky; top:0; z-index:2; cursor:pointer; user-select:none; white-space:nowrap; }
-  .op-table thead th:hover { color:var(--text); }
-  .op-table thead th.asc::after  { content:'▲'; margin-left:4px; color:var(--accent); font-size:9px; }
-  .op-table thead th.desc::after { content:'▼'; margin-left:4px; color:var(--accent); font-size:9px; }
-  .op-table tbody tr { border-bottom:1px solid rgba(255,255,255,.03); transition:background .15s; }
-  .op-table tbody tr:hover { background:rgba(255,255,255,.03); }
-  .op-table td { padding:10px 12px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .op-table .num { text-align:right; font-variant-numeric:tabular-nums; }
-
-  .badge-on  { display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(34,197,94,.12);color:var(--green); }
-  .badge-off { display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(100,116,139,.1);color:var(--muted); }
   .pos { color:var(--green); } .neg { color:var(--red); }
 </style>
 
 <div class="page-header"><div class="page-title">Operators Dashboard</div></div>
 
-<!-- Summary Cards -->
-<div class="op-stats">
-  <div class="op-stat"><div class="label">Total Operators</div><div class="value" id="opTotal">—</div></div>
-  <div class="op-stat"><div class="label">Active</div><div class="value" id="opActive" style="color:var(--green);">—</div></div>
-  <div class="op-stat"><div class="label">Departments</div><div class="value" id="opDepts">—</div></div>
-  <div class="op-stat"><div class="label">Offices</div><div class="value" id="opOffices">—</div></div>
-</div>
+<!-- Summary -->
+<div class="op-stats" id="opStats"></div>
+
+<!-- Daily Comparison -->
+<div class="section-title">Daily Snapshot</div>
+<div class="cmp-row" id="cmpRow"></div>
 
 <!-- Matrix -->
 <div class="section-title">Department × Office (Active)</div>
 <div class="mx-tip" id="mxTip"><div class="mx-tip-title" id="mxTipTitle"></div><div id="mxTipBody"></div></div>
-<div class="matrix-wrap"><div id="matrixContainer" style="color:var(--muted);padding:20px;text-align:center;">Loading operators…</div></div>
+<div class="matrix-wrap"><div id="matrixContainer" style="color:var(--muted);padding:20px;text-align:center;">Loading…</div></div>
 
-<!-- Recently Hired / Deactivated -->
-<div class="activity-row" id="activityRow" style="display:none;">
-  <div class="activity-card">
-    <div class="activity-title"><span style="color:var(--green);">&#9679;</span> Newest Operators</div>
-    <div class="activity-list" id="newestList"></div>
-  </div>
-  <div class="activity-card">
-    <div class="activity-title"><span style="color:var(--red);">&#9679;</span> Recently Deactivated</div>
-    <div class="activity-list" id="deactivatedList"></div>
-  </div>
-</div>
+<!-- Agent hover tooltip -->
+<div class="agent-tip" id="agentTip"></div>
 
-<!-- Filter + Search -->
+<!-- Department sections + Global list -->
 <div class="op-filter-bar">
   <button class="op-filter-btn active" onclick="opFilter('all',this)">All</button>
   <button class="op-filter-btn" onclick="opFilter('active',this)" style="color:var(--green);">Active</button>
   <button class="op-filter-btn" onclick="opFilter('inactive',this)">Inactive</button>
   <div class="op-search">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input type="text" id="opSearch" placeholder="Search name, email, department…" oninput="opSearchFn(this.value)" autocomplete="off" spellcheck="false">
   </div>
   <span id="opCount" style="font-size:12px;color:var(--muted);"></span>
 </div>
-
-<!-- Operator Table -->
-<div class="op-table-wrap">
-  <table class="op-table" id="opTable">
-    <thead>
-      <tr>
-        <th data-col="0">Name</th>
-        <th data-col="1">Email</th>
-        <th data-col="2">Department</th>
-        <th data-col="3">Office</th>
-        <th data-col="4">Status</th>
-        <th data-col="5">Role Type</th>
-        <th data-col="6">Position</th>
-        <th data-col="7">Last Login</th>
-        <th data-col="8" class="num">Clients</th>
-        <th data-col="9" class="num">Funded</th>
-        <th data-col="10" class="num">Deposits</th>
-        <th data-col="11" class="num">FTDs</th>
-        <th data-col="12" class="num">FTD Vol.</th>
-      </tr>
-    </thead>
-    <tbody id="opBody"></tbody>
-  </table>
-</div>
+<div id="deptSections"></div>
 
 <script>
-var _allOps=[], _viewOps=[], _opFilter='all', _opSearch='', _opSortCol=7, _opSortAsc=false;
+var _allOps=[], _opFilter='all', _opSearch='', _matrixNames={};
 
-function fmtC(n){
-  if(!n) return '—';
-  var abs=Math.abs(n), sign=n<0?'-':'';
-  if(abs>=1e6) return sign+'$'+(abs/1e6).toFixed(1)+'M';
-  if(abs>=1e3) return sign+'$'+Math.round(abs/1e3)+'K';
-  return sign+'$'+abs.toFixed(0);
-}
-
-function loginCls(s){
-  if(!s||s.length<10) return 'muted';
-  var days=(Date.now()-new Date(s.slice(0,10)).getTime())/864e5;
-  return days<=1?'pos':days<=7?'':days<=30?'':'muted';
-}
+function fmtC(n){ if(!n) return '—'; var a=Math.abs(n),s=n<0?'-':''; return a>=1e6?s+'$'+(a/1e6).toFixed(1)+'M':a>=1e3?s+'$'+Math.round(a/1e3)+'K':s+'$'+a.toFixed(0); }
+function loginCls(s){ if(!s||s.length<10) return 'muted'; var d=(Date.now()-new Date(s.slice(0,10)).getTime())/864e5; return d<=1?'pos':d<=7?'':d<=30?'':'muted'; }
 
 function loadOperators(){
-  fetch('/operators/data')
-    .then(function(r){return r.json();})
-    .then(function(data){
-      if(data.error){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">Error: '+data.error+'</span>';return;}
-      _allOps=data.operators||[];
-      updateStats(); buildMatrix(); buildActivity(); applyOpView();
-      // Phase 2: slow stats
-      fetch('/operators/stats').then(function(r){return r.json();}).then(function(sd){
-        if(!sd.stats) return;
-        _allOps.forEach(function(o){var s=sd.stats[String(o.id)]||{};
-          o.total_clients=s.total_clients||0; o.funded_clients=s.funded_clients||0;
-          o.total_deposit_volume=s.total_deposit_volume||0;
-          o.ftd_count=s.ftd_count||0; o.ftd_volume=s.ftd_volume||0;
-        }); applyOpView();
-      }).catch(function(){});
-    })
-    .catch(function(e){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">Failed: '+e+'</span>';});
+  fetch('/operators/data').then(function(r){return r.json();}).then(function(data){
+    if(data.error){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">'+data.error+'</span>';return;}
+    _allOps=data.operators||[];
+    buildAll();
+    fetch('/operators/stats').then(function(r){return r.json();}).then(function(sd){
+      if(!sd.stats)return;
+      _allOps.forEach(function(o){var s=sd.stats[String(o.id)]||{};
+        o.total_clients=s.total_clients||0;o.funded_clients=s.funded_clients||0;
+        o.total_deposit_volume=s.total_deposit_volume||0;o.ftd_count=s.ftd_count||0;o.ftd_volume=s.ftd_volume||0;
+      }); buildDeptSections();
+    }).catch(function(){});
+  }).catch(function(e){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">'+e+'</span>';});
 }
 
-function updateStats(){
+function buildAll(){ buildStats(); buildComparison(); buildMatrix(); buildDeptSections(); }
+
+function buildStats(){
   var active=_allOps.filter(function(o){return o.status==='Active';});
   var d={},of={};
   active.forEach(function(o){if(o.department)d[o.department]=1;if(o.office)of[o.office]=1;});
-  document.getElementById('opTotal').textContent=_allOps.length.toLocaleString();
-  document.getElementById('opActive').textContent=active.length.toLocaleString();
-  document.getElementById('opDepts').textContent=Object.keys(d).length;
-  document.getElementById('opOffices').textContent=Object.keys(of).length;
+  document.getElementById('opStats').innerHTML=
+    '<div class="op-stat"><div class="label">Total Operators</div><div class="value">'+_allOps.length.toLocaleString()+'</div></div>'+
+    '<div class="op-stat"><div class="label">Active</div><div class="value" style="color:var(--green);">'+active.length+'</div></div>'+
+    '<div class="op-stat"><div class="label">Inactive</div><div class="value" style="color:var(--muted);">'+(_allOps.length-active.length)+'</div></div>'+
+    '<div class="op-stat"><div class="label">Departments</div><div class="value">'+Object.keys(d).length+'</div></div>'+
+    '<div class="op-stat"><div class="label">Offices</div><div class="value">'+Object.keys(of).length+'</div></div>';
 }
 
-var _matrixNames = {};  // {dept|office: [name, name, ...]}
+function buildComparison(){
+  var today=new Date().toISOString().slice(0,10);
+  var yesterday=new Date(Date.now()-864e5).toISOString().slice(0,10);
+  var loginToday=0, loginYesterday=0, newOps=0, recentDeact=0;
+  _allOps.forEach(function(o){
+    var ll=(o.last_login||'').slice(0,10);
+    if(o.status==='Active' && ll===today) loginToday++;
+    if(o.status==='Active' && ll===yesterday) loginYesterday++;
+    if(o.status==='Active' && o.id>=_allOps[_allOps.length>10?_allOps.length-10:0].id) newOps++;
+    if(o.status==='Inactive' && ll>=yesterday) recentDeact++;
+  });
+  var diff=loginToday-loginYesterday;
+  document.getElementById('cmpRow').innerHTML=
+    '<div class="cmp-card"><div class="cmp-label">Logged in Today</div><div class="cmp-val pos">'+loginToday+'</div></div>'+
+    '<div class="cmp-card"><div class="cmp-label">Logged in Yesterday</div><div class="cmp-val">'+loginYesterday+'</div></div>'+
+    '<div class="cmp-card"><div class="cmp-label">Day-over-Day</div><div class="cmp-val '+(diff>=0?'pos':'neg')+'">'+(diff>=0?'+':'')+diff+'</div></div>'+
+    '<div class="cmp-card"><div class="cmp-label">Recently Deactivated</div><div class="cmp-val" style="color:var(--red);">'+recentDeact+'</div></div>';
+}
 
 function buildMatrix(){
   var active=_allOps.filter(function(o){return o.status==='Active'&&o.department;});
-  var depts={}, offices={};
-  _matrixNames = {};
+  var depts={},offices={}; _matrixNames={};
   active.forEach(function(o){
-    var d=o.department||'?', of=o.office||'?';
-    if(!depts[d]) depts[d]={};
-    depts[d][of]=(depts[d][of]||0)+1;
-    offices[of]=(offices[of]||0)+1;
-    var key=d+'|'+of;
-    if(!_matrixNames[key]) _matrixNames[key]=[];
+    var d=o.department||'?',of=o.office||'?';
+    if(!depts[d])depts[d]={};depts[d][of]=(depts[d][of]||0)+1;offices[of]=(offices[of]||0)+1;
+    var key=d+'|'+of;if(!_matrixNames[key])_matrixNames[key]=[];
     _matrixNames[key].push(((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'?');
   });
-  // Sort offices by total count descending, collapse tiny ones into "Other"
   var offList=Object.keys(offices).sort(function(a,b){return offices[b]-offices[a];});
-  // Keep top offices, merge rest into Other if >12
-  if(offList.length>12){
-    var keep=offList.slice(0,11), other=offList.slice(11);
-    other.forEach(function(of){
-      Object.keys(depts).forEach(function(d){
-        if(depts[d][of]){depts[d]['Other']=(depts[d]['Other']||0)+depts[d][of];delete depts[d][of];}
-      });
-    });
-    offList=keep.concat(['Other']);
-    offices['Other']=other.reduce(function(s,o){return s+(offices[o]||0);},0);
-  }
-  var deptList=Object.keys(depts).sort();
-  var h='<table class="matrix-table"><thead><tr><th style="text-align:left;">Dept</th>';
-  offList.forEach(function(o){h+='<th>'+o+'</th>';});
-  h+='<th class="total-col">Total</th></tr></thead><tbody>';
+  if(offList.length>12){var keep=offList.slice(0,11),other=offList.slice(11);
+    other.forEach(function(of){Object.keys(depts).forEach(function(d){if(depts[d][of]){depts[d]['Other']=(depts[d]['Other']||0)+depts[d][of];
+      var k1=d+'|'+of,k2=d+'|Other';if(!_matrixNames[k2])_matrixNames[k2]=[];if(_matrixNames[k1])_matrixNames[k2]=_matrixNames[k2].concat(_matrixNames[k1]);
+      delete depts[d][of];}});});
+    offList=keep.concat(['Other']);offices['Other']=other.reduce(function(s,o){return s+(offices[o]||0);},0);}
+  var deptList=Object.keys(depts).sort(), h='<table class="matrix-table"><thead><tr><th>Dept</th>';
+  offList.forEach(function(o){h+='<th>'+o+'</th>';}); h+='<th class="total-col">Total</th></tr></thead><tbody>';
   var colT={}; offList.forEach(function(o){colT[o]=0;}); var gt=0;
-  deptList.forEach(function(d){
-    h+='<tr><td class="dep">'+d+'</td>';
-    var rt=0;
-    offList.forEach(function(o){
-      var c=depts[d][o]||0; rt+=c; colT[o]+=c;
+  deptList.forEach(function(d){h+='<tr><td class="dep">'+d+'</td>';var rt=0;
+    offList.forEach(function(o){var c=depts[d][o]||0;rt+=c;colT[o]+=c;
       h+='<td class="'+(c?'has':'empty')+'"'+(c?' data-mxkey="'+d+'|'+o+'"':'')+' onmouseenter="showMxTip(event,this)" onmouseleave="hideMxTip()">'+(c||'\u00b7')+'</td>';
-    });
-    gt+=rt; h+='<td class="total-col">'+rt+'</td></tr>';
-  });
-  h+='</tbody><tfoot><tr><td class="dep">Total</td>';
-  offList.forEach(function(o){h+='<td>'+colT[o]+'</td>';});
-  h+='<td class="total-col" style="color:var(--accent);font-size:13px;">'+gt+'</td></tr></tfoot></table>';
-  document.getElementById('matrixContainer').innerHTML=h;
-  document.getElementById('matrixContainer').style.padding='0';
-  document.getElementById('matrixContainer').style.textAlign='';
+    });gt+=rt;h+='<td class="total-col">'+rt+'</td></tr>';});
+  h+='</tbody><tfoot><tr><td class="dep">Total</td>';offList.forEach(function(o){h+='<td>'+colT[o]+'</td>';});
+  h+='<td class="total-col" style="font-size:13px;">'+gt+'</td></tr></tfoot></table>';
+  var mc=document.getElementById('matrixContainer');mc.innerHTML=h;mc.style.padding='0';mc.style.textAlign='';
 }
 
-function buildActivity(){
-  // Newest: Active users with highest IDs (most recently created)
-  var activeOps=_allOps.filter(function(o){return o.status==='Active';});
-  var newest=activeOps.slice().sort(function(a,b){return b.id-a.id;}).slice(0,10);
-  // Recently deactivated: Inactive with most recent last_login
-  var inactive=_allOps.filter(function(o){return o.status==='Inactive'&&o.last_login&&o.last_login.length>=10;});
-  var deactivated=inactive.sort(function(a,b){return(b.last_login||'').localeCompare(a.last_login||'');}).slice(0,10);
-
-  var nhtml='';
-  newest.forEach(function(o){
-    var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    nhtml+='<div class="activity-item"><span class="name">'+name+'</span><span class="dept">'+
-      (o.department||'—')+' · '+(o.office||'—')+'</span><span class="date" style="color:var(--green);">ID #'+o.id+'</span></div>';
+function buildDeptSections(){
+  var filtered=_allOps.filter(function(o){
+    if(_opFilter==='active'&&o.status!=='Active')return false;
+    if(_opFilter==='inactive'&&o.status!=='Inactive')return false;
+    if(_opSearch){var q=_opSearch.toLowerCase();
+      return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')).toLowerCase().indexOf(q)!==-1;}
+    return true;
   });
-  var dhtml='';
-  deactivated.forEach(function(o){
-    var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    dhtml+='<div class="activity-item"><span class="name">'+name+'</span><span class="dept">'+
-      (o.department||'—')+' · '+(o.office||'—')+'</span><span class="date" style="color:var(--muted);">Last: '+(o.last_login||'—').slice(0,10)+'</span></div>';
-  });
-  document.getElementById('newestList').innerHTML=nhtml||'<span style="color:var(--muted);">None</span>';
-  document.getElementById('deactivatedList').innerHTML=dhtml||'<span style="color:var(--muted);">None</span>';
-  document.getElementById('activityRow').style.display='';
-}
-
-function applyOpView(){
-  var q=_opSearch.toLowerCase();
-  _viewOps=_allOps.filter(function(o){
-    if(_opFilter==='active'&&o.status!=='Active') return false;
-    if(_opFilter==='inactive'&&o.status!=='Inactive') return false;
-    if(!q) return true;
-    return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')+' '+(o.user_name||'')).toLowerCase().indexOf(q)!==-1;
-  });
-  var keys=['name','email','department','office','status','role_type','position','last_login',
-    'total_clients','funded_clients','total_deposit_volume','ftd_count','ftd_volume'];
-  var key=keys[_opSortCol]||'last_login';
-  _viewOps.sort(function(a,b){
-    var va=key==='name'?((a.first_name||'')+' '+(a.last_name||'')).trim():a[key];
-    var vb=key==='name'?((b.first_name||'')+' '+(b.last_name||'')).trim():b[key];
-    if(va==null)va=_opSortAsc?'\uffff':'';if(vb==null)vb=_opSortAsc?'\uffff':'';
-    if(typeof va==='number'&&typeof vb==='number')return _opSortAsc?va-vb:vb-va;
-    return _opSortAsc?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
-  });
+  // Group by department
+  var byDept={}, deptOrder=[];
+  filtered.forEach(function(o){var d=o.department||'(No Department)';
+    if(!byDept[d]){byDept[d]=[];deptOrder.push(d);}byDept[d].push(o);});
+  deptOrder.sort();
   var html='';
-  _viewOps.forEach(function(o){
+  // Global list first
+  html+=buildSection('global','Global Employee List',filtered);
+  // Department sections
+  deptOrder.forEach(function(d){html+=buildSection('dept_'+d.replace(/[^a-zA-Z0-9]/g,'_'),d,byDept[d]);});
+  document.getElementById('deptSections').innerHTML=html;
+  document.getElementById('opCount').textContent=filtered.length+' of '+_allOps.length+' operators';
+}
+
+function buildSection(id,title,ops){
+  var h='<div class="op-sec"><div class="op-sec-head" onclick="toggleSec(\''+id+'\')">'+
+    '<span class="op-sec-toggle">\u25b8</span><span class="op-sec-title">'+title+'</span>'+
+    '<span class="op-sec-badge">'+ops.length+'</span></div>'+
+    '<div class="op-sec-body" id="sec_'+id+'"><table class="dept-table"><thead><tr>'+
+    '<th>Name</th><th>Email</th><th>Office</th><th>Status</th><th>Role</th><th>Position</th><th>Last Login</th>'+
+    '<th class="num">Clients</th><th class="num">Deposits</th><th class="num">FTDs</th></tr></thead><tbody>';
+  ops.forEach(function(o,i){
     var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
     var st=o.status==='Active'?'<span class="badge-on">Active</span>':'<span class="badge-off">Inactive</span>';
-    html+='<tr>'+
+    h+='<tr onmouseenter="showAgent(event,\''+id+'\','+i+')" onmouseleave="hideAgent()">'+
       '<td style="font-weight:600;">'+name+'</td>'+
-      '<td style="color:var(--muted);font-size:11px;" title="'+(o.email||'')+'">'+((o.email||'—').split('@')[0])+'</td>'+
-      '<td>'+(o.department||'—')+'</td>'+'<td>'+(o.office||'—')+'</td>'+'<td>'+st+'</td>'+
+      '<td style="color:var(--muted);font-size:11px;">'+((o.email||'').split('@')[0]||'—')+'</td>'+
+      '<td>'+(o.office||'—')+'</td><td>'+st+'</td>'+
       '<td style="color:var(--muted);">'+(o.role_type||'—')+'</td>'+
       '<td style="color:var(--muted);">'+(o.position||'—')+'</td>'+
       '<td class="'+loginCls(o.last_login)+'">'+(o.last_login||'—')+'</td>'+
       '<td class="num">'+(o.total_clients?o.total_clients.toLocaleString():'—')+'</td>'+
-      '<td class="num">'+(o.funded_clients?o.funded_clients.toLocaleString():'—')+'</td>'+
       '<td class="num">'+fmtC(o.total_deposit_volume)+'</td>'+
-      '<td class="num">'+(o.ftd_count?o.ftd_count.toLocaleString():'—')+'</td>'+
-      '<td class="num">'+fmtC(o.ftd_volume)+'</td></tr>';
+      '<td class="num">'+(o.ftd_count?o.ftd_count.toLocaleString():'—')+'</td></tr>';
   });
-  document.getElementById('opBody').innerHTML=html;
-  document.getElementById('opCount').textContent=_viewOps.length+' of '+_allOps.length+' operators';
-  document.querySelectorAll('#opTable th[data-col]').forEach(function(th){
-    th.classList.remove('asc','desc');
-    if(parseInt(th.getAttribute('data-col'))===_opSortCol) th.classList.add(_opSortAsc?'asc':'desc');
-  });
+  h+='</tbody></table></div></div>';
+  return h;
 }
 
-function opFilter(f,btn){_opFilter=f;document.querySelectorAll('.op-filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');applyOpView();}
-function opSearchFn(q){_opSearch=q;applyOpView();}
-document.querySelectorAll('#opTable th[data-col]').forEach(function(th){
-  th.addEventListener('click',function(){var c=parseInt(th.getAttribute('data-col'));_opSortAsc=(c===_opSortCol)?!_opSortAsc:false;_opSortCol=c;applyOpView();});
-});
-function showMxTip(e, td) {
-  var key = td.getAttribute('data-mxkey');
-  if (!key) return;
-  var names = _matrixNames[key];
-  if (!names || !names.length) return;
-  var parts = key.split('|');
-  var tip = document.getElementById('mxTip');
-  document.getElementById('mxTipTitle').textContent = parts[0] + ' \u2014 ' + parts[1];
-  document.getElementById('mxTipBody').innerHTML = names.map(function(n){
-    return '<div class="mx-tip-name">' + n + '</div>';
-  }).join('');
-  tip.style.display = 'block';
-  tip.style.left = Math.min(e.clientX + 12, window.innerWidth - 300) + 'px';
-  tip.style.top  = Math.min(e.clientY + 12, window.innerHeight - 200) + 'px';
+// Store filtered ops per section for tooltip lookup
+function getSecOps(secId){
+  var filtered=_allOps.filter(function(o){
+    if(_opFilter==='active'&&o.status!=='Active')return false;
+    if(_opFilter==='inactive'&&o.status!=='Inactive')return false;
+    if(_opSearch){var q=_opSearch.toLowerCase();
+      return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')).toLowerCase().indexOf(q)!==-1;}
+    return true;
+  });
+  if(secId==='global') return filtered;
+  var dept=secId.replace('dept_','').replace(/_/g,' ');
+  // Try exact match first, then fuzzy
+  var r=filtered.filter(function(o){return(o.department||'(No Department)')===dept;});
+  if(!r.length) r=filtered.filter(function(o){return(o.department||'').replace(/[^a-zA-Z0-9]/g,'_')===secId.replace('dept_','');});
+  return r;
 }
-function hideMxTip() { document.getElementById('mxTip').style.display = 'none'; }
+
+function toggleSec(id){
+  var body=document.getElementById('sec_'+id);
+  var head=body.previousElementSibling;
+  body.classList.toggle('open');
+  head.classList.toggle('open');
+}
+
+function showAgent(e,secId,idx){
+  var ops=getSecOps(secId);
+  var o=ops[idx]; if(!o)return;
+  var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+  var tip=document.getElementById('agentTip');
+  tip.innerHTML='<div class="agent-tip-name">'+name+'</div><div class="agent-tip-grid">'+
+    af('Email',o.email||'—')+af('User',o.user_name||'—')+
+    af('Department',o.department||'—')+af('Office',o.office||'—')+
+    af('Status',o.status||'—')+af('Role Type',o.role_type||'—')+
+    af('Position',o.position||'—')+af('Desk',o.desk_label||'—')+
+    af('Last Login',o.last_login||'—')+af('ID','#'+o.id)+
+    af('Clients',(o.total_clients||0).toLocaleString())+af('Funded',(o.funded_clients||0).toLocaleString())+
+    af('Total Deposits',fmtC(o.total_deposit_volume))+af('Net Deposits',fmtC(o.net_deposit_volume))+
+    af('FTD Count',(o.ftd_count||0).toLocaleString())+af('FTD Volume',fmtC(o.ftd_volume))+
+    '</div>';
+  tip.style.display='block';
+  tip.style.left=Math.min(e.clientX+16,window.innerWidth-340)+'px';
+  tip.style.top=Math.min(e.clientY-20,window.innerHeight-tip.offsetHeight-20)+'px';
+}
+function af(l,v){return '<div class="agent-tip-field"><div class="fl">'+l+'</div><div class="fv">'+v+'</div></div>';}
+function hideAgent(){document.getElementById('agentTip').style.display='none';}
+
+function showMxTip(e,td){var k=td.getAttribute('data-mxkey');if(!k)return;var names=_matrixNames[k];if(!names||!names.length)return;
+  var p=k.split('|'),tip=document.getElementById('mxTip');document.getElementById('mxTipTitle').textContent=p[0]+' \u2014 '+p[1];
+  document.getElementById('mxTipBody').innerHTML=names.map(function(n){return '<div class="mx-tip-name">'+n+'</div>';}).join('');
+  tip.style.display='block';tip.style.left=Math.min(e.clientX+12,window.innerWidth-300)+'px';tip.style.top=Math.min(e.clientY+12,window.innerHeight-200)+'px';}
+function hideMxTip(){document.getElementById('mxTip').style.display='none';}
+
+function opFilter(f,btn){_opFilter=f;document.querySelectorAll('.op-filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');buildDeptSections();}
+function opSearchFn(q){_opSearch=q;buildDeptSections();}
 
 document.addEventListener('DOMContentLoaded',loadOperators);
 </script>
