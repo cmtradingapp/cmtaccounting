@@ -7,17 +7,36 @@
   .op-stat .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:5px; }
   .op-stat .value { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
 
-  /* Matrix — no scroll, compact */
+  /* Matrix — grid with cross-highlighting */
+  .matrix-wrap { overflow:hidden; position:relative; border-radius:var(--radius-md); border:1px solid var(--border); margin-bottom:var(--sp-4); }
   .matrix-table { border-collapse:collapse; font-size:11px; width:100%; }
-  .matrix-table th { background:var(--surface); padding:5px 8px; font-weight:700; text-transform:uppercase;
+  .matrix-table th { background:var(--surface); padding:6px 10px; font-weight:700; text-transform:uppercase;
     letter-spacing:.04em; color:var(--muted); border-bottom:1px solid var(--border); white-space:nowrap; text-align:center; font-size:10px; }
-  .matrix-table td { padding:4px 8px; text-align:center; font-variant-numeric:tabular-nums; font-weight:600; font-size:12px; }
+  .matrix-table td { padding:5px 10px; text-align:center; font-variant-numeric:tabular-nums; font-weight:600; font-size:12px;
+    border-right:1px solid rgba(255,255,255,.03); position:relative; }
   .matrix-table td.has { color:var(--green); }
   .matrix-table td.empty { color:transparent; }
-  .matrix-table .dep { text-align:left; white-space:nowrap; font-weight:700; color:var(--text); font-size:12px; padding-left:12px; }
-  .matrix-table .total-col { color:var(--accent); font-weight:700; }
-  .matrix-table tr:hover td { background:rgba(255,255,255,.02); }
+  .matrix-table .dep { text-align:left; white-space:nowrap; font-weight:700; color:var(--text); font-size:12px;
+    padding-left:12px; border-right:1px solid var(--border); background:var(--surface); position:sticky; left:0; z-index:1; }
+  .matrix-table .total-col { color:var(--accent); font-weight:700; border-left:1px solid var(--border); }
   .matrix-table tfoot td { font-weight:700; border-top:1px solid var(--border); color:var(--accent); }
+  .matrix-table tbody tr { border-bottom:1px solid rgba(255,255,255,.025); }
+  /* Cross-highlighting: row */
+  .matrix-table tbody tr:hover td { background:rgba(79,142,247,.04); }
+  .matrix-table tbody tr:hover .dep { background:rgba(79,142,247,.1); color:var(--accent); }
+  /* Cross-highlighting: column via pseudo-element */
+  .matrix-table td:not(.dep):not(.total-col):hover::after {
+    content:''; position:absolute; left:0; right:0;
+    top:-5000px; bottom:-5000px;
+    background:rgba(79,142,247,.06);
+    z-index:-1; pointer-events:none;
+  }
+  /* Highlight the hovered cell itself */
+  .matrix-table td:not(.dep):not(.total-col):hover {
+    background:rgba(79,142,247,.15) !important;
+    color:var(--text) !important;
+    border-radius:3px;
+  }
 
   /* Activity cards */
   .activity-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:var(--sp-4); }
@@ -80,7 +99,7 @@
 
 <!-- Matrix -->
 <div class="section-title">Department × Office (Active)</div>
-<div id="matrixContainer" style="margin-bottom:var(--sp-4);color:var(--muted);padding:20px;text-align:center;">Loading operators…</div>
+<div class="matrix-wrap"><div id="matrixContainer" style="color:var(--muted);padding:20px;text-align:center;">Loading operators…</div></div>
 
 <!-- Recently Hired / Deactivated -->
 <div class="activity-row" id="activityRow" style="display:none;">
@@ -217,7 +236,8 @@ function buildMatrix(){
   offList.forEach(function(o){h+='<td>'+colT[o]+'</td>';});
   h+='<td class="total-col" style="color:var(--accent);font-size:13px;">'+gt+'</td></tr></tfoot></table>';
   document.getElementById('matrixContainer').innerHTML=h;
-  document.getElementById('matrixContainer').style='margin-bottom:var(--sp-4);';
+  document.getElementById('matrixContainer').style.padding='0';
+  document.getElementById('matrixContainer').style.textAlign='';
 }
 
 function buildActivity(){
