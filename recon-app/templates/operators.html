@@ -271,7 +271,7 @@ function buildComparison(){
 function buildActivatedCard(){
   // Use DB-backed watermark: operators with ID above prev snapshot are definitively new
   var newOps=_allOps.filter(function(o){
-    return o.status==='Active' && o.id > _wmPrevMax;
+    return o.status==='Active' && +o.id > _wmPrevMax;
   }).sort(function(a,b){return b.id-a.id;});
   buildActCard('activatedList','actExpandBtn',newOps,function(o){return(o.last_login||'').slice(0,10);},'color:var(--green)','None today');
   if(_wmExplain){
