@@ -1542,7 +1542,7 @@ def _compute_client_list(date_from, date_to) -> list:
             pass
         return result
 
-    _set_stage("Querying MT4 + fetching client names\u2026", 3)
+    _set_stage("Fetching client names\u2026", 3)
     # Run MT4 and CRM names in parallel (different DBs, both I/O-bound)
     cids_for_names = all_cids if wide_span else []
     with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
