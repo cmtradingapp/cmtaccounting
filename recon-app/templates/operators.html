@@ -7,6 +7,29 @@
   .op-stat .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:5px; }
   .op-stat .value { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
 
+  /* Matrix — no scroll, compact */
+  .matrix-table { border-collapse:collapse; font-size:11px; width:100%; }
+  .matrix-table th { background:var(--surface); padding:5px 8px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.04em; color:var(--muted); border-bottom:1px solid var(--border); white-space:nowrap; text-align:center; font-size:10px; }
+  .matrix-table td { padding:4px 8px; text-align:center; font-variant-numeric:tabular-nums; font-weight:600; font-size:12px; }
+  .matrix-table td.has { color:var(--green); }
+  .matrix-table td.empty { color:transparent; }
+  .matrix-table .dep { text-align:left; white-space:nowrap; font-weight:700; color:var(--text); font-size:12px; padding-left:12px; }
+  .matrix-table .total-col { color:var(--accent); font-weight:700; }
+  .matrix-table tr:hover td { background:rgba(255,255,255,.02); }
+  .matrix-table tfoot td { font-weight:700; border-top:1px solid var(--border); color:var(--accent); }
+
+  /* Activity cards */
+  .activity-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:var(--sp-4); }
+  .activity-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px 20px; }
+  .activity-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .activity-list { display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto; }
+  .activity-item { display:flex; align-items:center; gap:10px; font-size:12px; padding:4px 0; }
+  .activity-item .name { font-weight:600; color:var(--text); min-width:140px; }
+  .activity-item .dept { color:var(--muted); font-size:11px; }
+  .activity-item .date { margin-left:auto; font-size:11px; font-variant-numeric:tabular-nums; }
+
+  /* Filter bar */
   .op-filter-bar { display:flex; align-items:center; gap:10px; margin-bottom:var(--sp-3); flex-wrap:wrap; }
   .op-filter-btn {
     font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px;
@@ -26,25 +49,11 @@
   .op-search input { background:transparent; border:none; outline:none; color:var(--text); font-size:13px; width:100%; }
   .op-search input::placeholder { color:var(--muted); }
 
-  /* Matrix */
-  .matrix-wrap { margin-bottom:var(--sp-5); max-height:400px; overflow:auto; }
-  .matrix-table { border-collapse:collapse; font-size:11px; }
-  .matrix-table th { background:var(--surface); padding:6px 10px; font-weight:700; text-transform:uppercase;
-    letter-spacing:.05em; color:var(--muted); border:1px solid var(--border); white-space:nowrap;
-    position:sticky; top:0; z-index:1; }
-  .matrix-table td { padding:5px 10px; border:1px solid var(--border); text-align:center;
-    font-variant-numeric:tabular-nums; font-weight:600; }
-  .matrix-table td.has-agents { background:rgba(34,197,94,.08); color:var(--green); }
-  .matrix-table td.no-agents  { color:var(--muted); opacity:.3; }
-  .matrix-table .row-label { text-align:left; white-space:nowrap; font-weight:700; color:var(--text); background:var(--surface); position:sticky; left:0; z-index:1; }
-  .matrix-table .total-row td { font-weight:700; background:rgba(79,142,247,.05); }
-  .matrix-table .total-col { background:rgba(79,142,247,.05); font-weight:700; }
-
   /* Operator table */
   .op-table-wrap { max-height:calc(100vh - 320px); overflow:auto; border-radius:14px; border:1px solid var(--border); }
-  .op-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+  .op-table { width:100%; border-collapse:collapse; }
   .op-table thead th { background:var(--surface); padding:10px 12px; font-size:10px; font-weight:700;
-    text-transform:uppercase; letter-spacing:.06em; color:var(--muted); border-bottom:1px solid var(--border);
+    text-transform:uppercase; letter-spacing:.05em; color:var(--muted); border-bottom:1px solid var(--border);
     position:sticky; top:0; z-index:2; cursor:pointer; user-select:none; white-space:nowrap; }
   .op-table thead th:hover { color:var(--text); }
   .op-table thead th.asc::after  { content:'▲'; margin-left:4px; color:var(--accent); font-size:9px; }
@@ -54,32 +63,36 @@
   .op-table td { padding:10px 12px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .op-table .num { text-align:right; font-variant-numeric:tabular-nums; }
 
-  .badge-active   { display:inline-flex; align-items:center; height:20px; padding:0 8px;
-    border-radius:999px; font-size:10px; font-weight:700; background:rgba(34,197,94,.12); color:var(--green); }
-  .badge-inactive { display:inline-flex; align-items:center; height:20px; padding:0 8px;
-    border-radius:999px; font-size:10px; font-weight:700; background:rgba(100,116,139,.1); color:var(--muted); }
-
-  .op-loading { text-align:center; padding:60px; color:var(--muted); }
-
-  /* Compact number format */
+  .badge-on  { display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(34,197,94,.12);color:var(--green); }
+  .badge-off { display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(100,116,139,.1);color:var(--muted); }
   .pos { color:var(--green); } .neg { color:var(--red); }
 </style>
 
-<div class="page-header">
-  <div class="page-title">Operators Dashboard</div>
-</div>
+<div class="page-header"><div class="page-title">Operators Dashboard</div></div>
 
 <!-- Summary Cards -->
 <div class="op-stats">
   <div class="op-stat"><div class="label">Total Operators</div><div class="value" id="opTotal">—</div></div>
   <div class="op-stat"><div class="label">Active</div><div class="value" id="opActive" style="color:var(--green);">—</div></div>
   <div class="op-stat"><div class="label">Departments</div><div class="value" id="opDepts">—</div></div>
-  <div class="op-stat"><div class="label">Offices / Countries</div><div class="value" id="opOffices">—</div></div>
+  <div class="op-stat"><div class="label">Offices</div><div class="value" id="opOffices">—</div></div>
 </div>
 
-<!-- Department × Country Matrix -->
-<div class="section-title">Department × Office Matrix (Active Only)</div>
-<div class="matrix-wrap"><div id="matrixContainer" class="op-loading">Loading matrix…</div></div>
+<!-- Matrix -->
+<div class="section-title">Department × Office (Active)</div>
+<div id="matrixContainer" style="margin-bottom:var(--sp-4);color:var(--muted);padding:20px;text-align:center;">Loading operators…</div>
+
+<!-- Recently Hired / Deactivated -->
+<div class="activity-row" id="activityRow" style="display:none;">
+  <div class="activity-card">
+    <div class="activity-title"><span style="color:var(--green);">&#9679;</span> Newest Operators</div>
+    <div class="activity-list" id="newestList"></div>
+  </div>
+  <div class="activity-card">
+    <div class="activity-title"><span style="color:var(--red);">&#9679;</span> Recently Deactivated</div>
+    <div class="activity-list" id="deactivatedList"></div>
+  </div>
+</div>
 
 <!-- Filter + Search -->
 <div class="op-filter-bar">
@@ -87,12 +100,8 @@
   <button class="op-filter-btn" onclick="opFilter('active',this)" style="color:var(--green);">Active</button>
   <button class="op-filter-btn" onclick="opFilter('inactive',this)">Inactive</button>
   <div class="op-search">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);flex-shrink:0;">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>
-    <input type="text" id="opSearch" placeholder="Search name, email, department…"
-           oninput="opSearchFn(this.value)" autocomplete="off" spellcheck="false">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="opSearch" placeholder="Search name, email, department…" oninput="opSearchFn(this.value)" autocomplete="off" spellcheck="false">
   </div>
   <span id="opCount" style="font-size:12px;color:var(--muted);"></span>
 </div>
@@ -100,13 +109,6 @@
 <!-- Operator Table -->
 <div class="op-table-wrap">
   <table class="op-table" id="opTable">
-    <colgroup>
-      <col style="width:160px"><col style="width:200px"><col style="width:120px">
-      <col style="width:80px"><col style="width:70px"><col style="width:100px">
-      <col style="width:80px"><col style="width:130px"><col style="width:75px">
-      <col style="width:80px"><col style="width:100px"><col style="width:70px">
-      <col style="width:90px">
-    </colgroup>
     <thead>
       <tr>
         <th data-col="0">Name</th>
@@ -119,9 +121,9 @@
         <th data-col="7">Last Login</th>
         <th data-col="8" class="num">Clients</th>
         <th data-col="9" class="num">Funded</th>
-        <th data-col="10" class="num">Total Deposits</th>
+        <th data-col="10" class="num">Deposits</th>
         <th data-col="11" class="num">FTDs</th>
-        <th data-col="12" class="num">FTD Volume</th>
+        <th data-col="12" class="num">FTD Vol.</th>
       </tr>
     </thead>
     <tbody id="opBody"></tbody>
@@ -129,176 +131,168 @@
 </div>
 
 <script>
-var _allOps = [], _viewOps = [], _opFilter = 'all', _opSearch = '', _opSortCol = 8, _opSortAsc = false;
+var _allOps=[], _viewOps=[], _opFilter='all', _opSearch='', _opSortCol=7, _opSortAsc=false;
 
-function fmtC(n) {
-  if (!n) return '—';
-  var abs = Math.abs(n), sign = n >= 0 ? '' : '-';
-  if (abs >= 1e6) return sign + '$' + (abs/1e6).toFixed(1) + 'M';
-  if (abs >= 1e3) return sign + '$' + Math.round(abs/1e3) + 'K';
-  return sign + '$' + abs.toFixed(0);
+function fmtC(n){
+  if(!n) return '—';
+  var abs=Math.abs(n), sign=n<0?'-':'';
+  if(abs>=1e6) return sign+'$'+(abs/1e6).toFixed(1)+'M';
+  if(abs>=1e3) return sign+'$'+Math.round(abs/1e3)+'K';
+  return sign+'$'+abs.toFixed(0);
 }
 
-function lastLoginCls(s) {
-  if (!s || s.length < 10) return 'muted';
-  var d = new Date(s.slice(0,10)), days = (Date.now() - d.getTime()) / 86400000;
-  if (days <= 1)  return 'pos';
-  if (days <= 7)  return '';
-  if (days <= 30) return '';
-  return 'muted';
+function loginCls(s){
+  if(!s||s.length<10) return 'muted';
+  var days=(Date.now()-new Date(s.slice(0,10)).getTime())/864e5;
+  return days<=1?'pos':days<=7?'':days<=30?'':'muted';
 }
 
-function loadOperators() {
-  var mc = document.getElementById('matrixContainer');
-  mc.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">Loading operators\u2026</div>';
-
-  // Phase 1: fast operator list (<2s)
+function loadOperators(){
   fetch('/operators/data')
-    .then(function(r){ return r.json(); })
+    .then(function(r){return r.json();})
     .then(function(data){
-      if (data.error) { mc.innerHTML = '<div style="color:var(--red);padding:20px;">Error: ' + data.error + '</div>'; return; }
-      _allOps = data.operators || [];
-      updateStats();
-      buildMatrix();
-      applyOpView();
-
-      // Phase 2: slow performance stats (loaded in background, fills in when ready)
-      fetch('/operators/stats')
-        .then(function(r){ return r.json(); })
-        .then(function(sdata){
-          if (sdata.error || !sdata.stats) return;
-          var stats = sdata.stats;
-          _allOps.forEach(function(op){
-            var s = stats[String(op.id)] || {};
-            op.total_clients        = s.total_clients || 0;
-            op.funded_clients       = s.funded_clients || 0;
-            op.total_deposit_volume = s.total_deposit_volume || 0;
-            op.ftd_count            = s.ftd_count || 0;
-            op.ftd_volume           = s.ftd_volume || 0;
-          });
-          applyOpView();  // re-render with stats filled in
-        })
-        .catch(function(){});  // stats are optional
+      if(data.error){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">Error: '+data.error+'</span>';return;}
+      _allOps=data.operators||[];
+      updateStats(); buildMatrix(); buildActivity(); applyOpView();
+      // Phase 2: slow stats
+      fetch('/operators/stats').then(function(r){return r.json();}).then(function(sd){
+        if(!sd.stats) return;
+        _allOps.forEach(function(o){var s=sd.stats[String(o.id)]||{};
+          o.total_clients=s.total_clients||0; o.funded_clients=s.funded_clients||0;
+          o.total_deposit_volume=s.total_deposit_volume||0;
+          o.ftd_count=s.ftd_count||0; o.ftd_volume=s.ftd_volume||0;
+        }); applyOpView();
+      }).catch(function(){});
     })
-    .catch(function(e){ mc.innerHTML = '<div style="color:var(--red);padding:20px;">Failed: ' + e + '</div>'; });
+    .catch(function(e){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">Failed: '+e+'</span>';});
 }
 
-function updateStats() {
-  var active = _allOps.filter(function(o){ return o.status === 'Active'; });
-  var depts = {}, offices = {};
-  active.forEach(function(o){ if(o.department) depts[o.department]=1; if(o.office) offices[o.office]=1; });
-  document.getElementById('opTotal').textContent  = _allOps.length.toLocaleString();
-  document.getElementById('opActive').textContent = active.length.toLocaleString();
-  document.getElementById('opDepts').textContent  = Object.keys(depts).length;
-  document.getElementById('opOffices').textContent= Object.keys(offices).length;
+function updateStats(){
+  var active=_allOps.filter(function(o){return o.status==='Active';});
+  var d={},of={};
+  active.forEach(function(o){if(o.department)d[o.department]=1;if(o.office)of[o.office]=1;});
+  document.getElementById('opTotal').textContent=_allOps.length.toLocaleString();
+  document.getElementById('opActive').textContent=active.length.toLocaleString();
+  document.getElementById('opDepts').textContent=Object.keys(d).length;
+  document.getElementById('opOffices').textContent=Object.keys(of).length;
 }
 
-function buildMatrix() {
-  var active = _allOps.filter(function(o){ return o.status === 'Active' && o.department; });
-  var depts = {}, offices = {};
+function buildMatrix(){
+  var active=_allOps.filter(function(o){return o.status==='Active'&&o.department;});
+  var depts={}, offices={};
   active.forEach(function(o){
-    var d = o.department || '(none)', of = o.office || '?';
-    if (!depts[d]) depts[d] = {};
-    depts[d][of] = (depts[d][of] || 0) + 1;
-    offices[of] = 1;
+    var d=o.department||'?', of=o.office||'?';
+    if(!depts[d]) depts[d]={};
+    depts[d][of]=(depts[d][of]||0)+1;
+    offices[of]=(offices[of]||0)+1;
   });
-  var offList = Object.keys(offices).sort();
-  var deptList = Object.keys(depts).sort();
-
-  var html = '<table class="matrix-table"><thead><tr><th class="row-label">Department</th>';
-  offList.forEach(function(o){ html += '<th>' + o + '</th>'; });
-  html += '<th class="total-col">Total</th></tr></thead><tbody>';
-  var colTotals = {};
-  offList.forEach(function(o){ colTotals[o] = 0; });
-  var grandTotal = 0;
-  deptList.forEach(function(d){
-    html += '<tr><td class="row-label">' + d + '</td>';
-    var rowTotal = 0;
-    offList.forEach(function(o){
-      var c = depts[d][o] || 0;
-      rowTotal += c; colTotals[o] += c;
-      html += '<td class="' + (c ? 'has-agents' : 'no-agents') + '">' + (c || '—') + '</td>';
+  // Sort offices by total count descending, collapse tiny ones into "Other"
+  var offList=Object.keys(offices).sort(function(a,b){return offices[b]-offices[a];});
+  // Keep top offices, merge rest into Other if >12
+  if(offList.length>12){
+    var keep=offList.slice(0,11), other=offList.slice(11);
+    other.forEach(function(of){
+      Object.keys(depts).forEach(function(d){
+        if(depts[d][of]){depts[d]['Other']=(depts[d]['Other']||0)+depts[d][of];delete depts[d][of];}
+      });
     });
-    grandTotal += rowTotal;
-    html += '<td class="total-col">' + rowTotal + '</td></tr>';
+    offList=keep.concat(['Other']);
+    offices['Other']=other.reduce(function(s,o){return s+(offices[o]||0);},0);
+  }
+  var deptList=Object.keys(depts).sort();
+  var h='<table class="matrix-table"><thead><tr><th style="text-align:left;">Dept</th>';
+  offList.forEach(function(o){h+='<th>'+o+'</th>';});
+  h+='<th class="total-col">Total</th></tr></thead><tbody>';
+  var colT={}; offList.forEach(function(o){colT[o]=0;}); var gt=0;
+  deptList.forEach(function(d){
+    h+='<tr><td class="dep">'+d+'</td>';
+    var rt=0;
+    offList.forEach(function(o){
+      var c=depts[d][o]||0; rt+=c; colT[o]+=c;
+      h+='<td class="'+(c?'has':'empty')+'">'+(c||'')+'</td>';
+    });
+    gt+=rt; h+='<td class="total-col">'+rt+'</td></tr>';
   });
-  html += '<tr class="total-row"><td class="row-label">Total</td>';
-  offList.forEach(function(o){ html += '<td>' + colTotals[o] + '</td>'; });
-  html += '<td class="total-col" style="color:var(--accent);">' + grandTotal + '</td></tr>';
-  html += '</tbody></table>';
-  document.getElementById('matrixContainer').innerHTML = html;
+  h+='</tbody><tfoot><tr><td class="dep">Total</td>';
+  offList.forEach(function(o){h+='<td>'+colT[o]+'</td>';});
+  h+='<td class="total-col" style="color:var(--accent);font-size:13px;">'+gt+'</td></tr></tfoot></table>';
+  document.getElementById('matrixContainer').innerHTML=h;
+  document.getElementById('matrixContainer').style='margin-bottom:var(--sp-4);';
 }
 
-function applyOpView() {
-  var q = _opSearch.toLowerCase();
-  _viewOps = _allOps.filter(function(o){
-    if (_opFilter === 'active' && o.status !== 'Active') return false;
-    if (_opFilter === 'inactive' && o.status !== 'Inactive') return false;
-    if (!q) return true;
-    return ((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')+' '+(o.user_name||'')).toLowerCase().indexOf(q) !== -1;
+function buildActivity(){
+  // Newest: Active users with highest IDs (most recently created)
+  var activeOps=_allOps.filter(function(o){return o.status==='Active';});
+  var newest=activeOps.slice().sort(function(a,b){return b.id-a.id;}).slice(0,10);
+  // Recently deactivated: Inactive with most recent last_login
+  var inactive=_allOps.filter(function(o){return o.status==='Inactive'&&o.last_login&&o.last_login.length>=10;});
+  var deactivated=inactive.sort(function(a,b){return(b.last_login||'').localeCompare(a.last_login||'');}).slice(0,10);
+
+  var nhtml='';
+  newest.forEach(function(o){
+    var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    nhtml+='<div class="activity-item"><span class="name">'+name+'</span><span class="dept">'+
+      (o.department||'—')+' · '+(o.office||'—')+'</span><span class="date" style="color:var(--green);">ID #'+o.id+'</span></div>';
   });
-  var keys = ['name','email','department','office','status','role_type','position','last_login',
-              'total_clients','funded_clients','total_deposit_volume','ftd_count','ftd_volume'];
-  var key = keys[_opSortCol] || 'total_clients';
+  var dhtml='';
+  deactivated.forEach(function(o){
+    var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    dhtml+='<div class="activity-item"><span class="name">'+name+'</span><span class="dept">'+
+      (o.department||'—')+' · '+(o.office||'—')+'</span><span class="date" style="color:var(--muted);">Last: '+(o.last_login||'—').slice(0,10)+'</span></div>';
+  });
+  document.getElementById('newestList').innerHTML=nhtml||'<span style="color:var(--muted);">None</span>';
+  document.getElementById('deactivatedList').innerHTML=dhtml||'<span style="color:var(--muted);">None</span>';
+  document.getElementById('activityRow').style.display='';
+}
+
+function applyOpView(){
+  var q=_opSearch.toLowerCase();
+  _viewOps=_allOps.filter(function(o){
+    if(_opFilter==='active'&&o.status!=='Active') return false;
+    if(_opFilter==='inactive'&&o.status!=='Inactive') return false;
+    if(!q) return true;
+    return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')+' '+(o.user_name||'')).toLowerCase().indexOf(q)!==-1;
+  });
+  var keys=['name','email','department','office','status','role_type','position','last_login',
+    'total_clients','funded_clients','total_deposit_volume','ftd_count','ftd_volume'];
+  var key=keys[_opSortCol]||'last_login';
   _viewOps.sort(function(a,b){
-    var va = key==='name' ? ((a.first_name||'')+' '+(a.last_name||'')).trim() : a[key];
-    var vb = key==='name' ? ((b.first_name||'')+' '+(b.last_name||'')).trim() : b[key];
-    if (va==null) va = _opSortAsc ? '\uffff' : '';
-    if (vb==null) vb = _opSortAsc ? '\uffff' : '';
-    if (typeof va==='number'&&typeof vb==='number') return _opSortAsc?va-vb:vb-va;
-    return _opSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    var va=key==='name'?((a.first_name||'')+' '+(a.last_name||'')).trim():a[key];
+    var vb=key==='name'?((b.first_name||'')+' '+(b.last_name||'')).trim():b[key];
+    if(va==null)va=_opSortAsc?'\uffff':'';if(vb==null)vb=_opSortAsc?'\uffff':'';
+    if(typeof va==='number'&&typeof vb==='number')return _opSortAsc?va-vb:vb-va;
+    return _opSortAsc?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
   });
-  renderOpTable();
-  document.getElementById('opCount').textContent = _viewOps.length + ' of ' + _allOps.length + ' operators';
+  var html='';
+  _viewOps.forEach(function(o){
+    var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    var st=o.status==='Active'?'<span class="badge-on">Active</span>':'<span class="badge-off">Inactive</span>';
+    html+='<tr>'+
+      '<td style="font-weight:600;">'+name+'</td>'+
+      '<td style="color:var(--muted);font-size:11px;" title="'+(o.email||'')+'">'+((o.email||'—').split('@')[0])+'</td>'+
+      '<td>'+(o.department||'—')+'</td>'+'<td>'+(o.office||'—')+'</td>'+'<td>'+st+'</td>'+
+      '<td style="color:var(--muted);">'+(o.role_type||'—')+'</td>'+
+      '<td style="color:var(--muted);">'+(o.position||'—')+'</td>'+
+      '<td class="'+loginCls(o.last_login)+'">'+(o.last_login||'—')+'</td>'+
+      '<td class="num">'+(o.total_clients?o.total_clients.toLocaleString():'—')+'</td>'+
+      '<td class="num">'+(o.funded_clients?o.funded_clients.toLocaleString():'—')+'</td>'+
+      '<td class="num">'+fmtC(o.total_deposit_volume)+'</td>'+
+      '<td class="num">'+(o.ftd_count?o.ftd_count.toLocaleString():'—')+'</td>'+
+      '<td class="num">'+fmtC(o.ftd_volume)+'</td></tr>';
+  });
+  document.getElementById('opBody').innerHTML=html;
+  document.getElementById('opCount').textContent=_viewOps.length+' of '+_allOps.length+' operators';
   document.querySelectorAll('#opTable th[data-col]').forEach(function(th){
     th.classList.remove('asc','desc');
-    if (parseInt(th.getAttribute('data-col')) === _opSortCol) th.classList.add(_opSortAsc?'asc':'desc');
+    if(parseInt(th.getAttribute('data-col'))===_opSortCol) th.classList.add(_opSortAsc?'asc':'desc');
   });
 }
 
-function renderOpTable() {
-  var tbody = document.getElementById('opBody');
-  // Render all (2.8k rows is fine without virtual scroll)
-  var html = '';
-  _viewOps.forEach(function(o){
-    var name = ((o.first_name||'')+' '+(o.last_name||'')).trim() || o.user_name || '—';
-    var statusBadge = o.status==='Active' ? '<span class="badge-active">Active</span>' : '<span class="badge-inactive">Inactive</span>';
-    html += '<tr>' +
-      '<td title="' + (o.user_name||'') + '">' + name + '</td>' +
-      '<td title="' + (o.email||'') + '">' + (o.email||'—') + '</td>' +
-      '<td>' + (o.department||'—') + '</td>' +
-      '<td>' + (o.office||'—') + '</td>' +
-      '<td>' + statusBadge + '</td>' +
-      '<td>' + (o.role_type||'—') + '</td>' +
-      '<td>' + (o.position||'—') + '</td>' +
-      '<td class="' + lastLoginCls(o.last_login) + '">' + (o.last_login||'—') + '</td>' +
-      '<td class="num">' + (o.total_clients ? o.total_clients.toLocaleString() : '—') + '</td>' +
-      '<td class="num">' + (o.funded_clients ? o.funded_clients.toLocaleString() : '—') + '</td>' +
-      '<td class="num">' + fmtC(o.total_deposit_volume) + '</td>' +
-      '<td class="num">' + (o.ftd_count ? o.ftd_count.toLocaleString() : '—') + '</td>' +
-      '<td class="num">' + fmtC(o.ftd_volume) + '</td>' +
-      '</tr>';
-  });
-  tbody.innerHTML = html;
-}
-
-function opFilter(f, btn) {
-  _opFilter = f;
-  document.querySelectorAll('.op-filter-btn').forEach(function(b){ b.classList.remove('active'); });
-  btn.classList.add('active');
-  applyOpView();
-}
-function opSearchFn(q) { _opSearch = q; applyOpView(); }
-
+function opFilter(f,btn){_opFilter=f;document.querySelectorAll('.op-filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');applyOpView();}
+function opSearchFn(q){_opSearch=q;applyOpView();}
 document.querySelectorAll('#opTable th[data-col]').forEach(function(th){
-  th.addEventListener('click', function(){
-    var c = parseInt(th.getAttribute('data-col'));
-    _opSortAsc = (c === _opSortCol) ? !_opSortAsc : false;
-    _opSortCol = c;
-    applyOpView();
-  });
+  th.addEventListener('click',function(){var c=parseInt(th.getAttribute('data-col'));_opSortAsc=(c===_opSortCol)?!_opSortAsc:false;_opSortCol=c;applyOpView();});
 });
-
-document.addEventListener('DOMContentLoaded', loadOperators);
+document.addEventListener('DOMContentLoaded',loadOperators);
 </script>
 {% endblock %}
