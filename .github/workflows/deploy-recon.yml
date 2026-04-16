@@ -34,8 +34,34 @@ jobs:
       - name: Inject secrets into server .env
         env:
           SSHPASS: ${{ secrets.SERVER_PASS }}
+          S_ADMIN_USER: ${{ secrets.ADMIN_USER }}
+          S_ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
+          S_CRM_USER: ${{ secrets.CRM_USER }}
+          S_CRM_PASS: ${{ secrets.CRM_PASS }}
+          S_RECON_PASS: ${{ secrets.RECON_PASS }}
+          S_FEES_PASS: ${{ secrets.FEES_PASS }}
+          S_FX_PASS: ${{ secrets.FX_PASS }}
+          S_DEALIO_PASS: ${{ secrets.DEALIO_PASS }}
+          S_FLASK_SECRET: ${{ secrets.FLASK_SECRET }}
+          S_PRAXIS_PASS: ${{ secrets.PRAXIS_PASS }}
+          S_FEES_PG_PASS: ${{ secrets.FEES_PG_PASS }}
+          S_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 "touch /root/recon-app/.env && sed -i '/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d' /root/recon-app/.env && printf 'ADMIN_USER=${{ secrets.ADMIN_USER }}\nADMIN_PASS=${{ secrets.ADMIN_PASS }}\nCRM_USER=${{ secrets.CRM_USER }}\nCRM_PASS=${{ secrets.CRM_PASS }}\nRECON_PASS=${{ secrets.RECON_PASS }}\nFEES_PASS=${{ secrets.FEES_PASS }}\nFX_PASS=${{ secrets.FX_PASS }}\nDEALIO_PASS=${{ secrets.DEALIO_PASS }}\nFLASK_SECRET=${{ secrets.FLASK_SECRET }}\nPRAXIS_PASS=${{ secrets.PRAXIS_PASS }}\nFEES_PG_PASS=${{ secrets.FEES_PG_PASS }}\nANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}\n' >> /root/recon-app/.env"
+          # echo avoids printf format-string issues (e.g. % in passwords)
+          echo "ADMIN_USER=$S_ADMIN_USER"       > /tmp/new_secrets.env
+          echo "ADMIN_PASS=$S_ADMIN_PASS"      >> /tmp/new_secrets.env
+          echo "CRM_USER=$S_CRM_USER"          >> /tmp/new_secrets.env
+          echo "CRM_PASS=$S_CRM_PASS"          >> /tmp/new_secrets.env
+          echo "RECON_PASS=$S_RECON_PASS"      >> /tmp/new_secrets.env
+          echo "FEES_PASS=$S_FEES_PASS"        >> /tmp/new_secrets.env
+          echo "FX_PASS=$S_FX_PASS"            >> /tmp/new_secrets.env
+          echo "DEALIO_PASS=$S_DEALIO_PASS"    >> /tmp/new_secrets.env
+          echo "FLASK_SECRET=$S_FLASK_SECRET"  >> /tmp/new_secrets.env
+          echo "PRAXIS_PASS=$S_PRAXIS_PASS"    >> /tmp/new_secrets.env
+          echo "FEES_PG_PASS=$S_FEES_PG_PASS"  >> /tmp/new_secrets.env
+          echo "ANTHROPIC_API_KEY=$S_ANTHROPIC_API_KEY" >> /tmp/new_secrets.env
+          sshpass -e scp -o StrictHostKeyChecking=no /tmp/new_secrets.env root@213.199.45.213:/tmp/new_secrets.env
+          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
 
       - name: Restart or rebuild container
         env:
