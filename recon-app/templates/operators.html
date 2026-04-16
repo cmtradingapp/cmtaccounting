@@ -542,7 +542,8 @@ function _agentTipHtml(o){
     af('Email',o.email||'—')+af('Username',o.user_name||'—')+
     af('Department',o.department||'—')+af('Location',o.office||'—')+
     af('Status',o.status||'—')+af('Role',o.role_name||'—')+
-    af('Position',o.position||'—')+af('Desk',o.desk_label||'—')+
+    af('Position',o.position||'—')+af('Team',o.team||'—')+
+    af('Desk',o.desk_label||'—')+
     af('Last Login',o.last_login||'—')+af('ID','#'+o.id)+
     af('Clients',(o.total_clients||0).toLocaleString())+af('Funded',(o.funded_clients||0).toLocaleString())+
     af('Total Deposits',fmtC(o.total_deposit_volume))+af('Net Deposits',fmtC(o.net_deposit_volume))+

@@ -2341,34 +2341,83 @@ def operators_page():
     return render_template("operators.html")
 
 
-def _clean_department(raw: str) -> str:
-    """Normalize verbose CRM department names to top-level categories.
-    'Retention - English Desk Bulgaria' → 'Retention', 'Sales (New)' → 'Sales'.
-    Already-clean values like 'Support' pass through unchanged.
-    """
-    if not raw:
-        return raw
-    for sep in (" - ", " – ", " (", " /", " \\"):
-        if sep in raw:
-            return raw.split(sep)[0].strip()
-    return raw.strip()
+# ── Operator department / role derivation ─────────────────────────────────
+# CRM data is inconsistent: sometimes `department` holds the functional role
+# ("Conversion", "Retention") and `fax` holds a location code ("BG", "CY"),
+# and sometimes it's reversed. Both fields must be checked.
 
-
-# Canonical role name for known abbreviations / typos in the fax field
-_ROLE_NORMALIZE = {
-    "ret": "Retention",
-    "ret ": "Retention",
-    "re": "Retention",
-    "retention ": "Retention",
-    "conv": "Conversion",
-    "con": "Conversion",
+_FUNC_TO_DEPT = {
+    "conversion": "Sales", "retention": "Retention", "support": "Support",
+    "ib": "IB", "sales pool": "Sales", "conversion bdm": "Sales",
+    "retention bdm": "Retention",
 }
-# Values that should be hidden (placeholders, test data, archived teams)
-_ROLE_SUPPRESS = {"zzz", "null", "junk", "closed", "il (closed)", "bg (closed)", "test qa", ""}
+
+_POS_DEPT = {
+    "sales manager": "Sales", "sales vp": "Sales",
+    "retention manager": "Retention", "support manager": "Support",
+    "office manager": "Management", "office manager + telephones": "Management",
+    "funding manager": "Operations", "compliance officer": "Compliance",
+    "affiliate manager": "Affiliates", "user id telephone search": "Operations",
+    "whatsapp robi": "Operations", "leaderboard": "Operations",
+}
+
+_FUNCTIONAL_ROLES = {
+    "conversion", "retention", "support", "ib", "general", "sales pool",
+    "white label", "white label conversion", "white label retention",
+    "white label sales",
+}
+
+
+def _derive_department(position: str, fax: str, dept_raw: str) -> str:
+    """Derive a clean department (Sales, Retention, …) from position + both fields."""
+    pos = (position or "").strip().lower()
+    fax_l = (fax or "").strip().lower()
+    dept_l = (dept_raw or "").strip().lower()
+    # 1. Position-based (managers, VPs)
+    d = _POS_DEPT.get(pos)
+    if d:
+        return d
+    # 2. Check dept field for functional keyword
+    if dept_l.startswith("white label"):
+        return "White Label"
+    d = _FUNC_TO_DEPT.get(dept_l)
+    if d:
+        return d
+    # 3. Check fax field for functional keyword
+    if fax_l.startswith("white label"):
+        return "White Label"
+    d = _FUNC_TO_DEPT.get(fax_l)
+    if d:
+        return d
+    return ""
+
+
+def _is_functional(s: str) -> bool:
+    low = s.strip().lower()
+    return low in _FUNCTIONAL_ROLES or low.startswith("white label")
+
+
+def _derive_role(fax: str, dept_raw: str) -> str:
+    """Return the functional role from whichever of fax/dept contains it."""
+    f = (fax or "").strip()
+    d = (dept_raw or "").strip()
+    if _is_functional(f):
+        return f
+    if _is_functional(d):
+        return d
+    return ""
+
+
+_ROLE_NORMALIZE = {
+    "ret": "Retention", "ret ": "Retention", "re": "Retention",
+    "retention ": "Retention", "conv": "Conversion", "con": "Conversion",
+}
+_ROLE_SUPPRESS = {"zzz", "null", "junk", "closed", "il (closed)", "bg (closed)",
+                  "test qa", "qa desk 2", ""}
 
 
 def _clean_role(raw: str) -> str:
-    """Return a clean role name from the CRM fax field, or empty string to hide."""
+    """Normalize abbreviations, suppress junk values."""
     if not raw:
         return ""
     s = raw.strip()
@@ -2385,10 +2434,12 @@ def operators_data():
     try:
         ops = queries.operator_list()
         for op in ops:
+            raw_dept = op.get("department") or ""
+            raw_fax = op.get("role_name") or ""   # SQL: fax AS role_name
+            op["team"] = raw_dept                  # preserve original CRM team code
+            op["department"] = _derive_department(op.get("position"), raw_fax, raw_dept)
+            op["role_name"] = _clean_role(_derive_role(raw_fax, raw_dept))
             op["last_login"] = str(op.get("last_login") or "")[:16]
-            if op.get("department"):
-                op["department"] = _clean_department(op["department"])
-            op["role_name"] = _clean_role(op.get("role_name") or "")
             if op.get("position") == "Agent":
                 op["position"] = "Sales Agent"
         return jsonify({"operators": ops})
