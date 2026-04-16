@@ -2354,6 +2354,30 @@ def _clean_department(raw: str) -> str:
     return raw.strip()
 
 
+# Canonical role name for known abbreviations / typos in the fax field
+_ROLE_NORMALIZE = {
+    "ret": "Retention",
+    "ret ": "Retention",
+    "re": "Retention",
+    "retention ": "Retention",
+    "conv": "Conversion",
+    "con": "Conversion",
+}
+# Values that should be hidden (placeholders, test data, archived teams)
+_ROLE_SUPPRESS = {"zzz", "null", "junk", "closed", "il (closed)", "bg (closed)", "test qa", ""}
+
+
+def _clean_role(raw: str) -> str:
+    """Return a clean role name from the CRM fax field, or empty string to hide."""
+    if not raw:
+        return ""
+    s = raw.strip()
+    low = s.lower()
+    if low in _ROLE_SUPPRESS:
+        return ""
+    return _ROLE_NORMALIZE.get(low, s)
+
+
 @app.route("/operators/data")
 @require_retention_auth
 def operators_data():
@@ -2364,6 +2388,7 @@ def operators_data():
             op["last_login"] = str(op.get("last_login") or "")[:16]
             if op.get("department"):
                 op["department"] = _clean_department(op["department"])
+            op["role_name"] = _clean_role(op.get("role_name") or "")
         return jsonify({"operators": ops})
     except Exception as e:
         import traceback; traceback.print_exc()

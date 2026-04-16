@@ -62,11 +62,13 @@
   /* Table */
   .op-table-wrap { max-height:calc(100vh - 340px); min-height:320px; overflow:auto; border-radius:14px; border:1px solid var(--border); }
   .dept-table { width:100%; border-collapse:collapse; table-layout:fixed; }
-  .dept-table th { background:var(--surface); padding:8px 10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; position:sticky; top:0; z-index:2; cursor:pointer; user-select:none; overflow:hidden; text-overflow:ellipsis; }
-  .dept-table th:hover { color:var(--text); }
-  .dept-table th[data-sort]::after { content:'\21C5'; margin-left:3px; color:rgba(255,255,255,.12); font-size:8px; }
-  .dept-table th.asc::after { content:'\25B2'; margin-left:3px; color:var(--accent); font-size:8px; }
-  .dept-table th.desc::after { content:'\25BC'; margin-left:3px; color:var(--accent); font-size:8px; }
+  .dept-table th { background:var(--surface); padding:8px 10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; position:sticky; top:0; z-index:2; cursor:default; user-select:none; overflow:hidden; text-overflow:ellipsis; }
+  .sort-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-left:2px; vertical-align:middle; color:rgba(255,255,255,.2); font-size:12px; cursor:pointer; border-radius:4px; transition:background .12s,color .12s; flex-shrink:0; }
+  .sort-btn:hover { color:var(--text); background:rgba(255,255,255,.08); }
+  .sort-btn.asc,.sort-btn.desc { color:var(--accent); background:rgba(79,142,247,.12); }
+  .col-filter-icon { color:var(--muted); font-size:13px; margin-left:2px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:4px; transition:background .12s,color .12s; vertical-align:middle; }
+  .col-filter-icon:hover { color:var(--text); background:rgba(255,255,255,.08); }
+  .col-filter-icon.active-filter { color:var(--accent); background:rgba(79,142,247,.12); }
   .dept-table td { padding:8px 10px; font-size:12px; border-bottom:1px solid rgba(255,255,255,.03); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .dept-table tr:hover { background:rgba(255,255,255,.03); }
   .dept-table .num { text-align:right; font-variant-numeric:tabular-nums; }
@@ -75,8 +77,6 @@
 
   /* Column filter dropdown */
   .col-filter { position:relative; display:inline-block; }
-  .col-filter-icon { color:var(--muted); font-size:10px; margin-left:3px; cursor:pointer; }
-  .col-filter-icon.active-filter { color:var(--accent); }
   .col-filter-drop { display:none; position:absolute; top:100%; left:0; z-index:50; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:250px; overflow-y:auto; min-width:160px; }
   .col-filter-drop.open { display:block; }
   .col-filter-drop label { display:flex; align-items:center; gap:6px; padding:3px 4px; font-size:12px; cursor:pointer; border-radius:3px; color:var(--text); font-weight:400; text-transform:none; letter-spacing:0; }
@@ -175,18 +175,18 @@
       <col style="width:5%"><col style="width:6%"><col style="width:7%"><col style="width:5%">
     </colgroup>
     <thead><tr>
-      <th data-col="0" data-sort="name">Name</th>
-      <th data-col="1" data-sort="email">Email</th>
-      <th data-col="2" data-sort="department" data-filterable="department">Department <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('department',this)">&#9662;</span></span></th>
-      <th data-col="3" data-sort="office" data-filterable="office">Office <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('office',this)">&#9662;</span></span></th>
-      <th data-col="4" data-sort="status" data-filterable="status">Status <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('status',this)">&#9662;</span></span></th>
-      <th data-col="5" data-sort="role_name" data-filterable="role_name">Role <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('role_name',this)">&#9662;</span></span></th>
-      <th data-col="6" data-sort="position" data-filterable="position">Position <span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('position',this)">&#9662;</span></span></th>
-      <th data-col="7" data-sort="last_login">Last Login</th>
-      <th data-col="8" data-sort="id" class="num">Joined</th>
-      <th data-col="9" data-sort="total_clients" class="num">Clients</th>
-      <th data-col="10" data-sort="total_deposit_volume" class="num">Deposits</th>
-      <th data-col="11" data-sort="ftd_count" class="num">FTDs</th>
+      <th data-col="0" data-sort="name">Name <span class="sort-btn" onclick="doSort('name')">&#8597;</span></th>
+      <th data-col="1" data-sort="email">Email <span class="sort-btn" onclick="doSort('email')">&#8597;</span></th>
+      <th data-col="2" data-sort="department" data-filterable="department">Department <span class="sort-btn" onclick="doSort('department')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('department',this)">&#9662;</span></span></th>
+      <th data-col="3" data-sort="office" data-filterable="office">Office <span class="sort-btn" onclick="doSort('office')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('office',this)">&#9662;</span></span></th>
+      <th data-col="4" data-sort="status" data-filterable="status">Status <span class="sort-btn" onclick="doSort('status')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('status',this)">&#9662;</span></span></th>
+      <th data-col="5" data-sort="role_name" data-filterable="role_name">Role <span class="sort-btn" onclick="doSort('role_name')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('role_name',this)">&#9662;</span></span></th>
+      <th data-col="6" data-sort="position" data-filterable="position">Position <span class="sort-btn" onclick="doSort('position')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('position',this)">&#9662;</span></span></th>
+      <th data-col="7" data-sort="last_login">Last Login <span class="sort-btn" onclick="doSort('last_login')">&#8597;</span></th>
+      <th data-col="8" data-sort="id" class="num">Joined <span class="sort-btn" onclick="doSort('id')">&#8597;</span></th>
+      <th data-col="9" data-sort="total_clients" class="num">Clients <span class="sort-btn" onclick="doSort('total_clients')">&#8597;</span></th>
+      <th data-col="10" data-sort="total_deposit_volume" class="num">Deposits <span class="sort-btn" onclick="doSort('total_deposit_volume')">&#8597;</span></th>
+      <th data-col="11" data-sort="ftd_count" class="num">FTDs <span class="sort-btn" onclick="doSort('ftd_count')">&#8597;</span></th>
     </tr></thead>
     <tbody id="mainBody"></tbody>
   </table>
@@ -227,7 +227,8 @@ function loadOperators(){
     _allOps=data.operators||[];
     buildAll();
     // Watermark: record max ID, get explanation for activated card
-    var maxId=Math.max.apply(null,_allOps.map(function(o){return o.id;}));
+    var ids=_allOps.map(function(o){return o.id;});
+    var maxId=ids.length?Math.max.apply(null,ids):0;
     fetch('/operators/watermark?current_max='+maxId).then(function(r){return r.json();}).then(function(wm){
       _wmPrevMax=wm.prev_max_id; _wmDate=wm.prev_date;
       _wmExplain=wm.explanation; _wmNewCount=wm.new_count;
@@ -515,21 +516,21 @@ function buildTable(){
   });
   document.getElementById('mainBody').innerHTML=html;
   document.getElementById('opCount').textContent=filtered.length+' of '+_allOps.length;
-  // Update sort indicators
-  document.querySelectorAll('#mainTable th[data-sort]').forEach(function(th){
-    th.classList.remove('asc','desc');
-    if(th.getAttribute('data-sort')===_opSortKey)th.classList.add(_opSortAsc?'asc':'desc');
+  // Update sort indicators on the dedicated sort buttons
+  document.querySelectorAll('#mainTable .sort-btn').forEach(function(btn){
+    btn.classList.remove('asc','desc');
+    if(btn.closest('th').getAttribute('data-sort')===_opSortKey)
+      btn.classList.add(_opSortAsc?'asc':'desc');
+    btn.textContent=
+      (btn.closest('th').getAttribute('data-sort')===_opSortKey&&_opSortAsc)?'\u25b2':
+      (btn.closest('th').getAttribute('data-sort')===_opSortKey&&!_opSortAsc)?'\u25bc':
+      '\u2195';
   });
 }
 
-// Sort handler
-document.querySelectorAll('#mainTable th[data-sort]').forEach(function(th){
-  th.addEventListener('click',function(e){
-    if(e.target.closest('.col-filter-icon')||e.target.closest('.col-filter-drop'))return;
-    var k=th.getAttribute('data-sort');
-    _opSortAsc=(k===_opSortKey)?!_opSortAsc:false; _opSortKey=k; buildTable();
-  });
-});
+function doSort(k){
+  _opSortAsc=(k===_opSortKey)?!_opSortAsc:false; _opSortKey=k; buildTable();
+}
 
 function _agentTipHtml(o){
   var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
