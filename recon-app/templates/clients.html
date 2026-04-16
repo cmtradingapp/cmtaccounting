@@ -8,6 +8,18 @@
     100% { transform: translateX(350%); }
   }
 
+  /* Copy button for CID / login */
+  .cl-copy {
+    display:inline-flex; align-items:center; justify-content:center;
+    background:none; border:none; cursor:pointer;
+    color:var(--muted); font-size:11px; padding:1px 4px;
+    border-radius:3px; opacity:0; transition:opacity .15s,color .15s,background .15s;
+    margin-left:4px; vertical-align:middle; line-height:1;
+  }
+  tr:hover .cl-copy { opacity:1; }
+  .cl-copy:hover { color:var(--accent); background:rgba(79,142,247,.1); }
+  .cl-copy.copied { color:var(--green) !important; opacity:1; }
+
   /* Last-active colour coding */
   .la-today { color: var(--green);  }
   .la-week  { color: var(--text);   font-weight: 600; }
@@ -210,7 +222,7 @@
 <div id="clScroller" style="overflow-y:auto;height:calc(100vh - 260px);border-radius:14px;border:1px solid var(--border);">
 <table id="clTable" style="width:100%;border-collapse:collapse;table-layout:fixed;">
     <colgroup>
-      <col style="width:115px">
+      <col style="width:175px">
       <col style="width:auto">
       <col style="width:122px">
       <col style="width:96px">
@@ -346,7 +358,8 @@ function makeGroupRow(g) {
     var last_ym = (agg.last_active||'').slice(0,7);
     var cidUrl = '/cid/'+g.cid+'?span='+_span+(last_ym?'&last='+last_ym:'');
     firstCell += '<a href="'+cidUrl+'" class="cl-cid-link" onclick="event.stopPropagation()">'+g.cid+'</a>';
-    if (g.multi) firstCell += '<span style="font-size:10px;color:var(--muted);margin-left:6px;">'+g.logins.length+' accts</span>';
+    firstCell += '<button class="cl-copy" onclick="clCopy(this,\''+g.cid+'\')" title="Copy CID">⎘</button>';
+    if (g.multi) firstCell += '<span style="font-size:10px;color:var(--muted);margin-left:4px;">'+g.logins.length+' accts</span>';
   } else {
     firstCell += '<span class="cl-no-cid">no CID</span>';
   }
@@ -394,7 +407,8 @@ function makeLoginRow(g, r) {
     : '';
   tr.innerHTML=
     '<td><span style="color:rgba(255,255,255,.2);font-size:10px;margin-right:3px;">\u2514</span>'+
-    '<a href="'+url+'" style="color:var(--accent)" onclick="event.stopPropagation()">'+r.login+'</a></td>'+
+    '<a href="'+url+'" style="color:var(--accent)" onclick="event.stopPropagation()">'+r.login+'</a>'+
+    '<button class="cl-copy" onclick="clCopy(this,\''+r.login+'\')" title="Copy login">⎘</button></td>'+
     '<td style="color:var(--muted);font-size:11px;">'+(r.name||'\u2014')+'</td>'+
     '<td class="num fw '+clr(r.company_total)+'" title="'+fmt(r.company_total)+'">'+fmtNarrow(r.company_total)+rFloatNote+'</td>'+
     fmtNarrowTd(clr(r.company_trading_pnl), r.company_trading_pnl)+
@@ -560,6 +574,14 @@ var _retryCount = 0, _retryT0 = 0, _retryTicker = null, _maxStageNum = 0;
 
 // Drive step checkmarks from the real backend stage_num
 // stage 1→step 0 active, 2→step 1 active, 3→step 2 active, 4→step 3 active
+function clCopy(btn, text) {
+  event.stopPropagation();
+  navigator.clipboard.writeText(text).then(function() {
+    btn.textContent = '✓'; btn.classList.add('copied');
+    setTimeout(function(){ btn.textContent = '⎘'; btn.classList.remove('copied'); }, 1200);
+  });
+}
+
 function setStepsFromStageNum(n, stepIds) {
   var activeIdx = n <= 1 ? 0 : n === 2 ? 1 : n === 3 ? 2 : 3;
   stepIds.forEach(function(id, i) {
