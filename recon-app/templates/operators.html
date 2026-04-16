@@ -150,25 +150,37 @@ function lastLoginCls(s) {
 
 function loadOperators() {
   var mc = document.getElementById('matrixContainer');
-  var t0 = Date.now();
-  mc.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">' +
-    '<div style="font-size:14px;font-weight:600;">Loading operator data from CRM\u2026</div>' +
-    '<div id="opElapsed" style="font-size:12px;margin-top:6px;">0s</div></div>';
-  var tick = setInterval(function(){
-    var el = document.getElementById('opElapsed');
-    if (el) el.textContent = Math.round((Date.now()-t0)/1000) + 's';
-  }, 1000);
+  mc.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">Loading operators\u2026</div>';
+
+  // Phase 1: fast operator list (<2s)
   fetch('/operators/data')
     .then(function(r){ return r.json(); })
     .then(function(data){
-      clearInterval(tick);
       if (data.error) { mc.innerHTML = '<div style="color:var(--red);padding:20px;">Error: ' + data.error + '</div>'; return; }
       _allOps = data.operators || [];
       updateStats();
       buildMatrix();
       applyOpView();
+
+      // Phase 2: slow performance stats (loaded in background, fills in when ready)
+      fetch('/operators/stats')
+        .then(function(r){ return r.json(); })
+        .then(function(sdata){
+          if (sdata.error || !sdata.stats) return;
+          var stats = sdata.stats;
+          _allOps.forEach(function(op){
+            var s = stats[String(op.id)] || {};
+            op.total_clients        = s.total_clients || 0;
+            op.funded_clients       = s.funded_clients || 0;
+            op.total_deposit_volume = s.total_deposit_volume || 0;
+            op.ftd_count            = s.ftd_count || 0;
+            op.ftd_volume           = s.ftd_volume || 0;
+          });
+          applyOpView();  // re-render with stats filled in
+        })
+        .catch(function(){});  // stats are optional
     })
-    .catch(function(e){ clearInterval(tick); mc.innerHTML = '<div style="color:var(--red);padding:20px;">Failed to load: ' + e + '</div>'; });
+    .catch(function(e){ mc.innerHTML = '<div style="color:var(--red);padding:20px;">Failed: ' + e + '</div>'; });
 }
 
 function updateStats() {

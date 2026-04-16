@@ -2344,35 +2344,45 @@ def operators_page():
 @app.route("/operators/data")
 @require_retention_auth
 def operators_data():
-    import concurrent.futures as _cf
+    """Fast endpoint — just operator list from vtiger_users (<2s)."""
     try:
-        # Run all three CRM queries in parallel (each opens its own connection)
-        with _cf.ThreadPoolExecutor(max_workers=3) as ex:
-            f_ops   = ex.submit(queries.operator_list)
-            f_cs    = ex.submit(queries.operator_client_stats)
-            f_ftd   = ex.submit(queries.operator_ftd_stats)
-            ops          = f_ops.result()
-            client_stats = f_cs.result()
-            ftd_stats    = f_ftd.result()
-
-        # Merge stats into each operator row
+        ops = queries.operator_list()
         for op in ops:
-            oid = op.get("id")
-            cs = client_stats.get(oid, {})
-            fs = ftd_stats.get(oid, {})
-            op["total_clients"]        = int(cs.get("total_clients") or 0)
-            op["funded_clients"]       = int(cs.get("funded_clients") or 0)
-            op["total_deposit_volume"] = round(float(cs.get("total_deposit_volume") or 0), 2)
-            op["net_deposit_volume"]   = round(float(cs.get("net_deposit_volume") or 0), 2)
-            op["ftd_count"]            = int(fs.get("ftd_count") or 0)
-            op["ftd_volume"]           = round(float(fs.get("ftd_volume") or 0), 2)
-            # Serialise datetime
             op["last_login"] = str(op.get("last_login") or "")[:16]
-
         return jsonify({"operators": ops})
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e), "operators": []})
+
+
+@app.route("/operators/stats")
+@require_retention_auth
+def operators_stats():
+    """Slow endpoint — client + FTD stats from vtiger_account (can take 30-60s)."""
+    import concurrent.futures as _cf
+    try:
+        with _cf.ThreadPoolExecutor(max_workers=2) as ex:
+            f_cs  = ex.submit(queries.operator_client_stats)
+            f_ftd = ex.submit(queries.operator_ftd_stats)
+            client_stats = f_cs.result()
+            ftd_stats    = f_ftd.result()
+
+        merged = {}
+        for oid in set(list(client_stats.keys()) + list(ftd_stats.keys())):
+            cs = client_stats.get(oid, {})
+            fs = ftd_stats.get(oid, {})
+            merged[str(oid)] = {
+                "total_clients":        int(cs.get("total_clients") or 0),
+                "funded_clients":       int(cs.get("funded_clients") or 0),
+                "total_deposit_volume": round(float(cs.get("total_deposit_volume") or 0), 2),
+                "net_deposit_volume":   round(float(cs.get("net_deposit_volume") or 0), 2),
+                "ftd_count":            int(fs.get("ftd_count") or 0),
+                "ftd_volume":           round(float(fs.get("ftd_volume") or 0), 2),
+            }
+        return jsonify({"stats": merged})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e), "stats": {}})
 
 
 if __name__ == "__main__":
