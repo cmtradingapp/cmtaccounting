@@ -480,7 +480,7 @@ function buildTable(){
   _currentView=filtered;
   if(!filtered.length){
     document.getElementById('mainBody').innerHTML=
-      '<tr><td colspan="12" style="text-align:center;padding:32px;color:var(--muted);font-size:13px;">'+
+      '<tr style="height:280px;"><td colspan="12" style="text-align:center;vertical-align:middle;color:var(--muted);font-size:13px;">'+
       'No operators match the current filters \u2014 '+
       '<span onclick="clearAllColFilters()" style="color:var(--accent);cursor:pointer;font-weight:600;">Clear all filters</span>'+
       '</td></tr>';
