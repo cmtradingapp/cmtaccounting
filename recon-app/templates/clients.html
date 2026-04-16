@@ -2,6 +2,17 @@
 {% block title %} — Clients{% endblock %}
 {% block content %}
 <style>
+  /* Secondary sort column indicator */
+  th[data-col].sort2-asc::after  { content:'▲'; opacity:.5; color:var(--muted); font-size:8px; }
+  th[data-col].sort2-desc::after { content:'▼'; opacity:.5; color:var(--muted); font-size:8px; }
+  th[data-sort-badge]::before {
+    content:attr(data-sort-badge);
+    font-size:9px; font-weight:700; vertical-align:super;
+    margin-right:2px; color:var(--muted);
+  }
+  th[data-col].asc[data-sort-badge="1"]::before,
+  th[data-col].desc[data-sort-badge="1"]::before { color:var(--accent); }
+
   /* Indeterminate progress bar animation */
   @keyframes cl-prog-slide {
     0%   { transform: translateX(-100%); }
@@ -260,6 +271,8 @@ var _filter     = 'all';
 var _search     = '';
 var _sortCol    = 2;
 var _sortAsc    = false;
+var _sortCol2   = null;   // secondary sort column index (null = none)
+var _sortAsc2   = false;
 var _span       = '{{ span }}';
 
 // Virtual scroll state
@@ -469,7 +482,9 @@ function vsRender(force) {
 function applyView() {
   var q=_search.toLowerCase().trim();
   var keys=['cid','name','company_total','company_trading_pnl','client_floating_eod','net_deposit','currency','last_active'];
-  var sortKey=keys[_sortCol]||'company_total';
+  var sortKey  = keys[_sortCol]  || 'company_total';
+  var sortKey2 = _sortCol2 !== null ? (keys[_sortCol2] || null) : null;
+
   _viewGroups=_allGroups.filter(function(g){
     var agg=g.agg;
     var fok=_filter==='all'||(_filter==='profit'&&agg.company_total>1)||(_filter==='loss'&&agg.company_total<-1);
@@ -479,18 +494,34 @@ function applyView() {
       return (String(r.login)+' '+(r.name||'').toLowerCase()+' '+(r.email||'').toLowerCase()+' '+(r.cid||'')).indexOf(q)!==-1;
     });
   });
-  var asc=_sortAsc;
-  _viewGroups.sort(function(a,b){
-    var va=sortKey==='cid'?a.cid:sortKey==='name'?a.name:a.agg[sortKey];
-    var vb=sortKey==='cid'?b.cid:sortKey==='name'?b.name:b.agg[sortKey];
-    if(va==null) va=asc?Infinity:-Infinity;
-    if(vb==null) vb=asc?Infinity:-Infinity;
-    if(typeof va==='number'&&typeof vb==='number') return asc?va-vb:vb-va;
+
+  function _getVal(g, key) {
+    return key==='cid'?g.cid : key==='name'?g.name : g.agg[key];
+  }
+  function _cmp(va, vb, asc) {
+    if (va==null) va = asc ? '\uffff' : '';
+    if (vb==null) vb = asc ? '\uffff' : '';
+    if (typeof va==='number'&&typeof vb==='number') return asc?va-vb:vb-va;
     return asc?String(va||'').localeCompare(String(vb||'')):String(vb||'').localeCompare(String(va||''));
+  }
+  _viewGroups.sort(function(a,b){
+    var r1 = _cmp(_getVal(a,sortKey), _getVal(b,sortKey), _sortAsc);
+    if (r1 !== 0 || !sortKey2) return r1;
+    return _cmp(_getVal(a,sortKey2), _getVal(b,sortKey2), _sortAsc2);
   });
+
+  // Update header indicators for primary (1) and secondary (2) sort
   document.querySelectorAll('#clTable th[data-col]').forEach(function(th){
-    th.classList.remove('asc','desc');
-    if(parseInt(th.getAttribute('data-col'))===_sortCol) th.classList.add(asc?'asc':'desc');
+    var c=parseInt(th.getAttribute('data-col'));
+    th.classList.remove('asc','desc','sort2-asc','sort2-desc');
+    th.removeAttribute('data-sort-badge');
+    if(c===_sortCol){
+      th.classList.add(_sortAsc?'asc':'desc');
+      if(sortKey2) th.setAttribute('data-sort-badge','1');
+    } else if(c===_sortCol2){
+      th.classList.add(_sortAsc2?'sort2-asc':'sort2-desc');
+      th.setAttribute('data-sort-badge','2');
+    }
   });
   _flatItems=rebuildFlat(_viewGroups);
   var _sortScr=document.getElementById('clScroller');
@@ -525,7 +556,15 @@ function filterClients(q){_search=q;applyView();}
 document.querySelectorAll('#clTable th[data-col]').forEach(function(th){
   th.addEventListener('click',function(){
     var c=parseInt(th.getAttribute('data-col'));
-    _sortAsc=(c===_sortCol)?!_sortAsc:false; _sortCol=c; applyView();
+    if(e.shiftKey && c!==_sortCol){
+      // Shift+click a different column → add/toggle secondary sort
+      if(c===_sortCol2){ _sortAsc2=!_sortAsc2; }
+      else { _sortCol2=c; _sortAsc2=false; }
+    } else if(!e.shiftKey){
+      // Regular click → new primary, clear secondary
+      _sortAsc=(c===_sortCol)?!_sortAsc:false; _sortCol=c; _sortCol2=null;
+    }
+    applyView();
   });
 });
 
@@ -706,7 +745,7 @@ function downloadEquityReport(){
   setTimeout(function(){btn.textContent='\u2193 Equity Report';btn.style.pointerEvents='';},3000);
 }
 function switchSpan(s,btn){
-  _customFrom=''; _customTo=''; _retryCount=0; _retryT0=0; _maxStageNum=0;
+  _customFrom=''; _customTo=''; _retryCount=0; _retryT0=0; _maxStageNum=0; _sortCol2=null;
   if(_retryTicker){clearInterval(_retryTicker);_retryTicker=null;}
   document.getElementById('clDateFrom').value='';
   document.getElementById('clDateTo').value='';
