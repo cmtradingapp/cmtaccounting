@@ -372,7 +372,7 @@ function makeGroupRow(g) {
   tr.innerHTML =
     '<td style="line-height:1.3">'+firstCell+'</td>'+
     '<td>'+(g.name||'\u2014')+'</td>'+
-    '<td class="num fw '+clr(agg.company_total)+'">'+fmt(agg.company_total)+floatNote+'</td>'+
+    '<td class="num fw '+clr(agg.company_total)+'" title="'+fmt(agg.company_total)+'">'+fmtNarrow(agg.company_total)+floatNote+'</td>'+
     fmtNarrowTd(clr(agg.company_trading_pnl), agg.company_trading_pnl)+
     fmtNarrowTd(clr(floatAmt), floatAmt)+
     fmtNarrowTd('', agg.net_deposit)+
@@ -396,7 +396,7 @@ function makeLoginRow(g, r) {
     '<td><span style="color:rgba(255,255,255,.2);font-size:10px;margin-right:3px;">\u2514</span>'+
     '<a href="'+url+'" style="color:var(--accent)" onclick="event.stopPropagation()">'+r.login+'</a></td>'+
     '<td style="color:var(--muted);font-size:11px;">'+(r.name||'\u2014')+'</td>'+
-    '<td class="num fw '+clr(r.company_total)+'">'+fmt(r.company_total)+rFloatNote+'</td>'+
+    '<td class="num fw '+clr(r.company_total)+'" title="'+fmt(r.company_total)+'">'+fmtNarrow(r.company_total)+rFloatNote+'</td>'+
     fmtNarrowTd(clr(r.company_trading_pnl), r.company_trading_pnl)+
     fmtNarrowTd(clr(rFloatAmt), rFloatAmt)+
     fmtNarrowTd('', r.net_deposit)+
