@@ -28,23 +28,7 @@
   .mx-tip-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
   .mx-tip-name { color:var(--text); padding:2px 0; }
 
-  /* Collapsible sections */
-  .op-sec { margin-bottom:var(--sp-3); }
-  .op-sec-head {
-    display:flex; align-items:center; gap:10px; padding:12px 16px;
-    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md);
-    cursor:pointer; user-select:none; transition:background .15s;
-  }
-  .op-sec-head:hover { background:rgba(255,255,255,.04); }
-  .op-sec-head.open { border-radius:var(--radius-md) var(--radius-md) 0 0; }
-  .op-sec-toggle { font-size:12px; color:var(--muted); transition:transform .2s; width:16px; text-align:center; }
-  .op-sec-head.open .op-sec-toggle { transform:rotate(90deg); }
-  .op-sec-title { font-size:14px; font-weight:700; }
-  .op-sec-badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:700; background:rgba(79,142,247,.12); color:var(--accent); }
-  .op-sec-body { display:none; border:1px solid var(--border); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); overflow:hidden; }
-  .op-sec-body.open { display:block; }
-
-  /* Compact department table */
+  /* Operator table */
   .dept-table { width:100%; border-collapse:collapse; }
   .dept-table th { background:var(--surface); padding:8px 12px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; }
   .dept-table td { padding:8px 12px; font-size:12px; border-bottom:1px solid rgba(255,255,255,.03); }
@@ -95,18 +79,37 @@
 <!-- Agent hover tooltip -->
 <div class="agent-tip" id="agentTip"></div>
 
-<!-- Department sections + Global list -->
+<!-- Activity cards: Newest + Deactivated + Changes -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:var(--sp-4);" id="activityCards">
+  <div class="cmp-card"><div class="cmp-label" style="color:var(--green);">&#9679; Newest Operators</div><div id="newestList" style="margin-top:8px;"></div></div>
+  <div class="cmp-card"><div class="cmp-label" style="color:var(--red);">&#9679; Recently Deactivated</div><div id="deactivatedList" style="margin-top:8px;"></div></div>
+  <div class="cmp-card"><div class="cmp-label" style="color:var(--yellow);">&#9679; Changes (Yesterday → Today)</div><div id="changesList" style="margin-top:8px;"></div></div>
+</div>
+
+<!-- Single table with department picker -->
 <div class="op-filter-bar">
+  <select id="deptPicker" onchange="buildTable()" style="height:32px;padding:0 12px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:13px;cursor:pointer;min-width:200px;">
+    <option value="__all__">All Departments</option>
+  </select>
   <button class="op-filter-btn active" onclick="opFilter('all',this)">All</button>
   <button class="op-filter-btn" onclick="opFilter('active',this)" style="color:var(--green);">Active</button>
   <button class="op-filter-btn" onclick="opFilter('inactive',this)">Inactive</button>
   <div class="op-search">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <input type="text" id="opSearch" placeholder="Search name, email, department…" oninput="opSearchFn(this.value)" autocomplete="off" spellcheck="false">
+    <input type="text" id="opSearch" placeholder="Search name, email…" oninput="opSearchFn(this.value)" autocomplete="off" spellcheck="false">
   </div>
   <span id="opCount" style="font-size:12px;color:var(--muted);"></span>
 </div>
-<div id="deptSections"></div>
+<div class="op-table-wrap" style="max-height:calc(100vh - 340px);overflow:auto;border-radius:14px;border:1px solid var(--border);">
+  <table class="dept-table" id="mainTable">
+    <thead><tr>
+      <th>Name</th><th>Email</th><th>Department</th><th>Office</th><th>Status</th>
+      <th>Role</th><th>Position</th><th>Last Login</th>
+      <th class="num">Clients</th><th class="num">Deposits</th><th class="num">FTDs</th>
+    </tr></thead>
+    <tbody id="mainBody"></tbody>
+  </table>
+</div>
 
 <script>
 var _allOps=[], _opFilter='all', _opSearch='', _matrixNames={};
@@ -124,12 +127,12 @@ function loadOperators(){
       _allOps.forEach(function(o){var s=sd.stats[String(o.id)]||{};
         o.total_clients=s.total_clients||0;o.funded_clients=s.funded_clients||0;
         o.total_deposit_volume=s.total_deposit_volume||0;o.ftd_count=s.ftd_count||0;o.ftd_volume=s.ftd_volume||0;
-      }); buildDeptSections();
+      }); buildTable();
     }).catch(function(){});
   }).catch(function(e){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">'+e+'</span>';});
 }
 
-function buildAll(){ buildStats(); buildComparison(); buildMatrix(); buildDeptSections(); }
+function buildAll(){ buildStats(); buildComparison(); buildActivity(); buildMatrix(); buildDeptPicker(); buildTable(); }
 
 function buildStats(){
   var active=_allOps.filter(function(o){return o.status==='Active';});
@@ -189,42 +192,89 @@ function buildMatrix(){
   var mc=document.getElementById('matrixContainer');mc.innerHTML=h;mc.style.padding='0';mc.style.textAlign='';
 }
 
-function buildDeptSections(){
-  var filtered=_allOps.filter(function(o){
-    if(_opFilter==='active'&&o.status!=='Active')return false;
-    if(_opFilter==='inactive'&&o.status!=='Inactive')return false;
-    if(_opSearch){var q=_opSearch.toLowerCase();
-      return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')).toLowerCase().indexOf(q)!==-1;}
-    return true;
+var _currentView = [];
+
+function buildActivity(){
+  var today=new Date().toISOString().slice(0,10);
+  var yesterday=new Date(Date.now()-864e5).toISOString().slice(0,10);
+  function aItem(name,sub,right,cls){return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;">'+
+    '<span style="font-weight:600;color:var(--text);min-width:110px;">'+name+'</span>'+
+    '<span style="color:var(--muted);font-size:11px;flex:1;">'+sub+'</span>'+
+    '<span style="margin-left:auto;font-size:11px;'+(cls||'')+'">'+right+'</span></div>';}
+
+  // Newest: Active users with highest IDs
+  var active=_allOps.filter(function(o){return o.status==='Active';});
+  var newest=active.slice().sort(function(a,b){return b.id-a.id;}).slice(0,8);
+  document.getElementById('newestList').innerHTML=newest.map(function(o){
+    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),'ID #'+o.id,'color:var(--green)');
+  }).join('')||'<span style="color:var(--muted);">None</span>';
+
+  // Recently deactivated: Inactive with most recent last_login
+  var inactive=_allOps.filter(function(o){return o.status==='Inactive'&&o.last_login&&o.last_login.length>=10;});
+  var deact=inactive.sort(function(a,b){return(b.last_login||'').localeCompare(a.last_login||'');}).slice(0,8);
+  document.getElementById('deactivatedList').innerHTML=deact.map(function(o){
+    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),'Last: '+(o.last_login||'').slice(0,10),'color:var(--muted)');
+  }).join('')||'<span style="color:var(--muted);">None</span>';
+
+  // Changes: who logged in today but not yesterday, and vice versa
+  var todayLogins={}, yesterdayLogins={};
+  _allOps.forEach(function(o){
+    var ll=(o.last_login||'').slice(0,10);
+    if(o.status==='Active'&&ll===today) todayLogins[o.id]=o;
+    if(o.status==='Active'&&ll===yesterday) yesterdayLogins[o.id]=o;
   });
-  // Group by department
-  var byDept={}, deptOrder=[];
-  filtered.forEach(function(o){var d=o.department||'(No Department)';
-    if(!byDept[d]){byDept[d]=[];deptOrder.push(d);}byDept[d].push(o);});
-  deptOrder.sort();
-  var html='';
-  // Global list first
-  html+=buildSection('global','Global Employee List',filtered);
-  // Department sections
-  deptOrder.forEach(function(d){html+=buildSection('dept_'+d.replace(/[^a-zA-Z0-9]/g,'_'),d,byDept[d]);});
-  document.getElementById('deptSections').innerHTML=html;
-  document.getElementById('opCount').textContent=filtered.length+' of '+_allOps.length+' operators';
+  // Newly active today (logged in today, NOT yesterday)
+  var newToday=[],goneToday=[];
+  Object.keys(todayLogins).forEach(function(id){if(!yesterdayLogins[id])newToday.push(todayLogins[id]);});
+  Object.keys(yesterdayLogins).forEach(function(id){if(!todayLogins[id])goneToday.push(yesterdayLogins[id]);});
+  var chtml='';
+  if(newToday.length) chtml+='<div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:4px;">CAME ONLINE TODAY (+'+newToday.length+')</div>';
+  newToday.slice(0,5).forEach(function(o){
+    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name;
+    chtml+=aItem(n,(o.department||'—'),'+','color:var(--green)');
+  });
+  if(newToday.length>5) chtml+='<div style="font-size:11px;color:var(--muted);">+'+(newToday.length-5)+' more</div>';
+  if(goneToday.length) chtml+='<div style="font-size:10px;font-weight:700;color:var(--red);margin-top:8px;margin-bottom:4px;">NOT ONLINE TODAY (−'+goneToday.length+')</div>';
+  goneToday.slice(0,5).forEach(function(o){
+    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name;
+    chtml+=aItem(n,(o.department||'—'),'\u2212','color:var(--red)');
+  });
+  if(goneToday.length>5) chtml+='<div style="font-size:11px;color:var(--muted);">'+(goneToday.length-5)+' more</div>';
+  document.getElementById('changesList').innerHTML=chtml||'<span style="color:var(--muted);">No changes detected</span>';
 }
 
-function buildSection(id,title,ops){
-  var h='<div class="op-sec"><div class="op-sec-head" onclick="toggleSec(\''+id+'\')">'+
-    '<span class="op-sec-toggle">\u25b8</span><span class="op-sec-title">'+title+'</span>'+
-    '<span class="op-sec-badge">'+ops.length+'</span></div>'+
-    '<div class="op-sec-body" id="sec_'+id+'"><table class="dept-table"><thead><tr>'+
-    '<th>Name</th><th>Email</th><th>Office</th><th>Status</th><th>Role</th><th>Position</th><th>Last Login</th>'+
-    '<th class="num">Clients</th><th class="num">Deposits</th><th class="num">FTDs</th></tr></thead><tbody>';
-  ops.forEach(function(o,i){
+function buildDeptPicker(){
+  var depts = {};
+  _allOps.forEach(function(o){ var d=o.department||'(No Department)'; depts[d]=(depts[d]||0)+1; });
+  var sorted = Object.keys(depts).sort();
+  var sel = document.getElementById('deptPicker');
+  sel.innerHTML = '<option value="__all__">All Departments ('+_allOps.length+')</option>';
+  sorted.forEach(function(d){
+    sel.innerHTML += '<option value="'+d+'">'+d+' ('+depts[d]+')</option>';
+  });
+}
+
+function buildTable(){
+  var dept = document.getElementById('deptPicker').value;
+  var filtered = _allOps.filter(function(o){
+    if(dept !== '__all__' && (o.department||'(No Department)') !== dept) return false;
+    if(_opFilter==='active' && o.status!=='Active') return false;
+    if(_opFilter==='inactive' && o.status!=='Inactive') return false;
+    if(_opSearch){ var q=_opSearch.toLowerCase();
+      return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')).toLowerCase().indexOf(q)!==-1; }
+    return true;
+  });
+  _currentView = filtered;
+  var html = '';
+  filtered.forEach(function(o, i){
     var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
     var st=o.status==='Active'?'<span class="badge-on">Active</span>':'<span class="badge-off">Inactive</span>';
-    h+='<tr onmouseenter="showAgent(event,\''+id+'\','+i+')" onmouseleave="hideAgent()">'+
+    html+='<tr onmouseenter="showAgent(event,'+i+')" onmouseleave="hideAgent()">'+
       '<td style="font-weight:600;">'+name+'</td>'+
       '<td style="color:var(--muted);font-size:11px;">'+((o.email||'').split('@')[0]||'—')+'</td>'+
-      '<td>'+(o.office||'—')+'</td><td>'+st+'</td>'+
+      '<td>'+(o.department||'—')+'</td><td>'+(o.office||'—')+'</td><td>'+st+'</td>'+
       '<td style="color:var(--muted);">'+(o.role_type||'—')+'</td>'+
       '<td style="color:var(--muted);">'+(o.position||'—')+'</td>'+
       '<td class="'+loginCls(o.last_login)+'">'+(o.last_login||'—')+'</td>'+
@@ -232,37 +282,12 @@ function buildSection(id,title,ops){
       '<td class="num">'+fmtC(o.total_deposit_volume)+'</td>'+
       '<td class="num">'+(o.ftd_count?o.ftd_count.toLocaleString():'—')+'</td></tr>';
   });
-  h+='</tbody></table></div></div>';
-  return h;
+  document.getElementById('mainBody').innerHTML = html;
+  document.getElementById('opCount').textContent = filtered.length + ' of ' + _allOps.length + ' operators';
 }
 
-// Store filtered ops per section for tooltip lookup
-function getSecOps(secId){
-  var filtered=_allOps.filter(function(o){
-    if(_opFilter==='active'&&o.status!=='Active')return false;
-    if(_opFilter==='inactive'&&o.status!=='Inactive')return false;
-    if(_opSearch){var q=_opSearch.toLowerCase();
-      return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')).toLowerCase().indexOf(q)!==-1;}
-    return true;
-  });
-  if(secId==='global') return filtered;
-  var dept=secId.replace('dept_','').replace(/_/g,' ');
-  // Try exact match first, then fuzzy
-  var r=filtered.filter(function(o){return(o.department||'(No Department)')===dept;});
-  if(!r.length) r=filtered.filter(function(o){return(o.department||'').replace(/[^a-zA-Z0-9]/g,'_')===secId.replace('dept_','');});
-  return r;
-}
-
-function toggleSec(id){
-  var body=document.getElementById('sec_'+id);
-  var head=body.previousElementSibling;
-  body.classList.toggle('open');
-  head.classList.toggle('open');
-}
-
-function showAgent(e,secId,idx){
-  var ops=getSecOps(secId);
-  var o=ops[idx]; if(!o)return;
+function showAgent(e,idx){
+  var o=_currentView[idx]; if(!o)return;
   var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
   var tip=document.getElementById('agentTip');
   tip.innerHTML='<div class="agent-tip-name">'+name+'</div><div class="agent-tip-grid">'+
@@ -288,8 +313,8 @@ function showMxTip(e,td){var k=td.getAttribute('data-mxkey');if(!k)return;var na
   tip.style.display='block';tip.style.left=Math.min(e.clientX+12,window.innerWidth-300)+'px';tip.style.top=Math.min(e.clientY+12,window.innerHeight-200)+'px';}
 function hideMxTip(){document.getElementById('mxTip').style.display='none';}
 
-function opFilter(f,btn){_opFilter=f;document.querySelectorAll('.op-filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');buildDeptSections();}
-function opSearchFn(q){_opSearch=q;buildDeptSections();}
+function opFilter(f,btn){_opFilter=f;document.querySelectorAll('.op-filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');buildTable();}
+function opSearchFn(q){_opSearch=q;buildTable();}
 
 document.addEventListener('DOMContentLoaded',loadOperators);
 </script>
