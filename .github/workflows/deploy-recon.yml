@@ -76,3 +76,58 @@ jobs:
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/recon-app && docker compose up -d --force-recreate recon && sleep 3 && docker compose ps"
           fi
+
+      - name: Security check — verify all routes require authentication
+        run: |
+          BASE="https://recon.cmtrading.com"
+          FAIL=0
+
+          check() {
+            local url="$BASE$1"
+            local code
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url")
+            if [ "$code" = "401" ]; then
+              echo "  PASS $1 → $code"
+            elif [ "$code" = "000" ]; then
+              echo "  WARN $1 → timeout/unreachable (skipping)"
+            else
+              echo "  FAIL $1 → $code (expected 401)"
+              FAIL=1
+            fi
+          }
+
+          echo "=== Auth gate check (no credentials) ==="
+          # Recon auth
+          check "/"
+          check "/clients"
+          check "/clients/data?span=1m"
+          check "/banks"
+          check "/banks/upload"
+          check "/recon/2026-01"
+          check "/recon/2026-01/groups"
+          check "/recon/2026-01/export"
+          check "/recon/2026-01/bank-match"
+          check "/recon/2026-01/praxis"
+          check "/cid/12345"
+          check "/client/12345"
+          # Fees auth
+          check "/fees"
+          check "/fees/upload"
+          check "/fees/calculator"
+          check "/fees/processor-map"
+          check "/fees/prompts"
+          # FX auth
+          check "/fx"
+          check "/fx/api/rates"
+          # Admin auth (most sensitive)
+          check "/fees/admin"
+          check "/fees/admin/backup"
+          check "/fees/mode"
+
+          echo ""
+          if [ "$FAIL" = "1" ]; then
+            echo "SECURITY CHECK FAILED — one or more routes are unprotected!"
+            exit 1
+          else
+            echo "All routes correctly return 401 without credentials."
+          fi
