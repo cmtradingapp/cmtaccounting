@@ -82,11 +82,12 @@ jobs:
           BASE="https://recon.cmtrading.com"
           FAIL=0
 
+          # GET check: expects 401. 405 = POST-only route (method wrong, not unprotected) → also pass
           check() {
             local url="$BASE$1"
             local code
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url")
-            if [ "$code" = "401" ]; then
+            if [ "$code" = "401" ] || [ "$code" = "405" ]; then
               echo "  PASS $1 → $code"
             elif [ "$code" = "000" ]; then
               echo "  WARN $1 → timeout/unreachable (skipping)"
@@ -96,8 +97,23 @@ jobs:
             fi
           }
 
+          # POST check: sends empty POST, expects 401
+          check_post() {
+            local url="$BASE$1"
+            local code
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST --max-time 10 "$url")
+            if [ "$code" = "401" ]; then
+              echo "  PASS POST $1 → $code"
+            elif [ "$code" = "000" ]; then
+              echo "  WARN POST $1 → timeout/unreachable (skipping)"
+            else
+              echo "  FAIL POST $1 → $code (expected 401)"
+              FAIL=1
+            fi
+          }
+
           echo "=== Auth gate check (no credentials) ==="
-          # Recon auth
+          # Recon auth — GET routes
           check "/"
           check "/clients"
           check "/clients/data?span=1m"
@@ -110,7 +126,7 @@ jobs:
           check "/recon/2026-01/praxis"
           check "/cid/12345"
           check "/client/12345"
-          # Fees auth
+          # Fees auth — GET routes
           check "/fees"
           check "/fees/upload"
           check "/fees/calculator"
@@ -119,10 +135,15 @@ jobs:
           # FX auth
           check "/fx"
           check "/fx/api/rates"
-          # Admin auth (most sensitive)
+          # Admin auth — GET routes
           check "/fees/admin"
           check "/fees/admin/backup"
-          check "/fees/mode"
+          # Admin auth — POST-only routes (GET returns 405, verify POST returns 401)
+          check_post "/fees/mode"
+          check_post "/fees/admin/snapshot/save"
+          # Recon auth — POST-only routes
+          check_post "/recon/2026-01/refresh"
+          check_post "/banks/accounts/add"
 
           echo ""
           if [ "$FAIL" = "1" ]; then
