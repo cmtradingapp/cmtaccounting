@@ -111,12 +111,14 @@
 <!-- Yesterday → Today Activated / Deactivated -->
 <div class="act-row" style="margin-top:0;">
   <div class="act-card" style="border-color:rgba(34,197,94,.25);">
-    <div class="act-title" style="color:var(--green);" title="Recently created Active accounts that first logged in today (CRM has no creation date; high ID + first login today is the best available signal)">&#9650; Newly Activated Today <span id="activatedCount" style="font-weight:400;color:var(--muted);font-size:10px;"></span></div>
+    <div class="act-title" style="color:var(--green);" title="Recently created Active accounts that first logged in today">&#9650; Newly Activated Today <span id="activatedCount" style="font-weight:400;color:var(--muted);font-size:10px;"></span></div>
     <div id="activatedList"></div>
+    <button id="actExpandBtn" style="display:none;background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;font-weight:600;padding:4px 0;">Show all ▾</button>
   </div>
   <div class="act-card" style="border-color:rgba(239,68,68,.25);">
     <div class="act-title" style="color:var(--red);">&#9660; Deactivated (Yesterday → Today) <span id="deactivatedTodayCount" style="font-weight:400;color:var(--muted);font-size:10px;"></span></div>
     <div id="deactivatedTodayList"></div>
+    <button id="deactExpandBtn" style="display:none;background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;font-weight:600;padding:4px 0;">Show all ▾</button>
   </div>
 </div>
 
@@ -189,6 +191,21 @@ var _allOps=[], _currentView=[], _opFilter='all', _opSearch='', _opSortKey='last
 var _colFilters = {};  // {field: Set of allowed values} — empty = no filter
 var _matrixNames = {};
 
+function buildActCard(listId, btnId, rows, dateFn, cls, emptyMsg){
+  var LIMIT=8;
+  var list=document.getElementById(listId), btn=document.getElementById(btnId);
+  function render(subset){
+    return subset.map(function(o){var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+      return aItem(n,(o.department||'—')+' · '+(o.office||'—'),dateFn(o),cls);}).join('');
+  }
+  if(!rows.length){list.innerHTML='<span style="color:var(--muted);font-size:12px;">'+emptyMsg+'</span>';if(btn)btn.style.display='none';return;}
+  list.innerHTML=render(rows.slice(0,LIMIT));
+  if(btn){
+    if(rows.length>LIMIT){btn.style.display='';btn.textContent='Show all '+rows.length+' \u25be';btn._exp=false;
+      btn.onclick=function(){btn._exp=!btn._exp;list.innerHTML=render(btn._exp?rows:rows.slice(0,LIMIT));btn.textContent=btn._exp?'Show less \u25b4':'Show all '+rows.length+' \u25be';};
+    }else{btn.style.display='none';}
+  }
+}
 function fmtC(n){ if(!n) return '—'; var a=Math.abs(n),s=n<0?'-':''; return a>=1e6?s+'$'+(a/1e6).toFixed(1)+'M':a>=1e3?s+'$'+Math.round(a/1e3)+'K':s+'$'+a.toFixed(0); }
 function loginCls(s){ if(!s||s.length<10) return 'muted'; var d=(Date.now()-new Date(s.slice(0,10)).getTime())/864e5; return d<=1?'pos':d<=7?'':d<=30?'':'muted'; }
 function aItem(n,sub,right,cls){return '<div class="act-item"><span class="n">'+n+'</span><span class="d">'+sub+'</span><span class="r" style="'+(cls||'')+'">'+right+'</span></div>';}
@@ -263,21 +280,13 @@ function buildActivity(){
       && (o.last_login||'').slice(0,10)===today
       && o.id>=threshold;
   }).sort(function(a,b){return b.id-a.id;});
+  buildActCard('activatedList','actExpandBtn',activatedToday,function(o){return(o.last_login||'').slice(0,10);},'color:var(--green)','None today');
   document.getElementById('activatedCount').textContent='('+activatedToday.length+')';
-  document.getElementById('activatedList').innerHTML=activatedToday.slice(0,8).map(function(o){
-    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),(o.last_login||'').slice(0,10),'color:var(--green)');
-  }).join('')+(activatedToday.length>8?'<div style="font-size:11px;color:var(--muted);padding:2px 0;">+'+(activatedToday.length-8)+' more</div>':'')
-    ||'<span style="color:var(--muted);font-size:12px;">None today</span>';
 
   // Yesterday → Today Deactivated: Inactive operators whose last_login was yesterday
   var deactivatedToday=_allOps.filter(function(o){return o.status==='Inactive'&&(o.last_login||'').slice(0,10)===yesterday;}).sort(function(a,b){return(b.last_login||'').localeCompare(a.last_login||'');});
+  buildActCard('deactivatedTodayList','deactExpandBtn',deactivatedToday,function(o){return(o.last_login||'').slice(0,10);},'color:var(--red)','None detected');
   document.getElementById('deactivatedTodayCount').textContent='('+deactivatedToday.length+')';
-  document.getElementById('deactivatedTodayList').innerHTML=deactivatedToday.slice(0,8).map(function(o){
-    var n=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
-    return aItem(n,(o.department||'—')+' · '+(o.office||'—'),(o.last_login||'').slice(0,10),'color:var(--red)');
-  }).join('')+(deactivatedToday.length>8?'<div style="font-size:11px;color:var(--muted);padding:2px 0;">+'+(deactivatedToday.length-8)+' more</div>':'')
-    ||'<span style="color:var(--muted);font-size:12px;">None detected</span>';
 
   // Daily Changes comparison tables
   var todayL={},yesterdayL={};
