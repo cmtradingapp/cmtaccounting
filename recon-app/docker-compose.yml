@@ -19,6 +19,8 @@ services:
       - FX_PASS=${FX_PASS}
       - ADMIN_USER=${ADMIN_USER:-CMTAdmin}
       - ADMIN_PASS=${ADMIN_PASS}
+      - RETENTION_USER=${RETENTION_USER:-CMTRetention}
+      - RETENTION_PASS=${RETENTION_PASS}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       # Praxis operations database

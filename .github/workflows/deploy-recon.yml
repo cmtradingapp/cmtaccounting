@@ -46,6 +46,7 @@ jobs:
           S_PRAXIS_PASS: ${{ secrets.PRAXIS_PASS }}
           S_FEES_PG_PASS: ${{ secrets.FEES_PG_PASS }}
           S_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          S_RETENTION_PASS: ${{ secrets.RETENTION_PASS }}
         run: |
           # echo avoids printf format-string issues (e.g. % in passwords)
           echo "ADMIN_USER=$S_ADMIN_USER"       > /tmp/new_secrets.env
@@ -60,8 +61,9 @@ jobs:
           echo "PRAXIS_PASS=$S_PRAXIS_PASS"    >> /tmp/new_secrets.env
           echo "FEES_PG_PASS=$S_FEES_PG_PASS"  >> /tmp/new_secrets.env
           echo "ANTHROPIC_API_KEY=$S_ANTHROPIC_API_KEY" >> /tmp/new_secrets.env
+          echo "RETENTION_PASS=$S_RETENTION_PASS" >> /tmp/new_secrets.env
           sshpass -e scp -o StrictHostKeyChecking=no /tmp/new_secrets.env root@213.199.45.213:/tmp/new_secrets.env
-          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
+          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d;/^RETENTION_PASS=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
 
       - name: Restart or rebuild container
         env:
@@ -150,6 +152,9 @@ jobs:
           # Admin auth — GET routes
           check "/fees/admin"
           check "/fees/admin/backup"
+          # Retention auth
+          check "/operators"
+          check "/operators/data"
           # Admin auth — POST-only routes (GET returns 405, verify POST returns 401)
           check_post "/fees/mode"
           check_post "/fees/admin/snapshot/save"

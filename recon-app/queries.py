@@ -3959,3 +3959,94 @@ def get_bank_statement_file(statement_id):
         if row and row["file_data"]:
             return row["filename"], row["file_data"]
         return None, None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OPERATORS DASHBOARD
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_TTL_OPERATORS = 1800   # 30 minutes
+
+def operator_list() -> list:
+    """All CRM operators from vtiger_users. Cached 30 min."""
+    key = "operator_list"
+    cached = _cache_get(key, _TTL_OPERATORS)
+    if cached is not None:
+        return cached
+    try:
+        def _fetch():
+            with crm() as cur:
+                cur.execute("""
+                    SELECT
+                        id, user_name, first_name, last_name, email,
+                        department, office, status, position,
+                        fax AS role_type,
+                        last_login, phone AS desk_label
+                    FROM report.vtiger_users
+                    ORDER BY
+                        CASE WHEN status='Active' THEN 0 ELSE 1 END,
+                        department, office, first_name
+                """)
+                return [dict(r) for r in cur.fetchall()]
+        rows = _db_retry(_fetch)
+    except Exception:
+        rows = []
+    if rows:
+        _cache_set(key, rows)
+    return rows
+
+
+def operator_client_stats() -> dict:
+    """Per-operator client counts + deposit volumes from vtiger_account. Cached 30 min."""
+    key = "operator_client_stats"
+    cached = _cache_get(key, _TTL_OPERATORS)
+    if cached is not None:
+        return cached
+    try:
+        def _fetch():
+            with crm() as cur:
+                cur.execute("""
+                    SELECT
+                        assigned_to AS operator_id,
+                        COUNT(*) AS total_clients,
+                        COUNT(CASE WHEN countdeposits > 0 THEN 1 END) AS funded_clients,
+                        SUM(CAST(ISNULL(total_deposit, 0) AS FLOAT)) AS total_deposit_volume,
+                        SUM(CAST(ISNULL(net_deposit, 0) AS FLOAT)) AS net_deposit_volume
+                    FROM report.vtiger_account
+                    WHERE assigned_to IS NOT NULL AND assigned_to > 0
+                    GROUP BY assigned_to
+                """)
+                return {r["operator_id"]: dict(r) for r in cur.fetchall()}
+        result = _db_retry(_fetch)
+    except Exception:
+        result = {}
+    if result:
+        _cache_set(key, result)
+    return result
+
+
+def operator_ftd_stats() -> dict:
+    """Per-operator first-time-deposit counts from v_agent_desk_dealing_tableau. Cached 30 min."""
+    key = "operator_ftd_stats"
+    cached = _cache_get(key, _TTL_OPERATORS)
+    if cached is not None:
+        return cached
+    try:
+        def _fetch():
+            with crm() as cur:
+                cur.execute("""
+                    SELECT
+                        assigned_to AS operator_id,
+                        COUNT(*) AS ftd_count,
+                        SUM(amount) AS ftd_volume
+                    FROM dbo.v_agent_desk_dealing_tableau
+                    WHERE assigned_to IS NOT NULL AND assigned_to > 0
+                    GROUP BY assigned_to
+                """)
+                return {r["operator_id"]: dict(r) for r in cur.fetchall()}
+        result = _db_retry(_fetch)
+    except Exception:
+        result = {}
+    if result:
+        _cache_set(key, result)
+    return result

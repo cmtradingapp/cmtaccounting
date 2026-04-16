@@ -52,8 +52,10 @@ _FEES_USER   = os.environ.get("FEES_USER",   "")
 _FEES_PASS   = os.environ.get("FEES_PASS",   "")
 _FX_USER     = os.environ.get("FX_USER",     "")
 _FX_PASS     = os.environ.get("FX_PASS",     "")
-_ADMIN_USER  = os.environ.get("ADMIN_USER",  "")
-_ADMIN_PASS  = os.environ.get("ADMIN_PASS",  "")
+_ADMIN_USER      = os.environ.get("ADMIN_USER",      "")
+_ADMIN_PASS      = os.environ.get("ADMIN_PASS",      "")
+_RETENTION_USER  = os.environ.get("RETENTION_USER",  "")
+_RETENTION_PASS  = os.environ.get("RETENTION_PASS",  "")
 
 
 def _unauthorized(realm):
@@ -108,6 +110,18 @@ def require_admin_auth(f):
         auth = request.authorization
         if not auth or auth.username != _ADMIN_USER or auth.password != _ADMIN_PASS:
             return _unauthorized("CMT Admin")
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_retention_auth(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _RETENTION_USER or not _RETENTION_PASS:
+            abort(500, "RETENTION_USER and RETENTION_PASS env vars not set.")
+        auth = request.authorization
+        if not auth or auth.username != _RETENTION_USER or auth.password != _RETENTION_PASS:
+            return _unauthorized("CMT Retention")
         return f(*args, **kwargs)
     return wrapper
 
@@ -2317,6 +2331,41 @@ def bank_restore(statement_id):
 def bank_purge(statement_id):
     queries.purge_bank_statement(statement_id)
     return redirect(url_for("banks_main"))
+
+
+# ── Operators Dashboard ──────────────────────────────────────────────────────
+
+@app.route("/operators")
+@require_retention_auth
+def operators_page():
+    return render_template("operators.html")
+
+
+@app.route("/operators/data")
+@require_retention_auth
+def operators_data():
+    try:
+        ops = queries.operator_list()
+        client_stats = queries.operator_client_stats()
+        ftd_stats = queries.operator_ftd_stats()
+    except Exception as e:
+        return jsonify({"error": str(e), "operators": []}), 500
+
+    # Merge stats into each operator row
+    for op in ops:
+        oid = op["id"]
+        cs = client_stats.get(oid, {})
+        fs = ftd_stats.get(oid, {})
+        op["total_clients"]        = cs.get("total_clients", 0)
+        op["funded_clients"]       = cs.get("funded_clients", 0)
+        op["total_deposit_volume"] = round(float(cs.get("total_deposit_volume") or 0), 2)
+        op["net_deposit_volume"]   = round(float(cs.get("net_deposit_volume") or 0), 2)
+        op["ftd_count"]            = fs.get("ftd_count", 0)
+        op["ftd_volume"]           = round(float(fs.get("ftd_volume") or 0), 2)
+        # Serialise datetime
+        op["last_login"] = str(op["last_login"])[:16] if op.get("last_login") else ""
+
+    return jsonify({"operators": ops})
 
 
 if __name__ == "__main__":

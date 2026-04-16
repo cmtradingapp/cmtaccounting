@@ -430,12 +430,13 @@
 </head>
 <body>
   <header>
-    <div class="logo"><span class="cmt">CMT</span><span class="recon">Reconciliation</span><span class="sep">&amp;</span><span class="psps">PSPs</span></div>
+    <div class="logo"><span class="cmt">CMT</span><span class="recon">Reconciliation</span><span class="sep">&amp;</span><span class="psps">PSPs</span><span class="sep">&amp;</span><span class="psps">General Ops</span></div>
     <nav>
       <a href="/" class="{{ 'active' if request.path == '/' or request.path.startswith('/recon') }}">Dashboard</a>
       <a href="/fees" class="{{ 'active' if request.path.startswith('/fees') }}">Fees</a>
       <a href="/clients" class="{{ 'active' if request.path.startswith('/clients') or request.path.startswith('/cid') or request.path.startswith('/client') }}">Clients</a>
       <a href="/banks" class="{{ 'active' if request.path.startswith('/banks') }}">Banks</a>
+      <a href="/operators" class="{{ 'active' if request.path.startswith('/operators') }}">Operators</a>
       <a href="/fx"   class="{{ 'active' if request.path.startswith('/fx') }}">FX Rates</a>
     </nav>
   </header>
