@@ -178,7 +178,7 @@
       <th data-col="0" data-sort="name">Name <span class="sort-btn" onclick="doSort('name')">&#8597;</span></th>
       <th data-col="1" data-sort="email">Email <span class="sort-btn" onclick="doSort('email')">&#8597;</span></th>
       <th data-col="2" data-sort="department" data-filterable="department">Department <span class="sort-btn" onclick="doSort('department')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('department',this)">&#9662;</span></span></th>
-      <th data-col="3" data-sort="office" data-filterable="office">Office <span class="sort-btn" onclick="doSort('office')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('office',this)">&#9662;</span></span></th>
+      <th data-col="3" data-sort="office" data-filterable="office">Location <span class="sort-btn" onclick="doSort('office')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('office',this)">&#9662;</span></span></th>
       <th data-col="4" data-sort="status" data-filterable="status">Status <span class="sort-btn" onclick="doSort('status')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('status',this)">&#9662;</span></span></th>
       <th data-col="5" data-sort="role_name" data-filterable="role_name">Role <span class="sort-btn" onclick="doSort('role_name')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('role_name',this)">&#9662;</span></span></th>
       <th data-col="6" data-sort="position" data-filterable="position">Position <span class="sort-btn" onclick="doSort('position')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('position',this)">&#9662;</span></span></th>
@@ -540,7 +540,7 @@ function _agentTipHtml(o){
   var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
   return '<div class="agent-tip-name">'+name+'</div><div class="agent-tip-grid">'+
     af('Email',o.email||'—')+af('Username',o.user_name||'—')+
-    af('Department',o.department||'—')+af('Office',o.office||'—')+
+    af('Department',o.department||'—')+af('Location',o.office||'—')+
     af('Status',o.status||'—')+af('Role',o.role_name||'—')+
     af('Position',o.position||'—')+af('Desk',o.desk_label||'—')+
     af('Last Login',o.last_login||'—')+af('ID','#'+o.id)+
