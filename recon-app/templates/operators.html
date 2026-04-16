@@ -481,11 +481,16 @@ function buildTable(){
     return true;
   });
   // Sort
+  var _numericCols={'id':1,'total_clients':1,'total_deposit_volume':1,'ftd_count':1,'ftd_volume':1,'funded_clients':1};
   filtered.sort(function(a,b){
     var va=_opSortKey==='name'?((a.first_name||'')+' '+(a.last_name||'')).trim():a[_opSortKey];
     var vb=_opSortKey==='name'?((b.first_name||'')+' '+(b.last_name||'')).trim():b[_opSortKey];
+    if(_numericCols[_opSortKey]){
+      var ia=(va==null||va==='')?-1:parseInt(va,10);
+      var ib=(vb==null||vb==='')?-1:parseInt(vb,10);
+      return _opSortAsc?ia-ib:ib-ia;
+    }
     if(va==null)va=_opSortAsc?'\uffff':'';if(vb==null)vb=_opSortAsc?'\uffff':'';
-    var na=+va,nb=+vb;if(!isNaN(na)&&!isNaN(nb))return _opSortAsc?na-nb:nb-na;
     return _opSortAsc?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
   });
   _currentView=filtered;
