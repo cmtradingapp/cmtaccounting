@@ -82,6 +82,18 @@ jobs:
           BASE="https://recon.cmtrading.com"
           FAIL=0
 
+          # Wait for app to be ready (up to 60s) before running checks
+          echo "Waiting for app to come online..."
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$BASE/")
+            if [ "$code" != "000" ] && [ "$code" != "502" ] && [ "$code" != "503" ]; then
+              echo "App is ready (got $code after ${i}x2s)"
+              break
+            fi
+            echo "  Attempt $i: got $code, waiting 2s..."
+            sleep 2
+          done
+
           # GET check: expects 401. 405 = POST-only route (method wrong, not unprotected) → also pass
           check() {
             local url="$BASE$1"
