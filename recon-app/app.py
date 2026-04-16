@@ -2354,25 +2354,25 @@ def operators_data():
             ops          = f_ops.result()
             client_stats = f_cs.result()
             ftd_stats    = f_ftd.result()
+
+        # Merge stats into each operator row
+        for op in ops:
+            oid = op.get("id")
+            cs = client_stats.get(oid, {})
+            fs = ftd_stats.get(oid, {})
+            op["total_clients"]        = int(cs.get("total_clients") or 0)
+            op["funded_clients"]       = int(cs.get("funded_clients") or 0)
+            op["total_deposit_volume"] = round(float(cs.get("total_deposit_volume") or 0), 2)
+            op["net_deposit_volume"]   = round(float(cs.get("net_deposit_volume") or 0), 2)
+            op["ftd_count"]            = int(fs.get("ftd_count") or 0)
+            op["ftd_volume"]           = round(float(fs.get("ftd_volume") or 0), 2)
+            # Serialise datetime
+            op["last_login"] = str(op.get("last_login") or "")[:16]
+
+        return jsonify({"operators": ops})
     except Exception as e:
         import traceback; traceback.print_exc()
-        return jsonify({"error": str(e), "operators": []}), 500
-
-    # Merge stats into each operator row
-    for op in ops:
-        oid = op["id"]
-        cs = client_stats.get(oid, {})
-        fs = ftd_stats.get(oid, {})
-        op["total_clients"]        = cs.get("total_clients", 0)
-        op["funded_clients"]       = cs.get("funded_clients", 0)
-        op["total_deposit_volume"] = round(float(cs.get("total_deposit_volume") or 0), 2)
-        op["net_deposit_volume"]   = round(float(cs.get("net_deposit_volume") or 0), 2)
-        op["ftd_count"]            = fs.get("ftd_count", 0)
-        op["ftd_volume"]           = round(float(fs.get("ftd_volume") or 0), 2)
-        # Serialise datetime
-        op["last_login"] = str(op["last_login"])[:16] if op.get("last_login") else ""
-
-    return jsonify({"operators": ops})
+        return jsonify({"error": str(e), "operators": []})
 
 
 if __name__ == "__main__":
