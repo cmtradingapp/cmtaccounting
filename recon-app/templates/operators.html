@@ -63,12 +63,12 @@
   .op-table-wrap { height:calc(100vh - 340px); min-height:320px; overflow:auto; border-radius:14px; border:1px solid var(--border); }
   .dept-table { width:100%; border-collapse:collapse; table-layout:fixed; }
   .dept-table th { background:var(--surface); padding:8px 10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; position:sticky; top:0; z-index:2; cursor:default; user-select:none; overflow:hidden; text-overflow:ellipsis; }
-  .sort-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-left:2px; vertical-align:middle; color:rgba(255,255,255,.2); font-size:12px; cursor:pointer; border-radius:4px; transition:background .12s,color .12s; flex-shrink:0; }
-  .sort-btn:hover { color:var(--text); background:rgba(255,255,255,.08); }
-  .sort-btn.asc,.sort-btn.desc { color:var(--accent); background:rgba(79,142,247,.12); }
-  .col-filter-icon { color:var(--muted); font-size:13px; margin-left:2px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:4px; transition:background .12s,color .12s; vertical-align:middle; }
-  .col-filter-icon:hover { color:var(--text); background:rgba(255,255,255,.08); }
-  .col-filter-icon.active-filter { color:var(--accent); background:rgba(79,142,247,.12); }
+  .sort-btn { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; margin-left:2px; vertical-align:middle; color:var(--muted); font-size:11px; cursor:pointer; border-radius:3px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); transition:background .12s,color .12s,border-color .12s; flex-shrink:0; }
+  .sort-btn:hover { color:var(--text); background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.25); }
+  .sort-btn.asc,.sort-btn.desc { color:var(--accent); background:rgba(79,142,247,.1); border-color:rgba(79,142,247,.4); }
+  .col-filter-icon { color:var(--muted); font-size:12px; margin-left:2px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:3px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); transition:background .12s,color .12s,border-color .12s; vertical-align:middle; }
+  .col-filter-icon:hover { color:var(--text); background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.25); }
+  .col-filter-icon.active-filter { color:var(--accent); background:rgba(79,142,247,.1); border-color:rgba(79,142,247,.4); }
   .dept-table td { padding:8px 10px; font-size:12px; border-bottom:1px solid rgba(255,255,255,.03); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .dept-table tr:hover { background:rgba(255,255,255,.03); }
   .dept-table .num { text-align:right; font-variant-numeric:tabular-nums; }
