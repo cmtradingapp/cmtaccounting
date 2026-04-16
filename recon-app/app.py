@@ -2389,6 +2389,8 @@ def operators_data():
             if op.get("department"):
                 op["department"] = _clean_department(op["department"])
             op["role_name"] = _clean_role(op.get("role_name") or "")
+            if op.get("position") == "Agent":
+                op["position"] = "Sales Agent"
         return jsonify({"operators": ops})
     except Exception as e:
         import traceback; traceback.print_exc()
