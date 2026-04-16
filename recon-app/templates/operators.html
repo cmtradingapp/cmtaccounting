@@ -408,7 +408,7 @@ function toggleColFilter(field, icon){
     var checked=!_colFilters[field]||_colFilters[field].has(v)?'checked':'';
     html+='<label><input type="checkbox" '+checked+' onchange="onColFilterChange(\''+field+'\',\''+v.replace(/'/g,"\\'")+'\',this.checked)"> '+v+' <span style="color:var(--muted);margin-left:auto;font-size:10px;">'+vals[v]+'</span></label>';});
   html+='<div class="cf-actions">'+
-    '<span class="cf-btn" onclick="clearColFilter(\''+field+'\')">Clear</span>'+
+    '<span class="cf-btn" onclick="clearColFilter(\''+field+'\')">Select all</span>'+
     '<span class="cf-btn" onclick="unselectAllFilter(\''+field+'\')">Unselect all</span></div>';
   drop.innerHTML=html;
   // Attach to body with position:fixed so it's never clipped by overflow:auto ancestors
@@ -481,19 +481,23 @@ function buildTable(){
       return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')).toLowerCase().indexOf(q)!==-1;}
     return true;
   });
-  // Sort
-  var _numericCols={'id':1,'total_clients':1,'total_deposit_volume':1,'ftd_count':1,'ftd_volume':1,'funded_clients':1};
-  filtered.sort(function(a,b){
-    var va=_opSortKey==='name'?((a.first_name||'')+' '+(a.last_name||'')).trim():a[_opSortKey];
-    var vb=_opSortKey==='name'?((b.first_name||'')+' '+(b.last_name||'')).trim():b[_opSortKey];
-    if(_numericCols[_opSortKey]){
-      var ia=(va==null||va==='')?-1:parseInt(va,10);
-      var ib=(vb==null||vb==='')?-1:parseInt(vb,10);
-      return _opSortAsc?ia-ib:ib-ia;
-    }
-    if(va==null)va=_opSortAsc?'\uffff':'';if(vb==null)vb=_opSortAsc?'\uffff':'';
-    return _opSortAsc?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
-  });
+  // Sort — capture params as locals so the comparator doesn't read stale globals
+  var _sk=_opSortKey, _sa=_opSortAsc;
+  var _numCols={'id':1,'total_clients':1,'total_deposit_volume':1,'ftd_count':1,'ftd_volume':1,'funded_clients':1};
+  if(_numCols[_sk]){
+    filtered.sort(function(a,b){
+      var ia=(a[_sk]==null)?-1:+a[_sk];
+      var ib=(b[_sk]==null)?-1:+b[_sk];
+      return _sa?ia-ib:ib-ia;
+    });
+  } else {
+    filtered.sort(function(a,b){
+      var va=_sk==='name'?((a.first_name||'')+' '+(a.last_name||'')).trim():a[_sk];
+      var vb=_sk==='name'?((b.first_name||'')+' '+(b.last_name||'')).trim():b[_sk];
+      if(va==null)va=_sa?'\uffff':'';if(vb==null)vb=_sa?'\uffff':'';
+      return _sa?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
+    });
+  }
   _currentView=filtered;
   if(!filtered.length){
     document.getElementById('mainBody').innerHTML=
