@@ -481,23 +481,16 @@ function buildTable(){
       return((o.first_name||'')+' '+(o.last_name||'')+' '+(o.email||'')+' '+(o.department||'')+' '+(o.office||'')).toLowerCase().indexOf(q)!==-1;}
     return true;
   });
-  // Sort — capture params as locals so the comparator doesn't read stale globals
+  // Sort — localeCompare with {numeric:true} handles both text and numeric strings correctly
   var _sk=_opSortKey, _sa=_opSortAsc;
-  var _numCols={'id':1,'total_clients':1,'total_deposit_volume':1,'ftd_count':1,'ftd_volume':1,'funded_clients':1};
-  if(_numCols[_sk]){
-    filtered.sort(function(a,b){
-      var ia=(a[_sk]==null)?-1:+a[_sk];
-      var ib=(b[_sk]==null)?-1:+b[_sk];
-      return _sa?ia-ib:ib-ia;
-    });
-  } else {
-    filtered.sort(function(a,b){
-      var va=_sk==='name'?((a.first_name||'')+' '+(a.last_name||'')).trim():a[_sk];
-      var vb=_sk==='name'?((b.first_name||'')+' '+(b.last_name||'')).trim():b[_sk];
-      if(va==null)va=_sa?'\uffff':'';if(vb==null)vb=_sa?'\uffff':'';
-      return _sa?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
-    });
-  }
+  filtered.sort(function(a,b){
+    var va=_sk==='name'?((a.first_name||'')+' '+(a.last_name||'')).trim():a[_sk];
+    var vb=_sk==='name'?((b.first_name||'')+' '+(b.last_name||'')).trim():b[_sk];
+    if(va==null||va==='')va=_sa?'\uffff':'';
+    if(vb==null||vb==='')vb=_sa?'\uffff':'';
+    var cmp=String(va).localeCompare(String(vb),undefined,{numeric:true,sensitivity:'base'});
+    return _sa?cmp:-cmp;
+  });
   _currentView=filtered;
   if(!filtered.length){
     document.getElementById('mainBody').innerHTML=
