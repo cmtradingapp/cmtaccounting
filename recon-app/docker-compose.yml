@@ -9,16 +9,16 @@ services:
       - DEALIO_PORT=5106
       - DEALIO_DB=dealio
       - DEALIO_USER=dealio_rep
-      - "DEALIO_PASS=;tnACp*BSIXZ2%mOHTfP"
-      - FLASK_SECRET=cmt-recon-2026
-      - RECON_USER=CMTRecon
-      - RECON_PASS=5UvJIBkmEeulzmiRG9dFMg
-      - FEES_USER=CMTFeeProcessor
-      - FEES_PASS=PUlDNl_ZZDirFBxaF8FFtQ
-      - FX_USER=CMTFxRates
-      - FX_PASS=I0vcjes2tgVfkQxE1DHQac1H
+      - DEALIO_PASS=${DEALIO_PASS}
+      - FLASK_SECRET=${FLASK_SECRET}
+      - RECON_USER=${RECON_USER:-CMTRecon}
+      - RECON_PASS=${RECON_PASS}
+      - FEES_USER=${FEES_USER:-CMTFeeProcessor}
+      - FEES_PASS=${FEES_PASS}
+      - FX_USER=${FX_USER:-CMTFxRates}
+      - FX_PASS=${FX_PASS}
       - ADMIN_USER=${ADMIN_USER:-CMTAdmin}
-      - ADMIN_PASS=${ADMIN_PASS:-ChangeMe2026!}
+      - ADMIN_PASS=${ADMIN_PASS}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       # Praxis operations database
@@ -28,7 +28,7 @@ services:
       - PRAXIS_PORT=5433
       - PRAXIS_DB=operations
       - PRAXIS_USER=praxis_reader
-      - PRAXIS_PASS=gc6Z8vd92JOa
+      - PRAXIS_PASS=${PRAXIS_PASS}
       # Antelope CRM — Azure SQL (direct TLS, no tunnel needed, login: reco)
       - CRM_HOST=cmtmainserver.database.windows.net
       - CRM_PORT=1433
@@ -41,7 +41,7 @@ services:
       - FEES_PG_PORT=5432
       - FEES_PG_DB=fees
       - FEES_PG_USER=fees
-      - FEES_PG_PASS=FeesLive2026!
+      - FEES_PG_PASS=${FEES_PG_PASS}
     volumes:
       - /root/recon-app:/app   # mount source → container; rsync + restart is sufficient
       - /root/recon-certs:/app/certs:ro  # dealio mTLS client certs (permissions: key=600, crt=644)
@@ -57,7 +57,7 @@ services:
     environment:
       POSTGRES_DB:       fees
       POSTGRES_USER:     fees
-      POSTGRES_PASSWORD: FeesLive2026!
+      POSTGRES_PASSWORD: ${FEES_PG_PASS}
     volumes:
       - fees_pgdata:/var/lib/postgresql/data
     networks:

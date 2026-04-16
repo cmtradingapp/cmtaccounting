@@ -34,16 +34,31 @@ jobs:
             --exclude='*.db-wal' \
             recon-app/ root@213.199.45.213:/root/recon-app/
 
-      - name: Inject admin credentials into server .env
+      - name: Inject all secrets into server .env
         env:
           SSHPASS: ${{ secrets.SERVER_PASS }}
         run: |
-          # Write/update ADMIN_USER and ADMIN_PASS in the server's .env
-          # (rsync excludes .env so the rest of the file is preserved)
+          # All credentials are injected from GitHub Secrets — none are hardcoded in repo.
+          # docker-compose.yml reads every credential from environment variables.
           sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
             "touch /root/recon-app/.env && \
-             sed -i '/^ADMIN_USER=/d; /^ADMIN_PASS=/d; /^CRM_PASS=/d' /root/recon-app/.env && \
-             printf 'ADMIN_USER=${{ secrets.ADMIN_USER }}\nADMIN_PASS=${{ secrets.ADMIN_PASS }}\nCRM_PASS=${{ secrets.CRM_PASS }}\n' \
+             sed -i '/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_PASS=/d;/^CRM_USER=/d;\
+/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;\
+/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;\
+/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;\
+/^ANTHROPIC_API_KEY=/d' /root/recon-app/.env && \
+             printf 'ADMIN_USER=${{ secrets.ADMIN_USER }}\n\
+ADMIN_PASS=${{ secrets.ADMIN_PASS }}\n\
+CRM_USER=${{ secrets.CRM_USER }}\n\
+CRM_PASS=${{ secrets.CRM_PASS }}\n\
+RECON_PASS=${{ secrets.RECON_PASS }}\n\
+FEES_PASS=${{ secrets.FEES_PASS }}\n\
+FX_PASS=${{ secrets.FX_PASS }}\n\
+DEALIO_PASS=${{ secrets.DEALIO_PASS }}\n\
+FLASK_SECRET=${{ secrets.FLASK_SECRET }}\n\
+PRAXIS_PASS=${{ secrets.PRAXIS_PASS }}\n\
+FEES_PG_PASS=${{ secrets.FEES_PG_PASS }}\n\
+ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}\n' \
                >> /root/recon-app/.env"
 
       - name: Restart or rebuild container
