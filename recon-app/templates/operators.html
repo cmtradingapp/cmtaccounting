@@ -411,6 +411,13 @@ function toggleColFilter(field, icon){
     '<span class="cf-btn" onclick="clearColFilter(\''+field+'\')">Select all</span>'+
     '<span class="cf-btn" onclick="unselectAllFilter(\''+field+'\')">Unselect all</span></div>';
   drop.innerHTML=html;
+  // Prevent wheel events from propagating to the page while scrolling inside the dropdown
+  drop.addEventListener('wheel', function(e){
+    var atTop=drop.scrollTop===0;
+    var atBot=drop.scrollTop+drop.clientHeight>=drop.scrollHeight;
+    if((atTop&&e.deltaY<0)||(atBot&&e.deltaY>0)) e.preventDefault();
+    e.stopPropagation();
+  }, {passive:false});
   // Attach to body with position:fixed so it's never clipped by overflow:auto ancestors
   drop.style.position='fixed';
   drop.style.zIndex='9999';
