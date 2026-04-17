@@ -218,38 +218,61 @@
   document.addEventListener('DOMContentLoaded', function () {
     var today = new Date().toISOString().slice(0, 10);
     document.getElementById('croDate').value = today;
-    var _autoTimer = null;
-    var _countdownTimer = null;
-    var AUTO_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-    var _nextRefreshAt = null;
+    var CARDS_INTERVAL_MS  = 5000;          // 5s  — cards only (served from cache, ~0.5s)
+    var TABLES_INTERVAL_MS = 5 * 60 * 1000; // 5m  — full load incl. tables
+    var _cardsTimer  = null;
+    var _tablesTimer = null;
+    var _lastUpdated = null;
 
-    function scheduleAuto() {
-      clearTimeout(_autoTimer);
-      clearInterval(_countdownTimer);
-      _nextRefreshAt = Date.now() + AUTO_INTERVAL_MS;
-      _autoTimer = setTimeout(function () { load(); scheduleAuto(); }, AUTO_INTERVAL_MS);
-      _countdownTimer = setInterval(function () {
-        var remaining = Math.max(0, Math.round((_nextRefreshAt - Date.now()) / 1000));
-        var el = document.getElementById('croSub');
-        if (el && !el.textContent.startsWith('Loading') && !el.textContent.startsWith('Refreshing')) {
-          var base = el.getAttribute('data-base') || el.textContent;
-          el.setAttribute('data-base', base.replace(/ -- auto-refresh in.*$/, ''));
-          el.textContent = el.getAttribute('data-base') + ' -- auto-refresh in ' + remaining + 's';
-        }
-      }, 1000);
+    function loadCardsOnly() {
+      var d = document.getElementById('croDate').value;
+      var g = document.getElementById('croGroup').value;
+      var s = document.getElementById('croSource').value;
+      var q = '?date=' + encodeURIComponent(d) + '&group=' + encodeURIComponent(g) + '&source=' + encodeURIComponent(s);
+      fetch('/cro/data' + q).then(function (r) { return r.json(); }).then(function (data) {
+        if (data.error) return;
+        renderCards('dailyCards',   data.daily,   'day');
+        renderCards('monthlyCards', data.monthly, 'month');
+        _lastUpdated = new Date();
+        updateSub(data);
+      }).catch(function () {});
     }
 
-    document.getElementById('croApply').addEventListener('click', function () { load(); scheduleAuto(); });
+    function updateSub(data) {
+      var ts = _lastUpdated ? _lastUpdated.toLocaleTimeString() : '';
+      var fb = data.fellback ? ' · latest: ' + data.date : '';
+      var base = 'Source ' + data.source + ' · ' + data.daily.label
+        + ' · ' + fmtInt(data.daily.n_accounts) + ' accts'
+        + ' · ' + fmtInt(data.daily.n_deals) + ' deals'
+        + fb + (ts ? ' · updated ' + ts : '');
+      setSub(base, false);
+      document.getElementById('croSub').setAttribute('data-base', base);
+    }
+
+    function scheduleCards() {
+      clearInterval(_cardsTimer);
+      _cardsTimer = setInterval(loadCardsOnly, CARDS_INTERVAL_MS);
+    }
+
+    function scheduleFullRefresh() {
+      clearTimeout(_tablesTimer);
+      _tablesTimer = setTimeout(function () { load(); scheduleFullRefresh(); }, TABLES_INTERVAL_MS);
+    }
+
+    document.getElementById('croApply').addEventListener('click', function () {
+      load(); scheduleCards(); scheduleFullRefresh();
+    });
     document.getElementById('croRefresh').addEventListener('click', function () {
       var d = document.getElementById('croDate').value;
       var g = document.getElementById('croGroup').value;
       var s = document.getElementById('croSource').value;
       setSub('Refreshing from Dealio...', false);
       fetch('/cro/refresh?date=' + encodeURIComponent(d) + '&group=' + encodeURIComponent(g) + '&source=' + encodeURIComponent(s), {method:'POST'})
-        .then(function () { load(); scheduleAuto(); });
+        .then(function () { load(); scheduleCards(); scheduleFullRefresh(); });
     });
     load();
-    scheduleAuto();
+    scheduleCards();
+    scheduleFullRefresh();
   });
 })();
 </script>
