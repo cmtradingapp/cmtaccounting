@@ -194,6 +194,15 @@
     n = Number(n || 0);
     return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   };
+  var fmtShort = function (n) {
+    n = Number(n || 0);
+    var a = Math.abs(n);
+    var s = n < 0 ? '-' : '';
+    if (a >= 1e9) return s + '$' + (a / 1e9).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 2}) + 'B';
+    if (a >= 1e6) return s + '$' + (a / 1e6).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 2}) + 'M';
+    if (a >= 1e3) return s + '$' + (a / 1e3).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + 'K';
+    return fmtMoney(n);
+  };
   var fmtInt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
   var cls    = function (n) { return Number(n) > 0 ? 'pos' : Number(n) < 0 ? 'neg' : ''; };
 
@@ -233,16 +242,16 @@
       ck('Net Deposits', fmtMoney(d.net_deposits),  cls(d.net_deposits), fmtMoney(m.net_deposits));
 
     document.getElementById('croSecondary').innerHTML =
-      cs('Volume',        fmtMoney(d.volume_usd)) +
+      cs('Volume',        fmtShort(d.volume_usd)) +
       cs('Traders',       fmtInt(d.n_traders)) +
       cs('Active',        fmtInt(d.n_active_traders)) +
       cs('Depositors',    fmtInt(d.n_depositors)) +
       cs('FTD',           fmtInt(d.n_ftd)) +
       cs('Ret. Deposits', fmtInt(d.n_retention_depositors)) +
-      cs('Equity',        fmtMoney(d.equity)) +
-      cs('WD Equity Z',   fmtMoney(d.wd_equity)) +
-      cs('Balance',       fmtMoney(d.balance)) +
-      cs('Credit',        fmtMoney(d.credit));
+      cs('Equity',        fmtShort(d.equity)) +
+      cs('WD Equity Z',   fmtShort(d.wd_equity)) +
+      cs('Balance',       fmtShort(d.balance)) +
+      cs('Credit',        fmtShort(d.credit));
   }
 
   function renderGroupTable(rows) {
