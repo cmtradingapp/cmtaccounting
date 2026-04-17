@@ -23,20 +23,46 @@
   .matrix-table tbody tr:hover .dep { background:rgba(79,142,247,.1); color:var(--accent); }
   .matrix-table td:not(.dep):not(.total-col):hover::after { content:''; position:absolute; left:0; right:0; top:-5000px; bottom:-5000px; background:rgba(79,142,247,.06); z-index:-1; pointer-events:none; }
   .matrix-table td:not(.dep):not(.total-col):hover { background:rgba(79,142,247,.15)!important; color:var(--text)!important; border-radius:3px; }
-  .mx-tip { display:none; position:fixed; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 14px; box-shadow:0 8px 24px rgba(0,0,0,.5); font-size:12px; pointer-events:none; max-width:90vw; }
-  .mx-tip.pinned { pointer-events:auto; border-color:var(--accent); box-shadow:0 12px 36px rgba(0,0,0,.7); }
-  .mx-tip-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; }
-  .mx-tip-close { cursor:pointer; font-size:15px; line-height:1; padding:0 4px; font-weight:700;
+  /* Hover preview (lightweight, no pointer events) */
+  .mx-tip { display:none; position:fixed; z-index:300; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 14px; box-shadow:0 8px 24px rgba(0,0,0,.5); font-size:12px; pointer-events:none; max-width:90vw; }
+  .mx-tip-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
+  .mx-tip-cols { display:flex; gap:0; }
+  .mx-tip-col { flex:1; }
+  .mx-tip-col + .mx-tip-col { border-left:1px solid var(--border); padding-left:12px; margin-left:12px; }
+  .mx-tip-name { color:var(--text); padding:2px 4px; border-radius:3px; cursor:default; white-space:nowrap; }
+  /* Pinned draggable cards */
+  .mx-card { display:none; position:fixed; z-index:400; background:var(--surface); border:1px solid var(--accent); border-radius:var(--radius-md); box-shadow:0 12px 40px rgba(0,0,0,.7); font-size:12px; min-width:220px; max-width:90vw; user-select:none; }
+  .mx-card-header { display:flex; align-items:center; justify-content:space-between; padding:9px 12px 7px; border-bottom:1px solid var(--border); cursor:grab; gap:8px; }
+  .mx-card-header:active { cursor:grabbing; }
+  .mx-card-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--accent); }
+  .mx-card-close { cursor:pointer; font-size:15px; font-weight:700; line-height:1; padding:0 2px; flex-shrink:0;
     animation:mx-close-pulse 2s ease-in-out infinite; }
   @keyframes mx-close-pulse {
     0%,100% { color:#7f1d1d; text-shadow:0 0 5px rgba(127,29,29,.4); }
     50%      { color:#ef4444; text-shadow:0 0 10px rgba(239,68,68,.6); }
   }
-  .mx-tip-cols { display:flex; gap:0; }
-  .mx-tip-col { flex:1; }
-  .mx-tip-col + .mx-tip-col { border-left:1px solid var(--border); padding-left:12px; margin-left:12px; }
-  .mx-tip-name { color:var(--text); padding:2px 4px; border-radius:3px; cursor:default; white-space:nowrap; }
-  .mx-tip.pinned .mx-tip-name:hover { background:rgba(79,142,247,.12); color:var(--accent); cursor:pointer; }
+  .mx-card-names { padding:8px 12px; }
+  .mx-card .mx-tip-name:hover { background:rgba(79,142,247,.12); color:var(--accent); cursor:pointer; }
+  .mx-card-divider { border-top:1px solid var(--border); margin:0 12px; }
+  .mx-card-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; padding:8px 12px 10px; }
+  .mx-card-stat .mx-stat-label { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:2px; }
+  .mx-card-stat .mx-stat-val { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); }
+  /* Leaderboard */
+  .lb-controls { display:flex; align-items:center; gap:10px; margin-bottom:var(--sp-3); flex-wrap:wrap; }
+  .lb-metric-btn { font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:all .15s; }
+  .lb-metric-btn:hover { border-color:rgba(255,255,255,.2); color:var(--text); }
+  .lb-metric-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.08); }
+  .lb-wrap { overflow-x:auto; border-radius:var(--radius-md); border:1px solid var(--border); margin-bottom:var(--sp-4); }
+  .lb-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .lb-table th { background:var(--surface); padding:8px 12px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; }
+  .lb-table th.num { text-align:right; }
+  .lb-table td { padding:7px 12px; border-bottom:1px solid rgba(255,255,255,.03); }
+  .lb-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .lb-table tr:hover td { background:rgba(255,255,255,.03); }
+  .lb-rank { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; width:32px; }
+  .lb-rank.top1 { color:gold; font-weight:800; }
+  .lb-rank.top2 { color:silver; font-weight:700; }
+  .lb-rank.top3 { color:#cd7f32; font-weight:700; }
 
   /* Activity cards */
   .act-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:12px; }
@@ -200,6 +226,25 @@
   </table>
 </div>
 
+<!-- Agent Leaderboard -->
+<div class="section-title" style="margin-top:var(--sp-4);">Agent Leaderboard</div>
+<div class="lb-controls">
+  <select id="lbDept" onchange="buildLeaderboard()" style="height:32px;padding:0 12px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:13px;cursor:pointer;min-width:180px;"></select>
+  <button class="lb-metric-btn active" onclick="lbSort('total_deposit_volume',this)">Deposits</button>
+  <button class="lb-metric-btn" onclick="lbSort('total_clients',this)">Clients</button>
+  <button class="lb-metric-btn" onclick="lbSort('ftd_count',this)">FTDs</button>
+</div>
+<div class="lb-wrap">
+  <table class="lb-table" id="lbTable">
+    <thead><tr>
+      <th style="width:36px;">#</th>
+      <th>Name</th><th>Department</th><th>Location</th><th>Role</th>
+      <th class="num">Clients</th><th class="num">Deposits</th><th class="num">FTDs</th>
+    </tr></thead>
+    <tbody id="lbBody"></tbody>
+  </table>
+</div>
+
 <script>
 var _allOps=[], _currentView=[], _opFilter='all', _opSearch='', _opSortKey='last_login', _opSortAsc=false;
 var _colFilters={}, _matrixNames={};
@@ -247,12 +292,12 @@ function loadOperators(){
       _allOps.forEach(function(o){var s=sd.stats[String(o.id)]||{};
         o.total_clients=s.total_clients||0;o.funded_clients=s.funded_clients||0;
         o.total_deposit_volume=s.total_deposit_volume||0;o.ftd_count=s.ftd_count||0;o.ftd_volume=s.ftd_volume||0;
-      }); buildTable();
+      }); buildTable(); buildLeaderboard();
     }).catch(function(){});
   }).catch(function(e){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">'+e+'</span>';});
 }
 
-function buildAll(){ buildStats(); buildComparison(); buildMatrix(); buildActivity(); buildDeptPicker(); buildTable(); }
+function buildAll(){ buildStats(); buildComparison(); buildMatrix(); buildActivity(); buildDeptPicker(); buildTable(); buildLbDeptPicker(); buildLeaderboard(); }
 
 function buildStats(){
   var active=_allOps.filter(function(o){return o.status==='Active';});
@@ -586,84 +631,156 @@ function _showTip(e,html){
 function showAgent(e,idx){ var o=_currentView[idx];if(!o)return;_showTip(e,_agentTipHtml(o)); }
 function showAgentById(e,id){ var o=_allOps.find(function(x){return x.id===id;});if(!o)return;_showTip(e,_agentTipHtml(o)); }
 function hideAgent(){document.getElementById('agentTip').style.display='none';}
-var _mxPinned=false;
-
-function _buildMxTip(key, pinned){
+// ── Matrix hover preview ──────────────────────────────────────────────────
+function _mxNamesHtml(key){
   var names=_matrixNames[key]||[];
-  var p=key.split('|');
-  var title=p[0]+' \u2014 '+p[1];
-  // Split into columns: 1 col up to 12, 2 cols up to 28, 3 cols above that
   var cols=names.length>28?3:names.length>12?2:1;
   var perCol=Math.ceil(names.length/cols);
-  var colsHtml='<div class="mx-tip-cols">';
+  var h='<div class="mx-tip-cols">';
   for(var c=0;c<cols;c++){
-    var slice=names.slice(c*perCol,(c+1)*perCol);
-    colsHtml+='<div class="mx-tip-col">'+slice.map(function(n){
-      // find operator by name for hover
+    var sl=names.slice(c*perCol,(c+1)*perCol);
+    h+='<div class="mx-tip-col">'+sl.map(function(n){
       return '<div class="mx-tip-name" data-mxname="'+n.replace(/"/g,'&quot;')+'">'+n+'</div>';
     }).join('')+'</div>';
   }
-  colsHtml+='</div>';
-  var closeBtn=pinned?'<span class="mx-tip-close" onclick="unpinMxTip()">\u00d7</span>':'';
-  return '<div class="mx-tip-title"><span>'+title+'</span>'+closeBtn+'</div>'+colsHtml;
-}
-
-function _positionMxTip(tip, x, y){
-  tip.style.left='0px'; tip.style.top='0px'; tip.style.display='block';
-  var w=tip.offsetWidth, h=tip.offsetHeight;
-  tip.style.left=Math.min(x+12, window.innerWidth-w-12)+'px';
-  tip.style.top=Math.min(y+12, window.innerHeight-h-12)+'px';
+  return h+'</div>';
 }
 
 function showMxTip(e,td){
-  if(_mxPinned)return;
   var k=td.getAttribute('data-mxkey');if(!k)return;
-  var tip=document.getElementById('mxTip');
-  tip.classList.remove('pinned');
-  tip.innerHTML=_buildMxTip(k,false);
-  _positionMxTip(tip,e.clientX,e.clientY);
+  var p=k.split('|'), tip=document.getElementById('mxTip');
+  tip.innerHTML='<div class="mx-tip-title">'+p[0]+' \u2014 '+p[1]+'</div>'+_mxNamesHtml(k);
+  tip.style.display='block';
+  var w=tip.offsetWidth,h=tip.offsetHeight;
+  tip.style.left=Math.min(e.clientX+12,window.innerWidth-w-12)+'px';
+  tip.style.top=Math.min(e.clientY+12,window.innerHeight-h-12)+'px';
+}
+function hideMxTip(){ document.getElementById('mxTip').style.display='none'; }
+
+// ── Draggable pinned cards (multiple simultaneous) ────────────────────────
+var _mxCards={}, _mxZ=400;
+
+function _cellStats(key){
+  var p=key.split('|'), dept=p[0], off=p[1];
+  var mem=_allOps.filter(function(o){
+    return o.status==='Active'&&(o.department||'?')===dept&&(o.office||'?')===off;
+  });
+  var cl=0,dep=0,ft=0;
+  mem.forEach(function(o){cl+=o.total_clients||0;dep+=o.total_deposit_volume||0;ft+=o.ftd_count||0;});
+  return {count:mem.length,clients:cl,deposits:dep,ftds:ft};
 }
 
-function hideMxTip(){
-  if(_mxPinned)return;
-  document.getElementById('mxTip').style.display='none';
+function _makeDraggable(card, handle){
+  handle.addEventListener('mousedown',function(e){
+    if(e.target.closest('.mx-card-close'))return;
+    e.preventDefault();
+    var sx=e.clientX-card.offsetLeft, sy=e.clientY-card.offsetTop;
+    function mv(e){
+      card.style.left=Math.max(0,Math.min(e.clientX-sx,window.innerWidth-card.offsetWidth))+'px';
+      card.style.top=Math.max(0,Math.min(e.clientY-sy,window.innerHeight-card.offsetHeight))+'px';
+    }
+    function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); }
+    document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+  });
 }
 
-function pinMxTip(e,td){
-  var k=td.getAttribute('data-mxkey');if(!k)return;
-  e.stopPropagation();
-  _mxPinned=true;
-  var tip=document.getElementById('mxTip');
-  tip.classList.add('pinned');
-  tip.innerHTML=_buildMxTip(k,true);
-  _positionMxTip(tip,e.clientX,e.clientY);
-  // Hover names in pinned tip → show agent tooltip
-  tip.querySelectorAll('.mx-tip-name').forEach(function(el){
+function _attachNameHovers(card){
+  card.querySelectorAll('.mx-tip-name').forEach(function(el){
     el.addEventListener('mouseenter',function(ev){
       var n=el.getAttribute('data-mxname');
-      var op=_allOps.find(function(o){
-        return (((o.first_name||'')+' '+(o.last_name||'')).trim()===n||o.user_name===n);
-      });
+      var op=_allOps.find(function(o){return (((o.first_name||'')+' '+(o.last_name||'')).trim()===n||o.user_name===n);});
       if(op) _showTip(ev,_agentTipHtml(op));
     });
     el.addEventListener('mouseleave',function(){ hideAgent(); });
   });
 }
 
-function unpinMxTip(){
-  _mxPinned=false;
-  var tip=document.getElementById('mxTip');
-  tip.classList.remove('pinned');
-  tip.style.display='none';
-  hideAgent();
+function pinMxTip(e,td){
+  var k=td.getAttribute('data-mxkey');if(!k)return;
+  e.stopPropagation();
+  // Bring existing card to front if already open
+  if(_mxCards[k]){ _mxCards[k].style.zIndex=++_mxZ; return; }
+  var p=k.split('|'), s=_cellStats(k);
+  var card=document.createElement('div');
+  card.className='mx-card';
+  card.style.zIndex=++_mxZ;
+  card.innerHTML=
+    '<div class="mx-card-header">'+
+      '<span class="mx-card-title">'+p[0]+' \u2014 '+p[1]+'</span>'+
+      '<span class="mx-card-close">\u00d7</span>'+
+    '</div>'+
+    '<div class="mx-card-names">'+_mxNamesHtml(k)+'</div>'+
+    '<div class="mx-card-divider"></div>'+
+    '<div class="mx-card-stats">'+
+      '<div class="mx-card-stat"><div class="mx-stat-label">Agents</div><div class="mx-stat-val">'+s.count+'</div></div>'+
+      '<div class="mx-card-stat"><div class="mx-stat-label">Clients</div><div class="mx-stat-val">'+(s.clients?s.clients.toLocaleString():'—')+'</div></div>'+
+      '<div class="mx-card-stat"><div class="mx-stat-label">Deposits</div><div class="mx-stat-val">'+fmtC(s.deposits)+'</div></div>'+
+      '<div class="mx-card-stat"><div class="mx-stat-label">FTDs</div><div class="mx-stat-val">'+(s.ftds||'—')+'</div></div>'+
+    '</div>';
+  document.body.appendChild(card);
+  // Position
+  card.style.display='block';
+  var cw=card.offsetWidth, ch=card.offsetHeight;
+  card.style.left=Math.min(e.clientX+12,window.innerWidth-cw-12)+'px';
+  card.style.top=Math.min(e.clientY+12,window.innerHeight-ch-12)+'px';
+  _mxCards[k]=card;
+  // Close
+  card.querySelector('.mx-card-close').addEventListener('click',function(){
+    document.body.removeChild(card); delete _mxCards[k]; hideAgent();
+  });
+  // Drag & raise on mousedown
+  _makeDraggable(card, card.querySelector('.mx-card-header'));
+  card.addEventListener('mousedown',function(){ card.style.zIndex=++_mxZ; });
+  // Name hovers
+  _attachNameHovers(card);
 }
 
-// Click outside pinned tip to unpin
-document.addEventListener('click',function(e){
-  if(_mxPinned&&!e.target.closest('#mxTip')&&!e.target.closest('.matrix-table')){
-    unpinMxTip();
-  }
-});
+// ── Leaderboard ────────────────────────────────────────────────────────────
+var _lbMetric='total_deposit_volume';
+
+function buildLeaderboard(){
+  var dept=document.getElementById('lbDept').value;
+  var ops=_allOps.filter(function(o){
+    return o.status==='Active' && (dept==='__all__'||(o.department||'')===dept);
+  });
+  ops=ops.slice().sort(function(a,b){return (b[_lbMetric]||0)-(a[_lbMetric]||0);});
+  var html='';
+  ops.forEach(function(o,i){
+    var rank=i+1;
+    var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
+    var cls=rank===1?'lb-rank top1':rank===2?'lb-rank top2':rank===3?'lb-rank top3':'lb-rank';
+    html+='<tr onmouseenter="showAgent(event,'+_currentView.indexOf(o)+')" onmouseleave="hideAgent()">'+
+      '<td class="'+cls+'" style="text-align:right;padding-right:8px;">'+rank+'</td>'+
+      '<td style="font-weight:600;" onmouseenter="showAgentById(event,'+o.id+')" onmouseleave="hideAgent()">'+name+'</td>'+
+      '<td style="color:var(--muted);">'+(o.department||'—')+'</td>'+
+      '<td style="color:var(--muted);">'+(o.office||'—')+'</td>'+
+      '<td style="color:var(--muted);">'+(o.role_name||'—')+'</td>'+
+      '<td class="num">'+(o.total_clients?o.total_clients.toLocaleString():'—')+'</td>'+
+      '<td class="num">'+fmtC(o.total_deposit_volume)+'</td>'+
+      '<td class="num">'+(o.ftd_count?o.ftd_count.toLocaleString():'—')+'</td>'+
+    '</tr>';
+  });
+  document.getElementById('lbBody').innerHTML=html||'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No data</td></tr>';
+}
+
+function lbSort(metric, btn){
+  _lbMetric=metric;
+  document.querySelectorAll('.lb-metric-btn').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  buildLeaderboard();
+}
+
+function buildLbDeptPicker(){
+  var depts={};
+  _allOps.filter(function(o){return o.status==='Active';}).forEach(function(o){
+    if(o.department) depts[o.department]=1;
+  });
+  var sel=document.getElementById('lbDept');
+  sel.innerHTML='<option value="__all__">All Departments</option>';
+  Object.keys(depts).sort().forEach(function(d){
+    sel.innerHTML+='<option value="'+d+'">'+d+'</option>';
+  });
+}
 
 function opFilter(f,btn){_opFilter=f;document.querySelectorAll('.op-filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');buildTable();}
 function opSearchFn(q){_opSearch=q;buildTable();}
