@@ -293,7 +293,7 @@ function loadOperators(){
       _allOps.forEach(function(o){var s=sd.stats[String(o.id)]||{};
         o.total_clients=s.total_clients||0;o.funded_clients=s.funded_clients||0;
         o.total_deposit_volume=s.total_deposit_volume||0;o.ftd_count=s.ftd_count||0;o.ftd_volume=s.ftd_volume||0;
-      }); _statsLoaded=true; buildTable(); buildLeaderboard();
+      }); _statsLoaded=true; buildTable(); buildLeaderboard(); _refreshCardStats();
     }).catch(function(){
       // Stats failed — show error so the leaderboard doesn't spin forever
       document.getElementById('lbBody').innerHTML=
@@ -728,6 +728,21 @@ function _makeDraggable(card, handle){
     }
     function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); }
     document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+  });
+}
+
+function _refreshCardStats(){
+  // Update the stats footer of every open pinned card once stats data arrives
+  Object.keys(_mxCards).forEach(function(key){
+    var card=_mxCards[key];
+    var statsEl=card.querySelector('.mx-card-stats');
+    if(!statsEl) return;
+    var s=_cellStats(key);
+    statsEl.innerHTML=
+      '<div class="mx-card-stat"><div class="mx-stat-label">Agents</div><div class="mx-stat-val">'+s.count+'</div></div>'+
+      '<div class="mx-card-stat"><div class="mx-stat-label">Clients</div><div class="mx-stat-val">'+(s.clients?s.clients.toLocaleString():'—')+'</div></div>'+
+      '<div class="mx-card-stat"><div class="mx-stat-label">Deposits</div><div class="mx-stat-val">'+fmtC(s.deposits)+'</div></div>'+
+      '<div class="mx-card-stat"><div class="mx-stat-label">FTDs</div><div class="mx-stat-val">'+(s.ftds||'—')+'</div></div>';
   });
 }
 
