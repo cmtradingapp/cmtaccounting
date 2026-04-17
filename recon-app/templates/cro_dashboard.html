@@ -97,21 +97,34 @@
   var fmtInt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
   var cls    = function (n) { return Number(n) > 0 ? 'pos' : Number(n) < 0 ? 'neg' : ''; };
 
-  function card(lbl, val, klass) {
+  function card(lbl, val, klass, badge) {
     var c = klass === 'pos' ? 'green' : klass === 'neg' ? 'red' : '';
+    var b = badge
+      ? ' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;' + badge.style + '">' + badge.text + '</span>'
+      : '';
     return '<div class="stat-card ' + c + '">' +
-             '<div class="label">' + lbl + '</div>' +
+             '<div class="label">' + lbl + b + '</div>' +
              '<div class="value">' + val + '</div>' +
            '</div>';
   }
 
-  function renderCards(id, s, flavour) {
+  function renderCards(id, s, flavour, bundle) {
     var isMonth = flavour === 'month';
     var pfx = isMonth ? 'Monthly' : 'Daily';
+    // Live badge on Floating PnL card (daily only)
+    var floatBadge = null;
+    if (!isMonth && bundle) {
+      if (!bundle.live_stale && bundle.live_pushed_at) {
+        var ts = new Date(bundle.live_pushed_at).toLocaleTimeString();
+        floatBadge = {text: 'LIVE ' + ts, style: 'background:rgba(34,197,94,.2);color:#22c55e;'};
+      } else {
+        floatBadge = {text: 'EOD', style: 'background:rgba(148,163,184,.15);color:#94a3b8;'};
+      }
+    }
     var html = [
       card(pfx + ' PnL',           fmtMoney(s.pnl),            cls(s.pnl)),
       card(pfx + ' Closed PnL',    fmtMoney(s.closed_pnl),     cls(s.closed_pnl)),
-      card(pfx + ' Δ Floating',    fmtMoney(s.delta_floating), cls(s.delta_floating)),
+      card(pfx + ' Delta Floating',fmtMoney(s.delta_floating), cls(s.delta_floating)),
       card(pfx + ' Net Deposits',  fmtMoney(s.net_deposits),   cls(s.net_deposits)),
       card(pfx + ' Volume ($)',    fmtMoney(s.volume_usd)),
       card('# Traders',            fmtInt(s.n_traders)),
@@ -121,7 +134,7 @@
       card('# Retention Dep.',     fmtInt(s.n_retention_depositors)),
       card('Equity (EOD)',         fmtMoney(s.equity)),
       card('WD Equity Z',          fmtMoney(s.wd_equity)),
-      card('Floating PnL',         fmtMoney(s.floating_pnl),   cls(s.floating_pnl)),
+      card('Floating PnL',         fmtMoney(s.floating_pnl), cls(s.floating_pnl), floatBadge),
       card('Balance',              fmtMoney(s.balance)),
       card('Credit',               fmtMoney(s.credit))
     ].join('');
@@ -196,8 +209,8 @@
             '&source=' + encodeURIComponent(s);
     fetch('/cro/data' + q).then(function (r) { return r.json(); }).then(function (data) {
       if (data.error) { setSub('Error: ' + data.error, true); return; }
-      renderCards('dailyCards',   data.daily,   'day');
-      renderCards('monthlyCards', data.monthly, 'month');
+      renderCards('dailyCards',   data.daily,   'day',   data);
+      renderCards('monthlyCards', data.monthly, 'month', null);
       renderGroupTable(data.by_group);
       renderSymbolTable(data.by_symbol);
       renderTrendTable(data.trend);

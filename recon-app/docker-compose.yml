@@ -23,6 +23,7 @@ services:
       - RETENTION_PASS=${RETENTION_PASS}
       - CRO_USER=${CRO_USER:-CMTCRO}
       - CRO_PASS=${CRO_PASS}
+      - CRO_BRIDGE_SECRET=${CRO_BRIDGE_SECRET}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       # Praxis operations database

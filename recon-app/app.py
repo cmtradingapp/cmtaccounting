@@ -1,12 +1,19 @@
+import hmac
 import io
 import os
+import threading
 import uuid
 import functools
-from datetime import date
+from datetime import date, datetime
 from flask import Flask, render_template, request, jsonify, send_file, abort, Response, redirect, url_for
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# -- Live MT5 push store (updated by POST /cro/feed from Windows bridge) ------
+_CRO_LIVE: dict = {}
+_CRO_LIVE_LOCK = threading.Lock()
+_CRO_LIVE_MAX_AGE_S = 90  # after 90s without a push, fall back to Dealio snapshot
 
 import queries
 import ai_parse
@@ -2373,6 +2380,23 @@ def cro_page():
     return resp
 
 
+@app.route("/cro/feed", methods=["POST"])
+def cro_feed():
+    """Unauthenticated (by session) but gated by X-Bridge-Secret header.
+    Accepts live MT5 position summary from the Windows bridge pusher.
+    """
+    bridge_secret = os.environ.get("CRO_BRIDGE_SECRET", "")
+    incoming = request.headers.get("X-Bridge-Secret", "")
+    if not bridge_secret or not hmac.compare_digest(incoming, bridge_secret):
+        return jsonify({"ok": False}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    with _CRO_LIVE_LOCK:
+        _CRO_LIVE.clear()
+        _CRO_LIVE.update(data)
+        _CRO_LIVE["received_at"] = datetime.utcnow().isoformat()
+    return jsonify({"ok": True})
+
+
 @app.route("/cro/refresh", methods=["POST"])
 @require_cro_auth
 def cro_refresh():
@@ -2407,7 +2431,27 @@ def cro_data():
     except ValueError:
         return jsonify({"error": "Bad date; expected YYYY-MM-DD"}), 400
     try:
-        return jsonify(cro_queries.dashboard_bundle(d, source=src, mask=mask))
+        bundle = cro_queries.dashboard_bundle(d, source=src, mask=mask)
+        # Merge live MT5 floating PnL if the bridge has pushed recently.
+        with _CRO_LIVE_LOCK:
+            live = dict(_CRO_LIVE)
+        if live and live.get("received_at"):
+            try:
+                age = (datetime.utcnow() - datetime.fromisoformat(live["received_at"])).total_seconds()
+                if age < _CRO_LIVE_MAX_AGE_S:
+                    bundle["daily"]["floating_pnl"] = float(live.get("floating_pnl", 0))
+                    bundle["daily"]["n_positions"]  = int(live.get("n_positions", 0))
+                    bundle["live_pushed_at"] = live.get("pushed_at")
+                    bundle["live_stale"] = False
+                else:
+                    bundle["live_pushed_at"] = None
+                    bundle["live_stale"] = True
+            except Exception:
+                bundle["live_stale"] = True
+        else:
+            bundle["live_pushed_at"] = None
+            bundle["live_stale"] = True
+        return jsonify(bundle)
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
