@@ -1,7 +1,7 @@
 // Continuous MT5 stats poller for manual testing.
-// Connects, pulls positions + today's deals, prints a one-line summary, disconnects, sleeps.
+// Connects once at startup and holds the connection; reconnects only on failure.
 //
-// Env vars: same as MT5Bridge.cs + MT5_INTERVAL (seconds, default 5)
+// Env vars: same as MT5Bridge.cs + MT5_INTERVAL (seconds, default 1)
 
 using System;
 using System.Collections.Generic;
@@ -21,6 +21,29 @@ public class MT5Monitor
     {
         if (rate > 1.5 && rate != 0) return native / rate;
         return native;
+    }
+
+    static CIMTManagerAPI Connect(string server, ulong login, string pw)
+    {
+        MTRetCode cm = MTRetCode.MT_RET_OK_NONE;
+        CIMTManagerAPI mgr = SMTManagerAPIFactory.CreateManager(
+            SMTManagerAPIFactory.ManagerAPIVersion, out cm);
+        if (mgr == null || cm != MTRetCode.MT_RET_OK)
+        {
+            Console.Error.WriteLine("[monitor] CreateManager: " + cm);
+            return null;
+        }
+        MTRetCode cr = mgr.Connect(server, login, pw, null,
+            CIMTManagerAPI.EnPumpModes.PUMP_MODE_NONE, 15000);
+        if (cr != MTRetCode.MT_RET_OK)
+        {
+            Console.Error.WriteLine("[monitor] Connect: " + cr);
+            mgr.Dispose();
+            return null;
+        }
+        // Set summary currency once per connection
+        mgr.SummaryCurrency("USD");
+        return mgr;
     }
 
     public static int Main(string[] args)
@@ -57,38 +80,28 @@ public class MT5Monitor
 
         double prevFloat = double.NaN;
 
+        // Connect once; reconnect only when a query fails
+        CIMTManagerAPI mgr = null;
+        while (mgr == null)
+        {
+            mgr = Connect(server, login, pw);
+            if (mgr == null) Thread.Sleep(5000);
+        }
+        Console.Error.WriteLine("[monitor] Connected.");
+
         while (true)
         {
             var t0 = DateTime.Now;
             try
             {
-                MTRetCode cm = MTRetCode.MT_RET_OK_NONE;
-                CIMTManagerAPI mgr = SMTManagerAPIFactory.CreateManager(
-                    SMTManagerAPIFactory.ManagerAPIVersion, out cm);
-                if (mgr == null || cm != MTRetCode.MT_RET_OK)
-                {
-                    Console.Error.WriteLine("CreateManager: " + cm);
-                    Thread.Sleep(interval * 1000);
-                    continue;
-                }
-
-                if (mgr.Connect(server, login, pw, null,
-                        CIMTManagerAPI.EnPumpModes.PUMP_MODE_NONE, 15000) != MTRetCode.MT_RET_OK)
-                {
-                    Console.Error.WriteLine("Connect failed");
-                    mgr.Dispose();
-                    Thread.Sleep(interval * 1000);
-                    continue;
-                }
-
-                // Use server-computed Summary for floating PnL — matches MT5 Manager exactly.
-                // SummaryCurrency("USD") tells the server to express all values in USD.
-                // ProfitFullClients() = Profit + Storage for client positions, already in USD.
+                // --- floating PnL via server-computed Summary ---
+                // ProfitFullClients() = Profit + Storage, pre-converted to USD by server.
+                // Matches MT5 Manager's Open Positions summary footer exactly.
                 double floatPnl = 0;
                 int    nPos     = 0;
-                mgr.SummaryCurrency("USD");
                 var sumArr = mgr.SummaryCreateArray();
-                if (mgr.SummaryGetAll(sumArr) == MTRetCode.MT_RET_OK)
+                MTRetCode sumRes = mgr.SummaryGetAll(sumArr);
+                if (sumRes == MTRetCode.MT_RET_OK)
                 {
                     for (uint i = 0; i < sumArr.Total(); i++)
                     {
@@ -97,17 +110,27 @@ public class MT5Monitor
                         nPos     += (int)s.PositionClients();
                     }
                 }
+                else
+                {
+                    Console.Error.WriteLine("[monitor] SummaryGetAll: " + sumRes + " -- reconnecting");
+                    sumArr.Release();
+                    try { mgr.Disconnect(); } catch { }
+                    mgr.Dispose(); mgr = null;
+                    while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
+                    Thread.Sleep(interval * 1000);
+                    continue;
+                }
                 sumArr.Release();
 
-                // today's deals (UTC day boundary)
+                // --- today's deals (CMV* filtered) ---
                 DateTime dayStart = DateTime.UtcNow.Date;
                 DateTime nowUtc   = DateTime.UtcNow;
                 double closedPnl = 0, netDep = 0;
                 var traders = new HashSet<ulong>();
                 var dealArr = mgr.DealCreateArray();
-                if (mgr.DealRequestByGroup(group,
-                        SMTTime.FromDateTime(dayStart),
-                        SMTTime.FromDateTime(nowUtc), dealArr) == MTRetCode.MT_RET_OK)
+                MTRetCode dealRes = mgr.DealRequestByGroup(group,
+                    SMTTime.FromDateTime(dayStart), SMTTime.FromDateTime(nowUtc), dealArr);
+                if (dealRes == MTRetCode.MT_RET_OK)
                 {
                     for (uint i = 0; i < dealArr.Total(); i++)
                     {
@@ -130,9 +153,6 @@ public class MT5Monitor
                 }
                 dealArr.Dispose();
 
-                try { mgr.Disconnect(); } catch { }
-                mgr.Dispose();
-
                 string deltaStr;
                 if (double.IsNaN(prevFloat))
                     deltaStr = string.Format("{0,14}", "---");
@@ -148,7 +168,11 @@ public class MT5Monitor
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss") + "] ERROR: " + ex.Message);
+                Console.Error.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss") + "] ERROR: " + ex.Message + " -- reconnecting");
+                try { mgr.Disconnect(); } catch { }
+                try { mgr.Dispose(); } catch { }
+                mgr = null;
+                while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
             }
 
             Thread.Sleep(interval * 1000);
