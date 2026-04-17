@@ -1,5 +1,6 @@
 // MT5 Manager API -> continuous JSON line pusher.
 // Connects once, stays connected; outputs one JSON line per CRO_INTERVAL seconds.
+// v2: closed PnL by deposit currency via _loginCcySnap + ccyRates (fixes EUR/GBP FX heuristic).
 //
 // Two-speed loop:
 //   Fast (every CRO_INTERVAL):  positions + today's deals + per-group floating PnL

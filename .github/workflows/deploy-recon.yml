@@ -110,9 +110,9 @@ jobs:
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/cro-bridge && docker compose up -d --build --force-recreate && docker compose ps"
           elif git diff HEAD~1 HEAD -- cro-bridge | grep -q .; then
-            echo "cro-bridge code changed — recreate container (fast)"
+            echo "cro-bridge code changed — rebuild image (mcs recompiles .cs, layer cache keeps it fast)"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-              "cd /root/cro-bridge && docker compose up -d --force-recreate && sleep 3 && docker compose ps"
+              "cd /root/cro-bridge && docker compose up -d --build --force-recreate && docker compose ps"
           else
             echo "cro-bridge: no changes, skipping"
           fi
