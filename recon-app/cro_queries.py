@@ -1,9 +1,9 @@
-"""CRO 'All in One' dashboard — Dealio replica queries.
+"""CRO 'All in One' dashboard -- Dealio replica queries.
 
 Reads the same tables Metabase reads (`dealio.daily_profits`, `dealio.trades_mt5`,
 `dealio.users`) so our numbers line up card-for-card with the original panel.
 
-Primary source: `dealio.daily_profits` — a pre-aggregated per-login per-day
+Primary source: `dealio.daily_profits` -- a pre-aggregated per-login per-day
 snapshot with closedpnl, floatingpnl, netdeposit, deltafloatingpnl, equity,
 balance, credit. All `converted*` columns are already in the user's calculation
 currency (USD on AN100), so we use those.
@@ -11,7 +11,7 @@ currency (USD on AN100), so we use those.
 Key assumptions:
   * `sourceid` defaults to 'AN100' (the live MT5 server).
   * `groupname` mask defaults to 'CMV%' (live trading groups on this broker).
-  * Date columns are plain `date` — we just pass `%(date)s`.
+  * Date columns are plain `date` -- we just pass `%(date)s`.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ DEFAULT_SOURCE = "AN100"
 DEFAULT_GROUP_MASK = "CMV%"
 
 
-# ── helpers ────────────────────────────────────────────────────────────────
+# -- helpers ----------------------------------------------------------------
 def _fetchone(cur, sql: str, params: dict) -> dict:
     cur.execute(sql, params)
     row = cur.fetchone()
@@ -46,7 +46,7 @@ def _coalesce(d: dict, *keys) -> float:
     )
 
 
-# ── totals (both daily and monthly share shape) ────────────────────────────
+# -- totals (both daily and monthly share shape) ----------------------------
 _TOTALS_SQL = """
 SELECT
     COALESCE(SUM(converteddeltafloatingpnl), 0) AS delta_floating,
@@ -110,7 +110,7 @@ SELECT
 
 _FTD_SQL = """
 -- FTD = a login whose first-ever positive net-deposit falls in the window.
--- Start from the small window-set and prove no earlier deposit exists —
+-- Start from the small window-set and prove no earlier deposit exists --
 -- avoids a full-table MIN()/GROUP BY which was taking ~30s on the replica.
 SELECT COUNT(DISTINCT dp.login) AS n_ftd
   FROM dealio.daily_profits dp
@@ -178,7 +178,7 @@ def _window_snapshot(cur, start: date, end: date, source: str, mask: str, label:
     }
 
 
-# ── public API ─────────────────────────────────────────────────────────────
+# -- public API -------------------------------------------------------------
 def day_snapshot(d: date, source: str = DEFAULT_SOURCE, mask: str = DEFAULT_GROUP_MASK) -> dict:
     with db.dealio() as cur:
         return _window_snapshot(cur, d, d, source, mask, d.isoformat())
@@ -196,10 +196,10 @@ def month_snapshot(year: int, month: int, source: str = DEFAULT_SOURCE,
 def range_snapshot(start: date, end: date, source: str = DEFAULT_SOURCE,
                    mask: str = DEFAULT_GROUP_MASK) -> dict:
     with db.dealio() as cur:
-        return _window_snapshot(cur, start, end, source, mask, f"{start}→{end}")
+        return _window_snapshot(cur, start, end, source, mask, f"{start}->{end}")
 
 
-# ── Volume by symbol ───────────────────────────────────────────────────────
+# -- Volume by symbol -------------------------------------------------------
 _BY_SYMBOL_SQL = """
 SELECT
     symbolplain                                      AS symbol,
@@ -231,7 +231,7 @@ def volume_by_symbol(start: date, end: date, source: str = DEFAULT_SOURCE,
         })
 
 
-# ── Per-group breakdown (the "Daily Performance by CRM fields" table) ──────
+# -- Per-group breakdown (the "Daily Performance by CRM fields" table) ------
 _BY_GROUP_SQL = """
 SELECT
     groupname,
@@ -260,7 +260,7 @@ def perf_by_group(start: date, end: date, source: str = DEFAULT_SOURCE,
         })
 
 
-# ── Daily series over a window (for trend tables / charts) ─────────────────
+# -- Daily series over a window (for trend tables / charts) -----------------
 _DAILY_SERIES_SQL = """
 SELECT
     date,
@@ -293,7 +293,7 @@ def daily_series(start: date, end: date, source: str = DEFAULT_SOURCE,
     return rows
 
 
-# ── retry wrapper ──────────────────────────────────────────────────────────
+# -- retry wrapper ----------------------------------------------------------
 def _retry_on_replica_conflict(fn, *, attempts: int = 3, backoff: float = 1.5):
     """Dealio is a hot-standby. Long-running queries can be cancelled by the WAL
     apply process ("canceling statement due to conflict with recovery"). Retry
@@ -325,7 +325,7 @@ def _latest_data_date(cur, source: str, mask: str, before: date) -> date | None:
     return (dict(row) or {}).get("d")
 
 
-# ── dashboard bundle ───────────────────────────────────────────────────────
+# -- dashboard bundle -------------------------------------------------------
 def dashboard_bundle(day: date, source: str = DEFAULT_SOURCE,
                      mask: str = DEFAULT_GROUP_MASK) -> dict:
     """One call that gathers everything the dashboard needs.
