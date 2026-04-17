@@ -12,14 +12,14 @@ services:
     environment:
       # Overrides / defaults (env_file wins if the same key exists there)
       CRO_FEED_URL: http://recon:5050/cro/feed
-      CRO_INTERVAL: "30"
+      CRO_INTERVAL: "5"
       CRO_GROUP: CMV*
       CRO_SOURCE: AN100
       # Force Wine to use native dotnet48 DLLs (not its builtin stubs) so the
       # .NET Framework 4.8 runtime loads the MT5 Manager assemblies correctly.
       WINEDLLOVERRIDES: "mscoree=n,b;fusion=n,b"
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/last_push && test $(($(date +%s) - $(stat -c %Y /tmp/last_push))) -lt 180"]
+      test: ["CMD-SHELL", "test -f /tmp/last_push && test $(($(date +%s) - $(stat -c %Y /tmp/last_push))) -lt 60"]
       interval: 60s
       timeout: 10s
       retries: 3

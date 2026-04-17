@@ -31,18 +31,22 @@ RUN wget -qO /tmp/wine-mono.msi \
  && wineserver -w \
  && rm /tmp/wine-mono.msi
 
-# Compile the C# helper against the MT5 .NET wrappers
+# Compile the C# helpers against the MT5 .NET wrappers
 WORKDIR /app
 COPY sdk-libs /sdk-libs
-COPY MT5Bridge.cs /app/
+COPY MT5Bridge.cs MT5LivePusher.cs /app/
 RUN mcs -out:/app/MT5Bridge.exe \
         -reference:/sdk-libs/MetaQuotes.MT5CommonAPI64.dll \
         -reference:/sdk-libs/MetaQuotes.MT5ManagerAPI64.dll \
         /app/MT5Bridge.cs \
+ && mcs -out:/app/MT5LivePusher.exe \
+        -reference:/sdk-libs/MetaQuotes.MT5CommonAPI64.dll \
+        -reference:/sdk-libs/MetaQuotes.MT5ManagerAPI64.dll \
+        /app/MT5LivePusher.cs \
  && cp /sdk-libs/*.dll /app/
 
-COPY cro_bridge_pusher.py /app/
+COPY cro_bridge_pusher.py cro_live_pusher.py /app/
 
 ENV MT5_SDK_LIBS=Z:/app
 
-CMD ["python3", "/app/cro_bridge_pusher.py"]
+CMD ["python3", "/app/cro_live_pusher.py"]
