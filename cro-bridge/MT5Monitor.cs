@@ -1,5 +1,7 @@
 // Continuous MT5 stats poller for manual testing.
 // Connects once at startup and holds the connection; reconnects only on failure.
+// Uses PUMP_MODE_POSITIONS: server pushes live position updates into the local
+// cache, so PositionGetByGroup reads real-time values — identical to MT5 Manager.
 //
 // Env vars: same as MT5Bridge.cs + MT5_INTERVAL (seconds, default 1)
 
@@ -33,8 +35,11 @@ public class MT5Monitor
             Console.Error.WriteLine("[monitor] CreateManager: " + cm);
             return null;
         }
+        // PUMP_MODE_POSITIONS: server pushes live position updates into the local cache.
+        // We then use PositionGetByGroup (cache read) instead of PositionRequestByGroup
+        // (server snapshot), getting real-time values identical to MT5 Manager's display.
         MTRetCode cr = mgr.Connect(server, login, pw, null,
-            CIMTManagerAPI.EnPumpModes.PUMP_MODE_NONE, 15000);
+            CIMTManagerAPI.EnPumpModes.PUMP_MODE_POSITIONS, 30000);
         if (cr != MTRetCode.MT_RET_OK)
         {
             Console.Error.WriteLine("[monitor] Connect: " + cr + " (" + (uint)cr + ")");
@@ -42,7 +47,37 @@ public class MT5Monitor
             mgr.Dispose();
             return null;
         }
+        // Wait for position pump to populate the local cache before returning.
+        Console.Error.WriteLine("[monitor] Waiting for position pump...");
+        var deadline = DateTime.Now.AddSeconds(30);
+        while (DateTime.Now < deadline)
+        {
+            var testArr = mgr.PositionCreateArray();
+            bool ready = mgr.PositionGetByGroup("*", testArr) == MTRetCode.MT_RET_OK && testArr.Total() > 0;
+            testArr.Dispose();
+            if (ready) break;
+            Thread.Sleep(500);
+        }
         return mgr;
+    }
+
+    static Dictionary<string, bool> LoadGroupCurrencies(CIMTManagerAPI mgr, string groupMask)
+    {
+        var dict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var grpArr = mgr.GroupCreateArray();
+        if (mgr.GroupRequestArray(groupMask, grpArr) == MTRetCode.MT_RET_OK)
+        {
+            for (uint i = 0; i < grpArr.Total(); i++)
+            {
+                var g = grpArr.Next(i);
+                string name = g.Group() ?? "";
+                string ccy  = g.Currency() ?? "USD";
+                if (!string.IsNullOrEmpty(name))
+                    dict[name] = string.Equals(ccy, "USD", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        grpArr.Release();
+        return dict;
     }
 
     public static int Main(string[] args)
@@ -72,14 +107,12 @@ public class MT5Monitor
         Console.WriteLine("[monitor] group=" + group + "  interval=" + interval + "s  server=" + server);
         Console.WriteLine("[monitor] Ctrl+C to stop.\n");
 
-        // header
-        Console.WriteLine(string.Format("{0,-10}  {1,22}  {2,14}  {3,14}  {4,12}  {5,10}  {6,8}",
-            "Time", "Floating PnL (USD)", "Delta Float", "Closed PnL", "Net Deposits", "Positions", "Traders"));
-        Console.WriteLine(new string('-', 102));
+        Console.WriteLine(string.Format("{0,-10}  {1,22}  {2,14}  {3,14}  {4,14}  {5,10}  {6,8}",
+            "Time", "Floating PnL", "Delta", "Closed PnL", "Net Deposits", "Positions", "Traders"));
+        Console.WriteLine(new string('-', 110));
 
         double prevFloat = double.NaN;
 
-        // Connect once; reconnect only when a query fails
         CIMTManagerAPI mgr = null;
         while (mgr == null)
         {
@@ -87,42 +120,54 @@ public class MT5Monitor
             if (mgr == null) Thread.Sleep(5000);
         }
         Console.Error.WriteLine("[monitor] Connected.");
+        var groupCurrencies = LoadGroupCurrencies(mgr, group);
+        Console.Error.WriteLine("[monitor] Loaded " + groupCurrencies.Count + " groups.");
 
         while (true)
         {
-            var t0 = DateTime.Now;
             try
             {
-                // --- floating PnL: CMV* group position scan ---
-                // SummaryGetAll() is broker-wide (includes demo accounts = 2x positions/PnL).
-                // PositionRequestByGroup filters to real client accounts only, matching
-                // what MT5 Manager shows when filtered to the CMV* group.
+                // --- floating PnL: per-group, currency-aware (pump cache reads) ---
                 double floatPnl = 0;
-                int    nPos     = 0;
-                var posArr = mgr.PositionCreateArray();
-                MTRetCode posRes = mgr.PositionRequestByGroup(group, posArr);
-                if (posRes == MTRetCode.MT_RET_OK)
+                int    nPos = 0;
+                bool   posErr = false;
+                foreach (var kv in groupCurrencies)
                 {
-                    nPos = (int)posArr.Total();
+                    var posArr = mgr.PositionCreateArray();
+                    if (mgr.PositionGetByGroup(kv.Key, posArr) != MTRetCode.MT_RET_OK)
+                    {
+                        posArr.Dispose();
+                        posErr = true;
+                        break;
+                    }
+                    bool isUsd = kv.Value;
+                    nPos += (int)posArr.Total();
                     for (uint i = 0; i < posArr.Total(); i++)
                     {
                         var p = posArr.Next(i);
-                        floatPnl += ToUsd(p.Profit() + p.Storage(), p.RateProfit());
+                        double native = p.Profit() + p.Storage();
+                        if (isUsd)
+                            floatPnl += native;
+                        else
+                        {
+                            double r = p.RateProfit();
+                            floatPnl += (r > 0.0) ? native / r : native;
+                        }
                     }
-                }
-                else
-                {
-                    Console.Error.WriteLine("[monitor] PositionRequestByGroup: " + posRes + " -- reconnecting");
                     posArr.Dispose();
+                }
+                if (posErr)
+                {
+                    Console.Error.WriteLine("[monitor] PositionGetByGroup error -- reconnecting");
                     try { mgr.Disconnect(); } catch { }
                     mgr.Dispose(); mgr = null;
                     while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
+                    groupCurrencies = LoadGroupCurrencies(mgr, group);
                     Thread.Sleep(interval * 1000);
                     continue;
                 }
-                posArr.Dispose();
 
-                // --- today's deals (CMV* filtered) ---
+                // --- today's deals ---
                 DateTime dayStart = DateTime.UtcNow.Date;
                 DateTime nowUtc   = DateTime.UtcNow;
                 double closedPnl = 0, netDep = 0;
@@ -160,11 +205,10 @@ public class MT5Monitor
                     deltaStr = string.Format("{0,14:+#,##0.00;-#,##0.00;0.00}", floatPnl - prevFloat);
                 prevFloat = floatPnl;
 
-                int elapsed = (int)(DateTime.Now - t0).TotalSeconds;
                 Console.WriteLine(string.Format(
-                    "{0,-10}  {1,22:N2}  {2}  {3,14:N2}  {4,12:N2}  {5,10:N0}  {6,8:N0}  ({7}s)",
+                    "{0,-10}  {1,22:N2}  {2}  {3,14:N2}  {4,14:N2}  {5,10:N0}  {6,8:N0}",
                     DateTime.Now.ToString("HH:mm:ss"),
-                    floatPnl, deltaStr, closedPnl, netDep, nPos, traders.Count, elapsed));
+                    floatPnl, deltaStr, closedPnl, netDep, nPos, traders.Count));
             }
             catch (Exception ex)
             {
@@ -173,6 +217,7 @@ public class MT5Monitor
                 try { mgr.Dispose(); } catch { }
                 mgr = null;
                 while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
+                groupCurrencies = LoadGroupCurrencies(mgr, group);
             }
 
             Thread.Sleep(interval * 1000);

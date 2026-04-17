@@ -20,6 +20,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Threading;
 using MetaQuotes.MT5CommonAPI;
 using MetaQuotes.MT5ManagerAPI;
 
@@ -120,13 +121,26 @@ public class MT5Bridge
         }
 
         var connRes = mgr.Connect(server, login, pw, null,
-            CIMTManagerAPI.EnPumpModes.PUMP_MODE_NONE, 15000);
+            CIMTManagerAPI.EnPumpModes.PUMP_MODE_POSITIONS, 30000);
         if (connRes != MTRetCode.MT_RET_OK)
         {
             Console.Error.WriteLine("Connect failed: " + connRes);
             mgr.Dispose();
             SMTManagerAPIFactory.Shutdown();
             return 5;
+        }
+
+        Console.Error.WriteLine("[helper] Waiting for position pump...");
+        {
+            var pumpDeadline = DateTime.UtcNow.AddSeconds(30);
+            while (DateTime.UtcNow < pumpDeadline)
+            {
+                var testArr = mgr.PositionCreateArray();
+                bool ready = mgr.PositionGetByGroup("*", testArr) == MTRetCode.MT_RET_OK && testArr.Total() > 0;
+                testArr.Dispose();
+                if (ready) break;
+                Thread.Sleep(500);
+            }
         }
 
         int nPositions = 0, nClosingDeals = 0, nDepositors = 0;
@@ -141,21 +155,54 @@ public class MT5Bridge
         int exitOnErr = 0;
         try
         {
-            // --- open positions: floating PnL ---
-            var posArr = mgr.PositionCreateArray();
-            var posRes = mgr.PositionRequestByGroup(group, posArr);
-            if (posRes != MTRetCode.MT_RET_OK)
+            // --- open positions: floating PnL, currency-aware per group ---
+            var grpArr = mgr.GroupCreateArray();
+            if (mgr.GroupRequestArray(group, grpArr) == MTRetCode.MT_RET_OK)
             {
-                Console.Error.WriteLine("PositionRequestByGroup failed: " + posRes);
+                var groupIsUsd = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                for (uint i = 0; i < grpArr.Total(); i++)
+                {
+                    var g = grpArr.Next(i);
+                    string gName = g.Group() ?? "";
+                    string gCcy  = g.Currency() ?? "USD";
+                    if (!string.IsNullOrEmpty(gName))
+                        groupIsUsd[gName] = string.Equals(gCcy, "USD", StringComparison.OrdinalIgnoreCase);
+                }
+                grpArr.Release();
+                foreach (var kv in groupIsUsd)
+                {
+                    var posArr = mgr.PositionCreateArray();
+                    var posRes = mgr.PositionGetByGroup(kv.Key, posArr);
+                    if (posRes != MTRetCode.MT_RET_OK)
+                    {
+                        Console.Error.WriteLine("PositionGetByGroup failed for " + kv.Key + ": " + posRes);
+                        posArr.Dispose();
+                        exitOnErr = 6;
+                        break;
+                    }
+                    bool isUsd = kv.Value;
+                    nPositions += (int)posArr.Total();
+                    for (uint i = 0; i < posArr.Total(); i++)
+                    {
+                        var p = posArr.Next(i);
+                        double native = p.Profit() + p.Storage();
+                        if (isUsd)
+                            floatingPnl += native;
+                        else
+                        {
+                            double r = p.RateProfit();
+                            floatingPnl += (r > 0.0) ? native / r : native;
+                        }
+                    }
+                    posArr.Dispose();
+                }
+            }
+            else
+            {
+                grpArr.Release();
+                Console.Error.WriteLine("GroupRequestArray failed");
                 exitOnErr = 6;
             }
-            nPositions = (int)posArr.Total();
-            for (uint i = 0; i < posArr.Total(); i++)
-            {
-                var p = posArr.Next(i);
-                floatingPnl += ToUsd(p.Profit() + p.Storage(), p.RateProfit());
-            }
-            posArr.Dispose();
 
             // --- today's deals ---
             DateTime dayStartDt = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(dayStart);
