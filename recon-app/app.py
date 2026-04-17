@@ -2358,6 +2358,72 @@ def bank_purge(statement_id):
     return redirect(url_for("banks_main"))
 
 
+# ── CRO daily EOD snapshot (trend table) ─────────────────────────────────────
+import sqlite3 as _sqlite3
+from datetime import timedelta as _timedelta
+
+_CRO_SNAP_DB = os.path.join(os.path.dirname(__file__), "cro_snapshots.db")
+
+def _ensure_cro_snap_table():
+    with _sqlite3.connect(_CRO_SNAP_DB) as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS cro_daily (
+                date         TEXT PRIMARY KEY,
+                closed_pnl   REAL DEFAULT 0,
+                floating_pnl REAL DEFAULT 0,
+                net_deposits REAL DEFAULT 0,
+                equity       REAL DEFAULT 0,
+                n_accounts   INTEGER DEFAULT 0,
+                n_depositors INTEGER DEFAULT 0,
+                recorded_at  TEXT
+            )
+        """)
+
+try:
+    _ensure_cro_snap_table()
+except Exception as _e:
+    print(f"[cro] snapshot table init error: {_e}", flush=True)
+
+def _record_cro_eod(snap_date: str):
+    with _CRO_LIVE_LOCK:
+        live = dict(_CRO_LIVE)
+    if not live:
+        return
+    flt = lambda k: float(live.get(k, 0) or 0)
+    i   = lambda k: int(live.get(k, 0) or 0)
+    with _sqlite3.connect(_CRO_SNAP_DB) as c:
+        c.execute("""
+            INSERT OR REPLACE INTO cro_daily
+            (date, closed_pnl, floating_pnl, net_deposits, equity, n_accounts, n_depositors, recorded_at)
+            VALUES (?,?,?,?,?,?,?,?)
+        """, (
+            snap_date,
+            flt("closed_pnl_usd"),
+            flt("floating_pnl_usd"),
+            flt("net_deposits"),
+            flt("equity"),
+            i("n_traders"),
+            i("n_depositors"),
+            datetime.utcnow().isoformat(),
+        ))
+    print(f"[cro] EOD snapshot recorded for {snap_date}", flush=True)
+
+def _midnight_snapshot_worker():
+    import time
+    while True:
+        now = datetime.utcnow()
+        tomorrow = (now + _timedelta(days=1)).replace(hour=0, minute=2, second=0, microsecond=0)
+        sleep_s = (tomorrow - now).total_seconds()
+        time.sleep(max(sleep_s, 60))
+        snap_date = (datetime.utcnow() - _timedelta(hours=1)).strftime("%Y-%m-%d")
+        try:
+            _record_cro_eod(snap_date)
+        except Exception as e:
+            print(f"[cro] EOD snapshot error: {e}", flush=True)
+
+_threading.Thread(target=_midnight_snapshot_worker, daemon=True).start()
+
+
 # ── CRO All in One Dashboard ─────────────────────────────────────────────────
 
 @app.route("/cro")
@@ -2501,6 +2567,66 @@ def cro_data():
         "n_deals":                 i("n_closing_deals"),
     }
 
+    # ── Build trend from monthly_by_day (C# slow loop) + EOD snapshots ──────
+    trend = []
+    try:
+        snap_by_date = {}
+        with _sqlite3.connect(_CRO_SNAP_DB) as _sc:
+            for _row in _sc.execute(
+                "SELECT date, floating_pnl, equity, n_accounts, n_depositors, net_deposits"
+                " FROM cro_daily ORDER BY date"
+            ):
+                snap_by_date[_row[0]] = {
+                    "floating_pnl": _row[1], "equity": _row[2],
+                    "n_accounts": _row[3], "n_depositors": _row[4],
+                    "net_deposits": _row[5],
+                }
+
+        dates_seen = set()
+        monthly_by_day = live.get("monthly_by_day", [])
+        for entry in monthly_by_day:
+            d  = entry.get("date", "")
+            cp = float(entry.get("closed_pnl", 0) or 0)
+            if not d or d >= today:
+                continue  # skip today (shown in cards)
+            snap = snap_by_date.get(d, {})
+            trend.append({
+                "date": d, "closed_pnl": cp,
+                "floating_pnl": snap.get("floating_pnl", 0.0),
+                "delta_floating": 0.0, "pnl": 0.0,
+                "net_deposits": snap.get("net_deposits", 0.0),
+                "equity": snap.get("equity", 0.0),
+                "n_accounts": snap.get("n_accounts", 0),
+                "n_depositors": snap.get("n_depositors", 0),
+            })
+            dates_seen.add(d)
+
+        # Include any snapshot-only dates (before current month or older)
+        for d, snap in sorted(snap_by_date.items()):
+            if d in dates_seen or d >= today:
+                continue
+            trend.append({
+                "date": d, "closed_pnl": 0.0,
+                "floating_pnl": snap.get("floating_pnl", 0.0),
+                "delta_floating": 0.0, "pnl": 0.0,
+                "net_deposits": snap.get("net_deposits", 0.0),
+                "equity": snap.get("equity", 0.0),
+                "n_accounts": snap.get("n_accounts", 0),
+                "n_depositors": snap.get("n_depositors", 0),
+            })
+
+        trend.sort(key=lambda x: x["date"])
+        prev_fp = None
+        for row in trend:
+            df = (row["floating_pnl"] - prev_fp) if prev_fp is not None else 0.0
+            row["delta_floating"] = df
+            row["pnl"] = row["closed_pnl"] + df
+            prev_fp = row["floating_pnl"]
+        trend = list(reversed(trend[-30:]))  # newest-first, max 30 rows
+    except Exception as _te:
+        print(f"[cro] trend build error: {_te}", flush=True)
+        trend = []
+
     return jsonify({
         "date":       today,
         "requested":  today,
@@ -2511,7 +2637,7 @@ def cro_data():
         "monthly":    monthly,
         "by_group":   live.get("by_group", []),
         "by_symbol":  live.get("by_symbol", []),
-        "trend":      [],
+        "trend":      trend,
         "live_pushed_at": live.get("pushed_at"),
         "live_stale":  (not has_data) or age >= _CRO_LIVE_MAX_AGE_S,
         "live_age_s": age if has_data else None,

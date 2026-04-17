@@ -26,6 +26,7 @@ jobs:
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=no" \
             --exclude='fees.db' \
+            --exclude='cro_snapshots.db' \
             --exclude='.env' \
             --exclude='__pycache__' \
             --exclude='*.pyc' \

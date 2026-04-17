@@ -223,6 +223,8 @@ public class MT5LivePusher
         public double mthClosedPnl, mthNetDeps, mthDeps, mthWds, mthCob, mthVol;
         public double mthSwap, mthCommission;
         public int    mthNTraders, mthNActive, mthNDeps;
+        // Per-day closed PnL for trend table (date → closed PnL USD)
+        public SortedDictionary<string, double> closedPnlByDay;
     }
 
     static SlowData RunSlowLoop(CIMTManagerAPI mgr, string group,
@@ -260,6 +262,7 @@ public class MT5LivePusher
         var mArr = mgr.DealCreateArray();
         var mRes = mgr.DealRequestByGroup(group,
             SMTTime.FromDateTime(monthStart), SMTTime.FromDateTime(nowDt), mArr);
+        var byDay = new SortedDictionary<string, double>(StringComparer.Ordinal);
         if (mRes == MTRetCode.MT_RET_OK)
         {
             var mTraders = new HashSet<ulong>();
@@ -278,9 +281,14 @@ public class MT5LivePusher
                         mActive.Add(d.Login());
                     else
                     {
-                        sd.mthClosedPnl  += ToUsd(d.Profit() + d.Storage() + d.Commission(), rate);
+                        double cpDay = ToUsd(d.Profit() + d.Storage() + d.Commission(), rate);
+                        sd.mthClosedPnl  += cpDay;
                         sd.mthSwap       += ToUsd(d.Storage(), rate);
                         sd.mthCommission += ToUsd(d.Commission(), rate);
+                        // per-day breakdown
+                        string dayStr = SMTTime.ToDateTime(d.Time()).ToString("yyyy-MM-dd", ci);
+                        double ex; byDay.TryGetValue(dayStr, out ex);
+                        byDay[dayStr] = ex + cpDay;
                     }
                     double lots = d.Volume() / 100.0;
                     sd.mthVol += NotionalUsd(lots, d.ContractSize(), d.Price(), d.Symbol());
@@ -306,6 +314,7 @@ public class MT5LivePusher
             sd.mthNetDeps  = sd.mthDeps + sd.mthWds;
         }
         mArr.Dispose();
+        sd.closedPnlByDay = byDay;
 
         // -- FTD update -------------------------------------------------------
         if (!_knownDepLoaded)
@@ -533,6 +542,18 @@ public class MT5LivePusher
                 sb.Append(",\"monthly_n_traders\":").Append(slow.mthNTraders.ToString(ci));
                 sb.Append(",\"monthly_n_active_traders\":").Append(slow.mthNActive.ToString(ci));
                 sb.Append(",\"monthly_n_depositors\":").Append(slow.mthNDeps.ToString(ci));
+                // --- monthly_by_day (per-day closed PnL for trend table) ---
+                sb.Append(",\"monthly_by_day\":[");
+                bool bdFirst = true;
+                if (slow.closedPnlByDay != null)
+                    foreach (var kv in slow.closedPnlByDay)
+                    {
+                        if (!bdFirst) sb.Append(",");
+                        sb.Append("{\"date\":\"").Append(kv.Key).Append("\",\"closed_pnl\":");
+                        sb.Append(kv.Value.ToString("G17", ci)).Append("}");
+                        bdFirst = false;
+                    }
+                sb.Append("]");
                 // --- meta ---
                 sb.Append(",\"source\":\"AN100\"");
                 sb.Append(",\"group_mask\":\"").Append(JsonEscape(group)).Append("\"");
