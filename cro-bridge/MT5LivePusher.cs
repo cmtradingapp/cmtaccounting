@@ -89,6 +89,12 @@ public class MT5LivePusher
         public string currency;
     }
 
+    // Per-deposit-currency closed PnL bucket (all amounts in deposit currency)
+    struct CcyAgg
+    {
+        public double profit, swap, commission, usdTotal;
+    }
+
     struct CcyEntry { public string Sym, Ccy; public bool UsdBase; }
     static readonly CcyEntry[] CcyTable = {
         new CcyEntry { Sym="EURUSD", Ccy="EUR", UsdBase=false },
@@ -169,6 +175,11 @@ public class MT5LivePusher
         return mgr;
     }
 
+    // ── Login → deposit currency snapshot (populated by slow loop) ───────────
+    // Reference assignment is atomic on x86/x64, so no lock needed for reads.
+    static volatile Dictionary<ulong, string> _loginCcySnap =
+        new Dictionary<ulong, string>();
+
     // ── FTD tracking ──────────────────────────────────────────────────────────
     // Seed once at startup with YTD known depositors; then track incrementally.
     static readonly HashSet<ulong> _knownDepositors = new HashSet<ulong>();
@@ -225,6 +236,8 @@ public class MT5LivePusher
         public int    mthNTraders, mthNActive, mthNDeps;
         // Per-day closed PnL for trend table (date → closed PnL USD)
         public SortedDictionary<string, double> closedPnlByDay;
+        // Per-deposit-currency MTD closed PnL
+        public Dictionary<string, CcyAgg> mthByCcy;
     }
 
     static SlowData RunSlowLoop(CIMTManagerAPI mgr, string group,
@@ -242,8 +255,10 @@ public class MT5LivePusher
         //                = max(0, totalBalance + floatingPnl - cob)
         // IMTUser has Group() but not Currency() -- look up currency via groupCcy dict.
         var userArr = mgr.UserCreateArray();
+        var newLoginCcy = new Dictionary<ulong, string>();
         if (mgr.UserRequestArray(group, userArr) == MTRetCode.MT_RET_OK)
         {
+            newLoginCcy = new Dictionary<ulong, string>((int)userArr.Total());
             for (uint i = 0; i < userArr.Total(); i++)
             {
                 var u = userArr.Next(i);
@@ -254,7 +269,9 @@ public class MT5LivePusher
                 if (!ccyRates.TryGetValue(ccy, out rate)) rate = 1.0;
                 sd.totalBalance += u.Balance() * rate;
                 sd.totalCredit  += u.Credit()  * rate;
+                newLoginCcy[u.Login()] = ccy;
             }
+            _loginCcySnap = newLoginCcy;  // atomic reference swap
         }
         userArr.Release();
 
@@ -262,7 +279,10 @@ public class MT5LivePusher
         var mArr = mgr.DealCreateArray();
         var mRes = mgr.DealRequestByGroup(group,
             SMTTime.FromDateTime(monthStart), SMTTime.FromDateTime(nowDt), mArr);
-        var byDay = new SortedDictionary<string, double>(StringComparer.Ordinal);
+        var byDay    = new SortedDictionary<string, double>(StringComparer.Ordinal);
+        var mthByCcy = new Dictionary<string, CcyAgg>(StringComparer.Ordinal);
+        // Use the freshly-built loginCcy mapping (populated above)
+        var lcSnap   = newLoginCcy.Count > 0 ? newLoginCcy : _loginCcySnap;
         if (mRes == MTRetCode.MT_RET_OK)
         {
             var mTraders = new HashSet<ulong>();
@@ -270,25 +290,36 @@ public class MT5LivePusher
             var mDeps    = new HashSet<ulong>();
             for (uint i = 0; i < mArr.Total(); i++)
             {
-                var d      = mArr.Next(i);
-                uint action = d.Action();
-                double rate = d.RateProfit();
+                var    d      = mArr.Next(i);
+                uint   action = d.Action();
+                ulong  mLogin = d.Login();
 
                 if (action == ACTION_BUY || action == ACTION_SELL)
                 {
-                    mTraders.Add(d.Login());
+                    mTraders.Add(mLogin);
                     if (d.Entry() == ENTRY_IN)
-                        mActive.Add(d.Login());
+                        mActive.Add(mLogin);
                     else
                     {
-                        double cpDay = ToUsd(d.Profit() + d.Storage() + d.Commission(), rate);
+                        // Currency-aware USD conversion using deposit currency
+                        string mCcy; if (!lcSnap.TryGetValue(mLogin, out mCcy)) mCcy = "USD";
+                        double mRate; if (!ccyRates.TryGetValue(mCcy, out mRate)) mRate = 1.0;
+                        double mNative = d.Profit() + d.Storage() + d.Commission();
+                        double cpDay   = mNative * mRate;
                         sd.mthClosedPnl  += cpDay;
-                        sd.mthSwap       += ToUsd(d.Storage(), rate);
-                        sd.mthCommission += ToUsd(d.Commission(), rate);
+                        sd.mthSwap       += d.Storage()    * mRate;
+                        sd.mthCommission += d.Commission() * mRate;
                         // per-day breakdown
                         string dayStr = SMTTime.ToDateTime(d.Time()).ToString("yyyy-MM-dd", ci);
                         double ex; byDay.TryGetValue(dayStr, out ex);
                         byDay[dayStr] = ex + cpDay;
+                        // per-currency breakdown
+                        CcyAgg ca; mthByCcy.TryGetValue(mCcy, out ca);
+                        ca.profit     += d.Profit();
+                        ca.swap       += d.Storage();
+                        ca.commission += d.Commission();
+                        ca.usdTotal   += mNative * mRate;
+                        mthByCcy[mCcy] = ca;
                     }
                     double lots = d.Volume() / 100.0;
                     sd.mthVol += NotionalUsd(lots, d.ContractSize(), d.Price(), d.Symbol());
@@ -296,7 +327,7 @@ public class MT5LivePusher
                 else if (action == ACTION_BALANCE)
                 {
                     string comment = (d.Comment() ?? "").ToLowerInvariant();
-                    double amt = ToUsd(d.Profit(), rate);
+                    double amt = ToUsd(d.Profit(), d.RateProfit());
                     if (comment.Contains("bonus"))
                     {
                         sd.mthCob += amt;   // COB: bonus balance for WD Equity Z
@@ -304,7 +335,7 @@ public class MT5LivePusher
                     }
                     if (comment.Contains("internal") || comment.Contains("transfer"))
                         continue;
-                    if (amt > 0) { sd.mthDeps += amt; mDeps.Add(d.Login()); }
+                    if (amt > 0) { sd.mthDeps += amt; mDeps.Add(mLogin); }
                     else           sd.mthWds  += amt;
                 }
             }
@@ -315,6 +346,7 @@ public class MT5LivePusher
         }
         mArr.Dispose();
         sd.closedPnlByDay = byDay;
+        sd.mthByCcy       = mthByCcy;
 
         // -- FTD update -------------------------------------------------------
         if (!_knownDepLoaded)
@@ -415,6 +447,8 @@ public class MT5LivePusher
                 var tradersActive = new HashSet<ulong>();
                 var depositors    = new HashSet<ulong>();
                 var bySymbol      = new Dictionary<string, SymAgg>();
+                var closedByCcy   = new Dictionary<string, CcyAgg>(StringComparer.Ordinal);
+                var lcFast        = _loginCcySnap; // snapshot reference — no lock needed
 
                 var dealArr = mgr.DealCreateArray();
                 if (mgr.DealRequestByGroup(group,
@@ -426,7 +460,6 @@ public class MT5LivePusher
                         var    d      = dealArr.Next(i);
                         uint   action = d.Action();
                         ulong  dLogin = d.Login();
-                        double rate   = d.RateProfit();
 
                         if (action == ACTION_BUY || action == ACTION_SELL)
                         {
@@ -435,18 +468,36 @@ public class MT5LivePusher
                                 tradersActive.Add(dLogin);
                             else
                             {
-                                closedPnl += ToUsd(d.Profit() + d.Storage() + d.Commission(), rate);
+                                // Currency-aware USD conversion using deposit currency
+                                string dCcy; if (!lcFast.TryGetValue(dLogin, out dCcy)) dCcy = "USD";
+                                double dRate; if (!ccyRates.TryGetValue(dCcy, out dRate)) dRate = 1.0;
+                                double dNative = d.Profit() + d.Storage() + d.Commission();
+                                closedPnl += dNative * dRate;
                                 nClosingDeals++;
+                                // per-currency bucket
+                                CcyAgg dca; closedByCcy.TryGetValue(dCcy, out dca);
+                                dca.profit     += d.Profit();
+                                dca.swap       += d.Storage();
+                                dca.commission += d.Commission();
+                                dca.usdTotal   += dNative * dRate;
+                                closedByCcy[dCcy] = dca;
                             }
                             double lots = d.Volume() / 100.0;
                             double dn   = NotionalUsd(lots, d.ContractSize(), d.Price(), d.Symbol());
                             volumeUsd  += dn;
-                            swap       += ToUsd(d.Storage(),    rate);
-                            commission += ToUsd(d.Commission(), rate);
+                            // swap/commission totals: also currency-aware
+                            {
+                                string sCcy; if (!lcFast.TryGetValue(dLogin, out sCcy)) sCcy = "USD";
+                                double sRate; if (!ccyRates.TryGetValue(sCcy, out sRate)) sRate = 1.0;
+                                swap       += d.Storage()    * sRate;
+                                commission += d.Commission() * sRate;
+                            }
 
                             string sym = d.Symbol();
                             if (!string.IsNullOrEmpty(sym))
                             {
+                                string symCcy; if (!lcFast.TryGetValue(dLogin, out symCcy)) symCcy = "USD";
+                                double symRate; if (!ccyRates.TryGetValue(symCcy, out symRate)) symRate = 1.0;
                                 SymAgg sa;
                                 if (!bySymbol.TryGetValue(sym, out sa))
                                     { sa = new SymAgg { symbol = sym }; bySymbol[sym] = sa; }
@@ -455,14 +506,14 @@ public class MT5LivePusher
                                 sa.notionalUsd  += dn;
                                 if (action == ACTION_BUY) sa.notionalBuy += dn;
                                 else                      sa.notionalSell += dn;
-                                sa.swap       += ToUsd(d.Storage(),    rate);
-                                sa.commission += ToUsd(d.Commission(), rate);
-                                sa.pnl        += ToUsd(d.Profit() + d.Storage() + d.Commission(), rate);
+                                sa.swap       += d.Storage()    * symRate;
+                                sa.commission += d.Commission() * symRate;
+                                sa.pnl        += (d.Profit() + d.Storage() + d.Commission()) * symRate;
                             }
                         }
                         else if (action == ACTION_BALANCE)
                         {
-                            double amt     = ToUsd(d.Profit(), rate);
+                            double amt     = ToUsd(d.Profit(), d.RateProfit());
                             string comment = (d.Comment() ?? "").ToLowerInvariant();
                             if (comment.Contains("bonus") || comment.Contains("internal") || comment.Contains("transfer"))
                                 continue;
@@ -526,6 +577,24 @@ public class MT5LivePusher
                 sb.Append(",\"n_active_traders\":").Append(tradersActive.Count.ToString(ci));
                 sb.Append(",\"n_depositors\":").Append(depositors.Count.ToString(ci));
                 sb.Append(",\"n_ftd\":").Append(_ftdToday.ToString(ci));
+                // --- closed_pnl_by_ccy (sorted by abs usdTotal desc) ---
+                var ccyList = new List<KeyValuePair<string, CcyAgg>>(closedByCcy);
+                ccyList.Sort(delegate(KeyValuePair<string, CcyAgg> a, KeyValuePair<string, CcyAgg> b) {
+                    return Math.Abs(b.Value.usdTotal).CompareTo(Math.Abs(a.Value.usdTotal));
+                });
+                sb.Append(",\"closed_pnl_by_ccy\":[");
+                for (int i = 0; i < ccyList.Count; i++)
+                {
+                    var kv = ccyList[i];
+                    if (i > 0) sb.Append(",");
+                    sb.Append("{\"ccy\":\"").Append(JsonEscape(kv.Key)).Append("\"");
+                    sb.Append(",\"profit\":").Append(kv.Value.profit.ToString("G17", ci));
+                    sb.Append(",\"swap\":").Append(kv.Value.swap.ToString("G17", ci));
+                    sb.Append(",\"commission\":").Append(kv.Value.commission.ToString("G17", ci));
+                    sb.Append(",\"usd_total\":").Append(kv.Value.usdTotal.ToString("G17", ci));
+                    sb.Append("}");
+                }
+                sb.Append("]");
                 // --- slow / account fields ---
                 sb.Append(",\"balance\":").Append(slow.totalBalance.ToString("G17", ci));
                 sb.Append(",\"credit\":").Append(slow.totalCredit.ToString("G17", ci));
@@ -553,6 +622,25 @@ public class MT5LivePusher
                         sb.Append(kv.Value.ToString("G17", ci)).Append("}");
                         bdFirst = false;
                     }
+                sb.Append("]");
+                // --- monthly_closed_pnl_by_ccy ---
+                var mCcyList = new List<KeyValuePair<string, CcyAgg>>(
+                    slow.mthByCcy != null ? slow.mthByCcy : new Dictionary<string, CcyAgg>());
+                mCcyList.Sort(delegate(KeyValuePair<string, CcyAgg> a, KeyValuePair<string, CcyAgg> b) {
+                    return Math.Abs(b.Value.usdTotal).CompareTo(Math.Abs(a.Value.usdTotal));
+                });
+                sb.Append(",\"monthly_closed_pnl_by_ccy\":[");
+                for (int i = 0; i < mCcyList.Count; i++)
+                {
+                    var kv = mCcyList[i];
+                    if (i > 0) sb.Append(",");
+                    sb.Append("{\"ccy\":\"").Append(JsonEscape(kv.Key)).Append("\"");
+                    sb.Append(",\"profit\":").Append(kv.Value.profit.ToString("G17", ci));
+                    sb.Append(",\"swap\":").Append(kv.Value.swap.ToString("G17", ci));
+                    sb.Append(",\"commission\":").Append(kv.Value.commission.ToString("G17", ci));
+                    sb.Append(",\"usd_total\":").Append(kv.Value.usdTotal.ToString("G17", ci));
+                    sb.Append("}");
+                }
                 sb.Append("]");
                 // --- meta ---
                 sb.Append(",\"source\":\"AN100\"");

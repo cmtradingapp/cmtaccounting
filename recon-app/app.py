@@ -2637,6 +2637,8 @@ def cro_data():
         "monthly":    monthly,
         "by_group":   live.get("by_group", []),
         "by_symbol":  live.get("by_symbol", []),
+        "closed_pnl_by_ccy":         live.get("closed_pnl_by_ccy", []),
+        "monthly_closed_pnl_by_ccy": live.get("monthly_closed_pnl_by_ccy", []),
         "trend":      trend,
         "live_pushed_at": live.get("pushed_at"),
         "live_stale":  (not has_data) or age >= _CRO_LIVE_MAX_AGE_S,
