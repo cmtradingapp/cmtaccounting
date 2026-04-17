@@ -670,7 +670,7 @@ function opSearchFn(q){_opSearch=q;buildTable();}
 
 document.addEventListener('DOMContentLoaded', function(){
   // Move fixed overlays to <body> so position:fixed is always viewport-relative
-  // (ancestor transforms inside {% block content %} would otherwise break it)
+  // (ancestor CSS transforms in the content block would otherwise break it)
   document.body.appendChild(document.getElementById('mxTip'));
   document.body.appendChild(document.getElementById('agentTip'));
   loadOperators();
