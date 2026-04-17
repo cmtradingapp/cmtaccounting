@@ -25,6 +25,58 @@ public class MT5Monitor
         return native;
     }
 
+    // FX pair table for non-USD deposit currencies.
+    // UsdBase=true  → symbol is USDxxx → 1 deposit_ccy = 1/mid USD
+    // UsdBase=false → symbol is xxxUSD → 1 deposit_ccy = mid USD
+    struct CcyEntry { public string Sym, Ccy; public bool UsdBase; }
+    static readonly CcyEntry[] CcyTable = {
+        new CcyEntry { Sym="EURUSD", Ccy="EUR", UsdBase=false },
+        new CcyEntry { Sym="GBPUSD", Ccy="GBP", UsdBase=false },
+        new CcyEntry { Sym="AUDUSD", Ccy="AUD", UsdBase=false },
+        new CcyEntry { Sym="NZDUSD", Ccy="NZD", UsdBase=false },
+        new CcyEntry { Sym="USDZAR", Ccy="ZAR", UsdBase=true  },
+        new CcyEntry { Sym="USDKES", Ccy="KES", UsdBase=true  },
+        new CcyEntry { Sym="USDNGN", Ccy="NGN", UsdBase=true  },
+        new CcyEntry { Sym="USDMXN", Ccy="MXN", UsdBase=true  },
+        new CcyEntry { Sym="USDAED", Ccy="AED", UsdBase=true  },
+        new CcyEntry { Sym="USDCLP", Ccy="CLP", UsdBase=true  },
+        new CcyEntry { Sym="USDINR", Ccy="INR", UsdBase=true  },
+    };
+
+    // Build currency→USD rate map from live TickLast prices.
+    static Dictionary<string, double> BuildCcyRates(CIMTManagerAPI mgr)
+    {
+        var d = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        d["USD"] = 1.0;
+        foreach (var c in CcyTable)
+        {
+            MTTickShort tick;
+            if (mgr.TickLast(c.Sym, out tick) == MTRetCode.MT_RET_OK && tick.bid > 0 && tick.ask > 0)
+            {
+                double mid = (tick.bid + tick.ask) * 0.5;
+                d[c.Ccy] = c.UsdBase ? 1.0 / mid : mid;
+            }
+        }
+        return d;
+    }
+
+    // Load exact group name → deposit currency map from the server.
+    static Dictionary<string, string> LoadGroupCurrencies(CIMTManagerAPI mgr, string mask)
+    {
+        var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var arr = mgr.GroupCreateArray();
+        if (mgr.GroupRequestArray(mask, arr) == MTRetCode.MT_RET_OK)
+            for (uint i = 0; i < arr.Total(); i++)
+            {
+                var g = arr.Next(i);
+                string name = g.Group() ?? "";
+                if (!string.IsNullOrEmpty(name))
+                    d[name] = g.Currency() ?? "USD";
+            }
+        arr.Release();
+        return d;
+    }
+
     static CIMTManagerAPI Connect(string server, ulong login, string pw)
     {
         MTRetCode cm = MTRetCode.MT_RET_OK_NONE;
@@ -59,25 +111,6 @@ public class MT5Monitor
             Thread.Sleep(500);
         }
         return mgr;
-    }
-
-    static Dictionary<string, bool> LoadGroupCurrencies(CIMTManagerAPI mgr, string groupMask)
-    {
-        var dict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        var grpArr = mgr.GroupCreateArray();
-        if (mgr.GroupRequestArray(groupMask, grpArr) == MTRetCode.MT_RET_OK)
-        {
-            for (uint i = 0; i < grpArr.Total(); i++)
-            {
-                var g = grpArr.Next(i);
-                string name = g.Group() ?? "";
-                string ccy  = g.Currency() ?? "USD";
-                if (!string.IsNullOrEmpty(name))
-                    dict[name] = string.Equals(ccy, "USD", StringComparison.OrdinalIgnoreCase);
-            }
-        }
-        grpArr.Release();
-        return dict;
     }
 
     public static int Main(string[] args)
@@ -120,39 +153,40 @@ public class MT5Monitor
             if (mgr == null) Thread.Sleep(5000);
         }
         Console.Error.WriteLine("[monitor] Connected.");
-        var groupCurrencies = LoadGroupCurrencies(mgr, group);
-        Console.Error.WriteLine("[monitor] Loaded " + groupCurrencies.Count + " groups.");
+        var groupCcy         = LoadGroupCurrencies(mgr, group);
+        var ccyRates         = BuildCcyRates(mgr);
+        int rateRefreshCycle = 0;
+        Console.Error.WriteLine("[monitor] " + groupCcy.Count + " groups, " + ccyRates.Count + " FX rates loaded.");
 
         while (true)
         {
             try
             {
-                // --- floating PnL: per-group, currency-aware (pump cache reads) ---
+                // Refresh live FX rates every 60 cycles (~1 min at interval=1s).
+                if (++rateRefreshCycle >= 60) { ccyRates = BuildCcyRates(mgr); rateRefreshCycle = 0; }
+
+                // --- floating PnL: per-group, live-rate USD conversion ---
                 double floatPnl = 0;
                 int    nPos = 0;
                 bool   posErr = false;
-                foreach (var kv in groupCurrencies)
+                foreach (var kv in groupCcy)
                 {
+                    double usdRate;
+                    bool   hasRate = ccyRates.TryGetValue(kv.Value, out usdRate);
+
                     var posArr = mgr.PositionCreateArray();
                     if (mgr.PositionGetByGroup(kv.Key, posArr) != MTRetCode.MT_RET_OK)
                     {
-                        posArr.Dispose();
-                        posErr = true;
-                        break;
+                        posArr.Dispose(); posErr = true; break;
                     }
-                    bool isUsd = kv.Value;
                     nPos += (int)posArr.Total();
                     for (uint i = 0; i < posArr.Total(); i++)
                     {
                         var p = posArr.Next(i);
                         double native = p.Profit() + p.Storage();
-                        if (isUsd)
-                            floatPnl += native;
-                        else
-                        {
-                            double r = p.RateProfit();
-                            floatPnl += (r > 0.0) ? native / r : native;
-                        }
+                        floatPnl += hasRate
+                            ? native * usdRate
+                            : ToUsd(native, p.RateProfit());
                     }
                     posArr.Dispose();
                 }
@@ -162,7 +196,8 @@ public class MT5Monitor
                     try { mgr.Disconnect(); } catch { }
                     mgr.Dispose(); mgr = null;
                     while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
-                    groupCurrencies = LoadGroupCurrencies(mgr, group);
+                    groupCcy = LoadGroupCurrencies(mgr, group);
+                    ccyRates = BuildCcyRates(mgr); rateRefreshCycle = 0;
                     Thread.Sleep(interval * 1000);
                     continue;
                 }
@@ -217,7 +252,8 @@ public class MT5Monitor
                 try { mgr.Dispose(); } catch { }
                 mgr = null;
                 while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
-                groupCurrencies = LoadGroupCurrencies(mgr, group);
+                groupCcy = LoadGroupCurrencies(mgr, group);
+                ccyRates = BuildCcyRates(mgr); rateRefreshCycle = 0;
             }
 
             Thread.Sleep(interval * 1000);

@@ -132,12 +132,12 @@ public class MT5Bridge
 
         Console.Error.WriteLine("[helper] Waiting for position pump...");
         {
-            var pumpDeadline = DateTime.UtcNow.AddSeconds(30);
-            while (DateTime.UtcNow < pumpDeadline)
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (DateTime.UtcNow < deadline)
             {
-                var testArr = mgr.PositionCreateArray();
-                bool ready = mgr.PositionGetByGroup("*", testArr) == MTRetCode.MT_RET_OK && testArr.Total() > 0;
-                testArr.Dispose();
+                var t = mgr.PositionCreateArray();
+                bool ready = mgr.PositionGetByGroup("*", t) == MTRetCode.MT_RET_OK && t.Total() > 0;
+                t.Dispose();
                 if (ready) break;
                 Thread.Sleep(500);
             }
@@ -155,54 +155,55 @@ public class MT5Bridge
         int exitOnErr = 0;
         try
         {
-            // --- open positions: floating PnL, currency-aware per group ---
+            // --- open positions: per-group, live TickLast FX rates ---
+            // Build currency→USD rates from live bid/ask (same approach as C++ diagnostic).
+            var ccyRates = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            ccyRates["USD"] = 1.0;
+            string[,] fxTable = {
+                {"EURUSD","EUR","0"}, {"GBPUSD","GBP","0"}, {"AUDUSD","AUD","0"}, {"NZDUSD","NZD","0"},
+                {"USDZAR","ZAR","1"}, {"USDKES","KES","1"}, {"USDNGN","NGN","1"}, {"USDMXN","MXN","1"},
+                {"USDAED","AED","1"}, {"USDCLP","CLP","1"}, {"USDINR","INR","1"},
+            };
+            for (int fi = 0; fi < fxTable.GetLength(0); fi++)
+            {
+                MTTickShort tick;
+                if (mgr.TickLast(fxTable[fi,0], out tick) == MTRetCode.MT_RET_OK && tick.bid > 0 && tick.ask > 0)
+                {
+                    double mid = (tick.bid + tick.ask) * 0.5;
+                    ccyRates[fxTable[fi,1]] = fxTable[fi,2] == "1" ? 1.0 / mid : mid;
+                }
+            }
+
+            // Load group → deposit currency, iterate per-group positions.
             var grpArr = mgr.GroupCreateArray();
             if (mgr.GroupRequestArray(group, grpArr) == MTRetCode.MT_RET_OK)
             {
-                var groupIsUsd = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-                for (uint i = 0; i < grpArr.Total(); i++)
+                for (uint gi = 0; gi < grpArr.Total(); gi++)
                 {
-                    var g = grpArr.Next(i);
+                    var g = grpArr.Next(gi);
                     string gName = g.Group() ?? "";
                     string gCcy  = g.Currency() ?? "USD";
-                    if (!string.IsNullOrEmpty(gName))
-                        groupIsUsd[gName] = string.Equals(gCcy, "USD", StringComparison.OrdinalIgnoreCase);
-                }
-                grpArr.Release();
-                foreach (var kv in groupIsUsd)
-                {
+                    if (string.IsNullOrEmpty(gName)) continue;
+
+                    double usdRate; bool hasRate = ccyRates.TryGetValue(gCcy, out usdRate);
+
                     var posArr = mgr.PositionCreateArray();
-                    var posRes = mgr.PositionGetByGroup(kv.Key, posArr);
-                    if (posRes != MTRetCode.MT_RET_OK)
+                    if (mgr.PositionGetByGroup(gName, posArr) != MTRetCode.MT_RET_OK)
                     {
-                        Console.Error.WriteLine("PositionGetByGroup failed for " + kv.Key + ": " + posRes);
-                        posArr.Dispose();
-                        exitOnErr = 6;
-                        break;
+                        posArr.Dispose(); exitOnErr = 6; break;
                     }
-                    bool isUsd = kv.Value;
                     nPositions += (int)posArr.Total();
-                    for (uint i = 0; i < posArr.Total(); i++)
+                    for (uint pi = 0; pi < posArr.Total(); pi++)
                     {
-                        var p = posArr.Next(i);
+                        var p = posArr.Next(pi);
                         double native = p.Profit() + p.Storage();
-                        if (isUsd)
-                            floatingPnl += native;
-                        else
-                        {
-                            double r = p.RateProfit();
-                            floatingPnl += (r > 0.0) ? native / r : native;
-                        }
+                        floatingPnl += hasRate ? native * usdRate : ToUsd(native, p.RateProfit());
                     }
                     posArr.Dispose();
                 }
             }
-            else
-            {
-                grpArr.Release();
-                Console.Error.WriteLine("GroupRequestArray failed");
-                exitOnErr = 6;
-            }
+            else { exitOnErr = 6; }
+            grpArr.Release();
 
             // --- today's deals ---
             DateTime dayStartDt = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(dayStart);
