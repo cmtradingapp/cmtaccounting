@@ -31,7 +31,7 @@ public class MT5Monitor
         var pw       = Environment.GetEnvironmentVariable("MT5_PASSWORD") ?? "";
         var group    = Environment.GetEnvironmentVariable("CRO_GROUP")    ?? "CMV*";
         var sdkDir   = Environment.GetEnvironmentVariable("MT5_SDK_LIBS") ?? @"C:\MetaTrader5SDK\Libs";
-        int interval = int.Parse(Environment.GetEnvironmentVariable("MT5_INTERVAL") ?? "5", ci);
+        int interval = int.Parse(Environment.GetEnvironmentVariable("MT5_INTERVAL") ?? "1", ci);
 
         if (string.IsNullOrEmpty(server) || string.IsNullOrEmpty(pw))
         {

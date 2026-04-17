@@ -15,6 +15,6 @@ $env:MT5_LOGIN     = "1111"
 $env:MT5_PASSWORD  = "Zt*pE5AkZ_SkEgH5"
 $env:MT5_SDK_LIBS  = "C:\MetaTrader5SDK\Libs"
 $env:CRO_GROUP     = "CMV*"
-$env:MT5_INTERVAL  = "5"   # seconds between polls
+$env:MT5_INTERVAL  = "1"   # seconds between polls
 
 .\MT5Monitor.exe
