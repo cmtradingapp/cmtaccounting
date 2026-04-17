@@ -294,7 +294,12 @@ function loadOperators(){
         o.total_clients=s.total_clients||0;o.funded_clients=s.funded_clients||0;
         o.total_deposit_volume=s.total_deposit_volume||0;o.ftd_count=s.ftd_count||0;o.ftd_volume=s.ftd_volume||0;
       }); _statsLoaded=true; buildTable(); buildLeaderboard();
-    }).catch(function(){});
+    }).catch(function(){
+      // Stats failed — show error so the leaderboard doesn't spin forever
+      document.getElementById('lbBody').innerHTML=
+        '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--red);font-size:12px;">'+
+        'Stats unavailable \u2014 CRM database may be under heavy load. Refresh to retry.</td></tr>';
+    });
   }).catch(function(e){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">'+e+'</span>';});
 }
 

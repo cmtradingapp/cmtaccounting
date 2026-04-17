@@ -4057,7 +4057,7 @@ def operator_client_stats() -> dict:
                         COUNT(CASE WHEN countdeposits > 0 THEN 1 END) AS funded_clients,
                         SUM(CAST(ISNULL(total_deposit, 0) AS FLOAT)) AS total_deposit_volume,
                         SUM(CAST(ISNULL(net_deposit, 0) AS FLOAT)) AS net_deposit_volume
-                    FROM report.vtiger_account
+                    FROM report.vtiger_account WITH (NOLOCK)
                     WHERE assigned_to IS NOT NULL AND assigned_to > 0
                     GROUP BY assigned_to
                 """)
@@ -4084,7 +4084,7 @@ def operator_ftd_stats() -> dict:
                         assigned_to AS operator_id,
                         COUNT(*) AS ftd_count,
                         SUM(amount) AS ftd_volume
-                    FROM dbo.v_agent_desk_dealing_tableau
+                    FROM dbo.v_agent_desk_dealing_tableau WITH (NOLOCK)
                     WHERE assigned_to IS NOT NULL AND assigned_to > 0
                     GROUP BY assigned_to
                 """)

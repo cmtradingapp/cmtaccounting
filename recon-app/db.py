@@ -146,6 +146,7 @@ def _conn_crm():
         password=os.environ["CRM_PASS"],
         tds_version="7.4",   # required for Azure SQL
         login_timeout=10,
+        timeout=120,         # 2-min query timeout — prevents indefinite hangs
     )
 
 def _conn_fees_pg():
