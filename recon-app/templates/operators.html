@@ -23,9 +23,16 @@
   .matrix-table tbody tr:hover .dep { background:rgba(79,142,247,.1); color:var(--accent); }
   .matrix-table td:not(.dep):not(.total-col):hover::after { content:''; position:absolute; left:0; right:0; top:-5000px; bottom:-5000px; background:rgba(79,142,247,.06); z-index:-1; pointer-events:none; }
   .matrix-table td:not(.dep):not(.total-col):hover { background:rgba(79,142,247,.15)!important; color:var(--text)!important; border-radius:3px; }
-  .mx-tip { display:none; position:fixed; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 14px; box-shadow:0 8px 24px rgba(0,0,0,.5); max-width:280px; font-size:12px; pointer-events:none; }
-  .mx-tip-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
-  .mx-tip-name { color:var(--text); padding:2px 0; }
+  .mx-tip { display:none; position:fixed; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 14px; box-shadow:0 8px 24px rgba(0,0,0,.5); font-size:12px; pointer-events:none; max-width:90vw; }
+  .mx-tip.pinned { pointer-events:auto; border-color:var(--accent); box-shadow:0 12px 36px rgba(0,0,0,.7); }
+  .mx-tip-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; }
+  .mx-tip-close { cursor:pointer; color:var(--muted); font-size:14px; line-height:1; padding:0 2px; }
+  .mx-tip-close:hover { color:var(--text); }
+  .mx-tip-cols { display:flex; gap:0; }
+  .mx-tip-col { flex:1; }
+  .mx-tip-col + .mx-tip-col { border-left:1px solid var(--border); padding-left:12px; margin-left:12px; }
+  .mx-tip-name { color:var(--text); padding:2px 4px; border-radius:3px; cursor:default; white-space:nowrap; }
+  .mx-tip.pinned .mx-tip-name:hover { background:rgba(79,142,247,.12); color:var(--accent); cursor:pointer; }
 
   /* Activity cards */
   .act-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:12px; }
@@ -373,7 +380,7 @@ function buildMatrix(){
   var colT={}; offList.forEach(function(o){colT[o]=0;}); var gt=0;
   deptList.forEach(function(d){h+='<tr><td class="dep">'+d+'</td>';var rt=0;
     offList.forEach(function(o){var c=depts[d][o]||0;rt+=c;colT[o]+=c;
-      h+='<td class="'+(c?'has':'empty')+'"'+(c?' data-mxkey="'+d+'|'+o+'"':'')+' onmouseenter="showMxTip(event,this)" onmouseleave="hideMxTip()">'+(c||'\u00b7')+'</td>';});
+      h+='<td class="'+(c?'has':'empty')+'"'+(c?' data-mxkey="'+d+'|'+o+'"':'')+' onmouseenter="showMxTip(event,this)" onmouseleave="hideMxTip()" onclick="pinMxTip(event,this)">'+(c||'\u00b7')+'</td>';});
     gt+=rt;h+='<td class="total-col">'+rt+'</td></tr>';});
   h+='</tbody><tfoot><tr><td class="dep">Total</td>';offList.forEach(function(o){h+='<td>'+colT[o]+'</td>';});
   h+='<td class="total-col" style="font-size:13px;">'+gt+'</td></tr></tfoot></table>';
@@ -575,11 +582,84 @@ function _showTip(e,html){
 function showAgent(e,idx){ var o=_currentView[idx];if(!o)return;_showTip(e,_agentTipHtml(o)); }
 function showAgentById(e,id){ var o=_allOps.find(function(x){return x.id===id;});if(!o)return;_showTip(e,_agentTipHtml(o)); }
 function hideAgent(){document.getElementById('agentTip').style.display='none';}
-function showMxTip(e,td){var k=td.getAttribute('data-mxkey');if(!k)return;var names=_matrixNames[k];if(!names||!names.length)return;
-  var p=k.split('|'),tip=document.getElementById('mxTip');document.getElementById('mxTipTitle').textContent=p[0]+' \u2014 '+p[1];
-  document.getElementById('mxTipBody').innerHTML=names.map(function(n){return '<div class="mx-tip-name">'+n+'</div>';}).join('');
-  tip.style.display='block';tip.style.left=Math.min(e.clientX+12,window.innerWidth-300)+'px';tip.style.top=Math.min(e.clientY+12,window.innerHeight-200)+'px';}
-function hideMxTip(){document.getElementById('mxTip').style.display='none';}
+var _mxPinned=false;
+
+function _buildMxTip(key, pinned){
+  var names=_matrixNames[key]||[];
+  var p=key.split('|');
+  var title=p[0]+' \u2014 '+p[1];
+  // Split into columns: 1 col up to 12, 2 cols up to 28, 3 cols above that
+  var cols=names.length>28?3:names.length>12?2:1;
+  var perCol=Math.ceil(names.length/cols);
+  var colsHtml='<div class="mx-tip-cols">';
+  for(var c=0;c<cols;c++){
+    var slice=names.slice(c*perCol,(c+1)*perCol);
+    colsHtml+='<div class="mx-tip-col">'+slice.map(function(n){
+      // find operator by name for hover
+      return '<div class="mx-tip-name" data-mxname="'+n.replace(/"/g,'&quot;')+'">'+n+'</div>';
+    }).join('')+'</div>';
+  }
+  colsHtml+='</div>';
+  var closeBtn=pinned?'<span class="mx-tip-close" onclick="unpinMxTip()">\u00d7</span>':'';
+  return '<div class="mx-tip-title"><span>'+title+'</span>'+closeBtn+'</div>'+colsHtml;
+}
+
+function _positionMxTip(tip, x, y){
+  tip.style.left='0px'; tip.style.top='0px'; tip.style.display='block';
+  var w=tip.offsetWidth, h=tip.offsetHeight;
+  tip.style.left=Math.min(x+12, window.innerWidth-w-12)+'px';
+  tip.style.top=Math.min(y+12, window.innerHeight-h-12)+'px';
+}
+
+function showMxTip(e,td){
+  if(_mxPinned)return;
+  var k=td.getAttribute('data-mxkey');if(!k)return;
+  var tip=document.getElementById('mxTip');
+  tip.classList.remove('pinned');
+  tip.innerHTML=_buildMxTip(k,false);
+  _positionMxTip(tip,e.clientX,e.clientY);
+}
+
+function hideMxTip(){
+  if(_mxPinned)return;
+  document.getElementById('mxTip').style.display='none';
+}
+
+function pinMxTip(e,td){
+  var k=td.getAttribute('data-mxkey');if(!k)return;
+  e.stopPropagation();
+  _mxPinned=true;
+  var tip=document.getElementById('mxTip');
+  tip.classList.add('pinned');
+  tip.innerHTML=_buildMxTip(k,true);
+  _positionMxTip(tip,e.clientX,e.clientY);
+  // Hover names in pinned tip → show agent tooltip
+  tip.querySelectorAll('.mx-tip-name').forEach(function(el){
+    el.addEventListener('mouseenter',function(ev){
+      var n=el.getAttribute('data-mxname');
+      var op=_allOps.find(function(o){
+        return (((o.first_name||'')+' '+(o.last_name||'')).trim()===n||o.user_name===n);
+      });
+      if(op) _showTip(ev,_agentTipHtml(op));
+    });
+    el.addEventListener('mouseleave',function(){ hideAgent(); });
+  });
+}
+
+function unpinMxTip(){
+  _mxPinned=false;
+  var tip=document.getElementById('mxTip');
+  tip.classList.remove('pinned');
+  tip.style.display='none';
+  hideAgent();
+}
+
+// Click outside pinned tip to unpin
+document.addEventListener('click',function(e){
+  if(_mxPinned&&!e.target.closest('#mxTip')&&!e.target.closest('.matrix-table')){
+    unpinMxTip();
+  }
+});
 
 function opFilter(f,btn){_opFilter=f;document.querySelectorAll('.op-filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');buildTable();}
 function opSearchFn(q){_opSearch=q;buildTable();}
