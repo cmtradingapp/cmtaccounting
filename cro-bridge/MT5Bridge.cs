@@ -138,11 +138,17 @@ public class MT5Bridge
         HashSet<ulong> depositors = new HashSet<ulong>();
         var bySymbol = new Dictionary<string, SymAgg>();
 
+        int exitOnErr = 0;
         try
         {
             // --- open positions: floating PnL ---
             var posArr = mgr.PositionCreateArray();
-            mgr.PositionRequestByGroup(group, posArr);
+            var posRes = mgr.PositionRequestByGroup(group, posArr);
+            if (posRes != MTRetCode.MT_RET_OK)
+            {
+                Console.Error.WriteLine("PositionRequestByGroup failed: " + posRes);
+                exitOnErr = 6;
+            }
             nPositions = (int)posArr.Total();
             for (uint i = 0; i < posArr.Total(); i++)
             {
@@ -155,8 +161,13 @@ public class MT5Bridge
             DateTime dayStartDt = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(dayStart);
             DateTime nowDt      = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(nowUnix);
             var dealArr = mgr.DealCreateArray();
-            mgr.DealRequestByGroup(group,
+            var dealRes = mgr.DealRequestByGroup(group,
                 SMTTime.FromDateTime(dayStartDt), SMTTime.FromDateTime(nowDt), dealArr);
+            if (dealRes != MTRetCode.MT_RET_OK)
+            {
+                Console.Error.WriteLine("DealRequestByGroup failed: " + dealRes);
+                exitOnErr = 7;
+            }
 
             for (uint i = 0; i < dealArr.Total(); i++)
             {
@@ -284,6 +295,12 @@ public class MT5Bridge
         }
         sb.Append("]}");
 
+        // Don't push a JSON with stale/incomplete values if an MT5 call errored.
+        if (exitOnErr != 0)
+        {
+            Console.Error.WriteLine("[helper] skipping JSON emit due to MT5 API error");
+            return exitOnErr;
+        }
         Console.WriteLine(sb.ToString());
         return 0;
     }

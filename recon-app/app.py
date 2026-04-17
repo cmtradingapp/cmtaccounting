@@ -2408,16 +2408,11 @@ def cro_data():
     with _CRO_LIVE_LOCK:
         live = dict(_CRO_LIVE)
 
-    if not live or not live.get("received_at"):
-        return jsonify({
-            "error": "MT5 bridge has not pushed yet; waiting for first cycle...",
-            "live_stale": True,
-        }), 503
-
+    has_data = bool(live and live.get("received_at"))
     try:
-        age = (datetime.utcnow() - datetime.fromisoformat(live["received_at"])).total_seconds()
+        age = (datetime.utcnow() - datetime.fromisoformat(live["received_at"])).total_seconds() if has_data else 9e9
     except Exception:
-        age = 999999
+        age = 9e9
 
     today = date.today().isoformat()
     flt = lambda k: float(live.get(k, 0) or 0)
@@ -2473,8 +2468,9 @@ def cro_data():
         "by_symbol":  live.get("by_symbol", []),
         "trend":      [],
         "live_pushed_at": live.get("pushed_at"),
-        "live_stale":  age >= _CRO_LIVE_MAX_AGE_S,
-        "live_age_s": age,
+        "live_stale":  (not has_data) or age >= _CRO_LIVE_MAX_AGE_S,
+        "live_age_s": age if has_data else None,
+        "waiting":    not has_data,
     })
 
 
