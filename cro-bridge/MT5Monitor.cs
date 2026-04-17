@@ -33,29 +33,14 @@ public class MT5Monitor
             Console.Error.WriteLine("[monitor] CreateManager: " + cm);
             return null;
         }
-        // PUMP_MODE_POSITIONS: server pushes live position updates into the local
-        // cache, which enables SummaryGetAll() to return accurate aggregate data.
         MTRetCode cr = mgr.Connect(server, login, pw, null,
-            CIMTManagerAPI.EnPumpModes.PUMP_MODE_POSITIONS, 30000);
+            CIMTManagerAPI.EnPumpModes.PUMP_MODE_NONE, 15000);
         if (cr != MTRetCode.MT_RET_OK)
         {
             Console.Error.WriteLine("[monitor] Connect: " + cr + " (" + (uint)cr + ")");
             try { mgr.Disconnect(); } catch { }
             mgr.Dispose();
             return null;
-        }
-        // Set summary currency to USD once per connection.
-        mgr.SummaryCurrency("USD");
-        // Wait for the initial position pump to populate the summary cache.
-        Console.Error.WriteLine("[monitor] Waiting for position pump...");
-        var deadline = DateTime.Now.AddSeconds(30);
-        while (DateTime.Now < deadline)
-        {
-            var testArr = mgr.SummaryCreateArray();
-            bool ready = mgr.SummaryGetAll(testArr) == MTRetCode.MT_RET_OK && testArr.Total() > 0;
-            testArr.Release();
-            if (ready) break;
-            Thread.Sleep(500);
         }
         return mgr;
     }
@@ -108,33 +93,34 @@ public class MT5Monitor
             var t0 = DateTime.Now;
             try
             {
-                // --- floating PnL via server Summary cache (populated by PUMP_MODE_POSITIONS) ---
-                // SummaryGetAll reads the local cache kept current by the position pump.
-                // ProfitFullClients() = Profit + Storage in USD — matches MT5 Manager exactly.
+                // --- floating PnL: CMV* group position scan ---
+                // SummaryGetAll() is broker-wide (includes demo accounts = 2x positions/PnL).
+                // PositionRequestByGroup filters to real client accounts only, matching
+                // what MT5 Manager shows when filtered to the CMV* group.
                 double floatPnl = 0;
                 int    nPos     = 0;
-                var sumArr = mgr.SummaryCreateArray();
-                MTRetCode sumRes = mgr.SummaryGetAll(sumArr);
-                if (sumRes == MTRetCode.MT_RET_OK && sumArr.Total() > 0)
+                var posArr = mgr.PositionCreateArray();
+                MTRetCode posRes = mgr.PositionRequestByGroup(group, posArr);
+                if (posRes == MTRetCode.MT_RET_OK)
                 {
-                    for (uint i = 0; i < sumArr.Total(); i++)
+                    nPos = (int)posArr.Total();
+                    for (uint i = 0; i < posArr.Total(); i++)
                     {
-                        var s = sumArr.Next(i);
-                        floatPnl += s.ProfitFullClients();
-                        nPos     += (int)s.PositionClients();
+                        var p = posArr.Next(i);
+                        floatPnl += ToUsd(p.Profit() + p.Storage(), p.RateProfit());
                     }
                 }
                 else
                 {
-                    Console.Error.WriteLine("[monitor] SummaryGetAll: " + sumRes + " total=" + sumArr.Total() + " -- reconnecting");
-                    sumArr.Release();
+                    Console.Error.WriteLine("[monitor] PositionRequestByGroup: " + posRes + " -- reconnecting");
+                    posArr.Dispose();
                     try { mgr.Disconnect(); } catch { }
                     mgr.Dispose(); mgr = null;
                     while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
                     Thread.Sleep(interval * 1000);
                     continue;
                 }
-                sumArr.Release();
+                posArr.Dispose();
 
                 // --- today's deals (CMV* filtered) ---
                 DateTime dayStart = DateTime.UtcNow.Date;
