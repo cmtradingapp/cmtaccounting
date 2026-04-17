@@ -2,35 +2,106 @@
 {% block title %} — CRO All in One{% endblock %}
 {% block content %}
 <style>
-/* CRO-specific card overrides: wider cards, auto-shrink large numbers */
-#dailyCards .stat-card,
-#monthlyCards .stat-card {
-  padding: 10px 14px;
-  min-width: 0;
-  overflow: hidden;
+.cro-primary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 20px 0 10px;
 }
-#dailyCards .stat-card .value,
-#monthlyCards .stat-card .value {
-  font-size: 20px;
+.cro-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+/* Primary metric card */
+.ck {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  min-width: 0;
+}
+.ck-label {
+  font-size: 10px;
   font-weight: 700;
-  line-height: 1.2;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+.ck-val {
+  font-size: clamp(17px, 1.7vw, 26px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+  line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ck.neg .ck-val { color: var(--red); }
+.ck.pos .ck-val { color: var(--green); }
+.ck-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 11px 0 8px;
+}
+.ck-mtd {
+  font-size: 11px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-variant-numeric: tabular-nums;
 }
-/* When the number is long, the JS attaches .long and we shrink the font */
-#dailyCards .stat-card .value.wide,
-#monthlyCards .stat-card .value.wide {
-  font-size: 16px;
+.ck-mtd-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  background: rgba(148,163,184,.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
-#dailyCards .stat-card .value.xwide,
-#monthlyCards .stat-card .value.xwide {
-  font-size: 14px;
+/* Compact secondary stat */
+.cs {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  flex: 1 1 100px;
+  max-width: 160px;
+  min-width: 86px;
 }
-.stats-grid {
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 8px;
+.cs-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-bottom: 5px;
+}
+.cs-val {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Status pills */
+.pill-live {
+  font-size: 9px; font-weight: 700; letter-spacing: .06em;
+  background: rgba(34,197,94,.15); color: #22c55e;
+  padding: 2px 7px; border-radius: 99px;
+}
+.pill-eod {
+  font-size: 9px; font-weight: 700; letter-spacing: .06em;
+  background: rgba(148,163,184,.12); color: var(--text-2);
+  padding: 2px 7px; border-radius: 99px;
 }
 </style>
 <div class="page-header">
@@ -56,11 +127,8 @@
   </div>
 </div>
 
-<div class="section-title" style="margin-top:var(--sp-4);">Daily</div>
-<div class="stats-grid" id="dailyCards"></div>
-
-<div class="section-title">Monthly (current month to date)</div>
-<div class="stats-grid" id="monthlyCards"></div>
+<div class="cro-primary" id="croPrimary"></div>
+<div class="cro-secondary" id="croSecondary"></div>
 
 <div class="section-title">Daily Performance by MT5 group</div>
 <div class="table-wrap">
@@ -129,51 +197,52 @@
   var fmtInt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
   var cls    = function (n) { return Number(n) > 0 ? 'pos' : Number(n) < 0 ? 'neg' : ''; };
 
-  function card(lbl, val, klass, badge) {
-    var c = klass === 'pos' ? 'green' : klass === 'neg' ? 'red' : '';
-    var b = badge
-      ? ' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;' + badge.style + '">' + badge.text + '</span>'
-      : '';
-    // Auto-shrink font when number is long (to prevent truncation)
-    var len = String(val).length;
-    var widthClass = len > 16 ? 'xwide' : len > 12 ? 'wide' : '';
-    return '<div class="stat-card ' + c + '" title="' + val + '">' +
-             '<div class="label">' + lbl + b + '</div>' +
-             '<div class="value ' + widthClass + '">' + val + '</div>' +
-           '</div>';
+  // Zero-flash guard: once we have real data, refuse to overwrite with all-zeros.
+  // Both n_accounts and n_traders being 0 means the bridge is mid-reconnect, not
+  // that the market is actually empty.
+  var _hasGoodData = false;
+  function looksEmpty(s) {
+    return Number(s.n_accounts || 0) === 0 && Number(s.n_traders || 0) === 0;
   }
 
-  function renderCards(id, s, flavour, bundle) {
-    var isMonth = flavour === 'month';
-    var pfx = isMonth ? 'Monthly' : 'Daily';
-    // Live badge on Floating PnL card (daily only)
-    var floatBadge = null;
-    if (!isMonth && bundle) {
-      if (!bundle.live_stale && bundle.live_pushed_at) {
-        var ts = new Date(bundle.live_pushed_at).toLocaleTimeString();
-        floatBadge = {text: 'LIVE ' + ts, style: 'background:rgba(34,197,94,.2);color:#22c55e;'};
-      } else {
-        floatBadge = {text: 'EOD', style: 'background:rgba(148,163,184,.15);color:#94a3b8;'};
-      }
+  function renderAll(daily, monthly, bundle) {
+    var isLive = bundle && !bundle.live_stale && bundle.live_pushed_at;
+    var pill = isLive
+      ? '<span class="pill-live">LIVE ' + new Date(bundle.live_pushed_at).toLocaleTimeString() + '</span>'
+      : '<span class="pill-eod">EOD</span>';
+
+    function ck(label, dayVal, dayColor, mtdVal, badge) {
+      var mtd = (mtdVal !== undefined && mtdVal !== null)
+        ? '<hr class="ck-divider"><div class="ck-mtd"><span class="ck-mtd-tag">MTD</span>' + mtdVal + '</div>'
+        : '';
+      return '<div class="ck ' + (dayColor || '') + '">' +
+        '<div class="ck-label">' + label + (badge || '') + '</div>' +
+        '<div class="ck-val">' + dayVal + '</div>' +
+        mtd + '</div>';
     }
-    var html = [
-      card(pfx + ' PnL',           fmtMoney(s.pnl),            cls(s.pnl)),
-      card(pfx + ' Closed PnL',    fmtMoney(s.closed_pnl),     cls(s.closed_pnl)),
-      card(pfx + ' Delta Floating',fmtMoney(s.delta_floating), cls(s.delta_floating)),
-      card(pfx + ' Net Deposits',  fmtMoney(s.net_deposits),   cls(s.net_deposits)),
-      card(pfx + ' Volume ($)',    fmtMoney(s.volume_usd)),
-      card('# Traders',            fmtInt(s.n_traders)),
-      card('# Active Traders',     fmtInt(s.n_active_traders)),
-      card('# Depositors',         fmtInt(s.n_depositors)),
-      card('# FTD',                fmtInt(s.n_ftd)),
-      card('# Retention Dep.',     fmtInt(s.n_retention_depositors)),
-      card('Equity (EOD)',         fmtMoney(s.equity)),
-      card('WD Equity Z',          fmtMoney(s.wd_equity)),
-      card('Floating PnL',         fmtMoney(s.floating_pnl), cls(s.floating_pnl), floatBadge),
-      card('Balance',              fmtMoney(s.balance)),
-      card('Credit',               fmtMoney(s.credit))
-    ].join('');
-    document.getElementById(id).innerHTML = html;
+
+    function cs(label, val) {
+      return '<div class="cs"><div class="cs-label">' + label + '</div><div class="cs-val">' + val + '</div></div>';
+    }
+
+    var d = daily, m = monthly;
+    document.getElementById('croPrimary').innerHTML =
+      ck('Net PnL',      fmtMoney(d.pnl),          cls(d.pnl),          fmtMoney(m.pnl)) +
+      ck('Closed PnL',  fmtMoney(d.closed_pnl),    cls(d.closed_pnl),   fmtMoney(m.closed_pnl)) +
+      ck('Floating PnL',fmtMoney(d.floating_pnl),  cls(d.floating_pnl), null, pill) +
+      ck('Net Deposits', fmtMoney(d.net_deposits),  cls(d.net_deposits), fmtMoney(m.net_deposits));
+
+    document.getElementById('croSecondary').innerHTML =
+      cs('Volume',        fmtMoney(d.volume_usd)) +
+      cs('Traders',       fmtInt(d.n_traders)) +
+      cs('Active',        fmtInt(d.n_active_traders)) +
+      cs('Depositors',    fmtInt(d.n_depositors)) +
+      cs('FTD',           fmtInt(d.n_ftd)) +
+      cs('Ret. Deposits', fmtInt(d.n_retention_depositors)) +
+      cs('Equity',        fmtMoney(d.equity)) +
+      cs('WD Equity Z',   fmtMoney(d.wd_equity)) +
+      cs('Balance',       fmtMoney(d.balance)) +
+      cs('Credit',        fmtMoney(d.credit));
   }
 
   function renderGroupTable(rows) {
@@ -245,11 +314,16 @@
     fetch('/cro/data' + q).then(function (r) { return r.json(); }).then(function (data) {
       if (data.error) { setSub('Error: ' + data.error, true); return; }
       if (data.waiting || !data.daily) {
-        setSub('Bridge warming up (first push pending)…', false);
+        setSub('Bridge warming up — first push pending…', false);
         return;
       }
-      renderCards('dailyCards',   data.daily,   'day',   data);
-      renderCards('monthlyCards', data.monthly, 'month', null);
+      // Zero-flash guard: don't overwrite good values with transient zeros.
+      if (_hasGoodData && looksEmpty(data.daily)) {
+        setSub('Bridge reconnecting — holding last values…', false);
+        return;
+      }
+      if (!looksEmpty(data.daily)) _hasGoodData = true;
+      renderAll(data.daily, data.monthly, data);
       renderGroupTable(data.by_group);
       renderSymbolTable(data.by_symbol);
       renderTrendTable(data.trend);
@@ -265,8 +339,8 @@
   document.addEventListener('DOMContentLoaded', function () {
     var today = new Date().toISOString().slice(0, 10);
     document.getElementById('croDate').value = today;
-    var CARDS_INTERVAL_MS  = 5000;          // 5s  — cards only (served from cache, ~0.5s)
-    var TABLES_INTERVAL_MS = 5 * 60 * 1000; // 5m  — full load incl. tables
+    var CARDS_INTERVAL_MS  = 5000;
+    var TABLES_INTERVAL_MS = 5 * 60 * 1000;
     var _cardsTimer  = null;
     var _tablesTimer = null;
     var _lastUpdated = null;
@@ -277,11 +351,11 @@
       var s = document.getElementById('croSource').value;
       var q = '?date=' + encodeURIComponent(d) + '&group=' + encodeURIComponent(g) + '&source=' + encodeURIComponent(s);
       fetch('/cro/data' + q).then(function (r) { return r.json(); }).then(function (data) {
-        // Ignore error responses and waiting/no-data responses -- keep the
-        // last-known card values on screen rather than flashing to zero.
         if (data.error || data.waiting || !data.daily) return;
-        renderCards('dailyCards',   data.daily,   'day',   data);
-        renderCards('monthlyCards', data.monthly, 'month', null);
+        // Zero-flash guard: keep last good values if bridge is mid-reconnect.
+        if (_hasGoodData && looksEmpty(data.daily)) return;
+        if (!looksEmpty(data.daily)) _hasGoodData = true;
+        renderAll(data.daily, data.monthly, data);
         _lastUpdated = new Date();
         updateSub(data);
       }).catch(function () {});
@@ -309,6 +383,7 @@
     }
 
     document.getElementById('croApply').addEventListener('click', function () {
+      _hasGoodData = false;
       load(); scheduleCards(); scheduleFullRefresh();
     });
     document.getElementById('croRefresh').addEventListener('click', function () {
@@ -317,7 +392,7 @@
       var s = document.getElementById('croSource').value;
       setSub('Refreshing from Dealio...', false);
       fetch('/cro/refresh?date=' + encodeURIComponent(d) + '&group=' + encodeURIComponent(g) + '&source=' + encodeURIComponent(s), {method:'POST'})
-        .then(function () { load(); scheduleCards(); scheduleFullRefresh(); });
+        .then(function () { _hasGoodData = false; load(); scheduleCards(); scheduleFullRefresh(); });
     });
     load();
     scheduleCards();
