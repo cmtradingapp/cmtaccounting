@@ -1,15 +1,16 @@
 // MT5 Manager API -> continuous JSON line pusher.
 // Connects once, stays connected; outputs one JSON line per CRO_INTERVAL seconds.
-// Designed to run under wine; stdout is piped to cro_live_pusher.py which
-// forwards each line to /cro/feed.
 //
-// JSON fields: same as MT5Bridge.cs (floating_pnl_usd, closed_pnl_usd,
-// n_positions, n_closing_deals, volume_usd, swap, commission, net_deposits,
-// deposits, withdrawals, n_traders, n_active_traders, n_depositors,
-// source, group_mask, pushed_at, by_symbol[])
+// Two-speed loop:
+//   Fast (every CRO_INTERVAL):  positions + today's deals + per-group floating PnL
+//   Slow (every ~60s):          monthly deals (MTD totals), user balance/credit/equity, FTD
+//
+// All values in USD via TickLast live FX rates. RateProfit is NOT used for conversion
+// (it is the entry-time rate, stale for old positions).
 //
 // Env vars: MT5_SERVER, MT5_LOGIN, MT5_PASSWORD, CRO_GROUP, MT5_SDK_LIBS
-//           CRO_INTERVAL (seconds, default 5)
+//           CRO_INTERVAL (seconds, default 5)   -- fast loop cadence
+//           CRO_SLOW_EVERY (cycles, default 12) -- run slow loop every N fast cycles
 
 using System;
 using System.Collections.Generic;
@@ -21,9 +22,9 @@ using MetaQuotes.MT5ManagerAPI;
 
 public class MT5LivePusher
 {
-    const uint ENTRY_IN      = 0;
-    const uint ACTION_BUY    = 0;
-    const uint ACTION_SELL   = 1;
+    const uint ENTRY_IN       = 0;
+    const uint ACTION_BUY     = 0;
+    const uint ACTION_SELL    = 1;
     const uint ACTION_BALANCE = 2;
 
     static string JsonEscape(string s)
@@ -50,12 +51,26 @@ public class MT5LivePusher
         return sb.ToString();
     }
 
-    // Fallback heuristic for currencies whose TickLast symbol isn't on the broker
-    // (AED, CLP, INR). Correct for those since their rates >> 1.5.
+    // Fallback for currencies whose TickLast symbol isn't on this broker (AED, CLP, INR).
+    // Correct for those since rates >> 1.5.
     static double ToUsd(double native, double rate)
     {
         if (rate > 1.5 && rate != 0) return native / rate;
         return native;
+    }
+
+    // Compute notional USD for a deal.
+    // For xxxUSD pairs: lots * contractSize * price.
+    // For others (USDxxx, XAU, etc.): lots * contractSize (already base-currency units).
+    static double NotionalUsd(double volumeLots, double contractSize, double price, string symbol)
+    {
+        string su = (symbol ?? "").ToUpperInvariant();
+        if (su.StartsWith("USD") && su.Length > 3 && su[3] != 'X') // USDxxx (not USDX index)
+            return Math.Abs(volumeLots * contractSize);
+        if (su.EndsWith("USD") || su == "XAUUSD" || su == "XAGUSD")
+            return Math.Abs(volumeLots * contractSize * price);
+        // Fallback: treat as USD-quoted
+        return Math.Abs(volumeLots * contractSize * price);
     }
 
     class SymAgg
@@ -66,9 +81,14 @@ public class MT5LivePusher
         public double notionalUsd, notionalBuy, notionalSell, swap, commission, pnl;
     }
 
-    // FX pair table: for each non-USD deposit currency, which symbol to query via TickLast.
-    // UsdBase=true  → symbol is USDxxx → usdRate = 1/mid
-    // UsdBase=false → symbol is xxxUSD → usdRate = mid
+    struct GrpAgg
+    {
+        public string group;
+        public int    nPositions;
+        public double floatingPnl;
+        public string currency;
+    }
+
     struct CcyEntry { public string Sym, Ccy; public bool UsdBase; }
     static readonly CcyEntry[] CcyTable = {
         new CcyEntry { Sym="EURUSD", Ccy="EUR", UsdBase=false },
@@ -149,6 +169,152 @@ public class MT5LivePusher
         return mgr;
     }
 
+    // ── FTD tracking ──────────────────────────────────────────────────────────
+    // Seed once at startup with YTD known depositors; then track incrementally.
+    static readonly HashSet<ulong> _knownDepositors = new HashSet<ulong>();
+    static bool   _knownDepLoaded  = false;
+    static string _knownDepDate    = "";   // last date depositors were merged
+    static int    _ftdToday        = 0;
+
+    static void SeedKnownDepositors(CIMTManagerAPI mgr, string group, DateTime dayStart,
+                                    CultureInfo ci)
+    {
+        var yearStart = new DateTime(dayStart.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var yesterday = dayStart.AddSeconds(-1);
+        if (yesterday < yearStart) { _knownDepLoaded = true; return; }
+
+        Console.Error.WriteLine("[pusher] Seeding FTD known-depositors from YTD deals...");
+        var arr = mgr.DealCreateArray();
+        var res = mgr.DealRequestByGroup(group,
+            SMTTime.FromDateTime(yearStart), SMTTime.FromDateTime(yesterday), arr);
+        if (res == MTRetCode.MT_RET_OK)
+        {
+            for (uint i = 0; i < arr.Total(); i++)
+            {
+                var d = arr.Next(i);
+                if (d.Action() != ACTION_BALANCE) continue;
+                double amt = ToUsd(d.Profit(), d.RateProfit());
+                string c   = (d.Comment() ?? "").ToLowerInvariant();
+                if (amt > 0 && !c.Contains("bonus") && !c.Contains("internal") && !c.Contains("transfer"))
+                    _knownDepositors.Add(d.Login());
+            }
+        }
+        arr.Dispose();
+        _knownDepLoaded = true;
+        Console.Error.WriteLine("[pusher] FTD seed done: " + _knownDepositors.Count + " known depositors YTD.");
+    }
+
+    static void UpdateFtd(HashSet<ulong> todayDepositors, string todayStr)
+    {
+        if (_knownDepDate == todayStr) return; // already ran for today
+        _ftdToday = 0;
+        foreach (var dep in todayDepositors)
+            if (!_knownDepositors.Contains(dep)) _ftdToday++;
+        foreach (var dep in todayDepositors)
+            _knownDepositors.Add(dep);
+        _knownDepDate = todayStr;
+    }
+
+    // ── Slow-loop result struct ────────────────────────────────────────────────
+    struct SlowData
+    {
+        public double totalBalance, totalCredit;
+        // MTD deal aggregates
+        public double mthClosedPnl, mthNetDeps, mthDeps, mthWds, mthCob, mthVol;
+        public double mthSwap, mthCommission;
+        public int    mthNTraders, mthNActive, mthNDeps;
+    }
+
+    static SlowData RunSlowLoop(CIMTManagerAPI mgr, string group,
+                                Dictionary<string, double> ccyRates,
+                                Dictionary<string, string> groupCcyRef,
+                                DateTime monthStart, DateTime nowDt,
+                                HashSet<ulong> todayDeps, string todayStr,
+                                CultureInfo ci)
+    {
+        var sd = new SlowData();
+
+        // -- account totals: balance + credit (USD) ---------------------------
+        // equity (live) = totalBalance + totalCredit + floatingPnl
+        // wd_equity      = max(0, equity - totalCredit - cob)
+        //                = max(0, totalBalance + floatingPnl - cob)
+        // IMTUser has Group() but not Currency() -- look up currency via groupCcy dict.
+        var userArr = mgr.UserCreateArray();
+        if (mgr.UserRequestArray(group, userArr) == MTRetCode.MT_RET_OK)
+        {
+            for (uint i = 0; i < userArr.Total(); i++)
+            {
+                var u = userArr.Next(i);
+                string grpName = u.Group() ?? "";
+                string ccy;
+                if (!groupCcyRef.TryGetValue(grpName, out ccy)) ccy = "USD";
+                double rate;
+                if (!ccyRates.TryGetValue(ccy, out rate)) rate = 1.0;
+                sd.totalBalance += u.Balance() * rate;
+                sd.totalCredit  += u.Credit()  * rate;
+            }
+        }
+        userArr.Release();
+
+        // -- MTD deals --------------------------------------------------------
+        var mArr = mgr.DealCreateArray();
+        var mRes = mgr.DealRequestByGroup(group,
+            SMTTime.FromDateTime(monthStart), SMTTime.FromDateTime(nowDt), mArr);
+        if (mRes == MTRetCode.MT_RET_OK)
+        {
+            var mTraders = new HashSet<ulong>();
+            var mActive  = new HashSet<ulong>();
+            var mDeps    = new HashSet<ulong>();
+            for (uint i = 0; i < mArr.Total(); i++)
+            {
+                var d      = mArr.Next(i);
+                uint action = d.Action();
+                double rate = d.RateProfit();
+
+                if (action == ACTION_BUY || action == ACTION_SELL)
+                {
+                    mTraders.Add(d.Login());
+                    if (d.Entry() == ENTRY_IN)
+                        mActive.Add(d.Login());
+                    else
+                    {
+                        sd.mthClosedPnl  += ToUsd(d.Profit() + d.Storage() + d.Commission(), rate);
+                        sd.mthSwap       += ToUsd(d.Storage(), rate);
+                        sd.mthCommission += ToUsd(d.Commission(), rate);
+                    }
+                    double lots = d.Volume() / 100.0;
+                    sd.mthVol += NotionalUsd(lots, d.ContractSize(), d.Price(), d.Symbol());
+                }
+                else if (action == ACTION_BALANCE)
+                {
+                    string comment = (d.Comment() ?? "").ToLowerInvariant();
+                    double amt = ToUsd(d.Profit(), rate);
+                    if (comment.Contains("bonus"))
+                    {
+                        sd.mthCob += amt;   // COB: bonus balance for WD Equity Z
+                        continue;
+                    }
+                    if (comment.Contains("internal") || comment.Contains("transfer"))
+                        continue;
+                    if (amt > 0) { sd.mthDeps += amt; mDeps.Add(d.Login()); }
+                    else           sd.mthWds  += amt;
+                }
+            }
+            sd.mthNTraders = mTraders.Count;
+            sd.mthNActive  = mActive.Count;
+            sd.mthNDeps    = mDeps.Count;
+            sd.mthNetDeps  = sd.mthDeps + sd.mthWds;
+        }
+        mArr.Dispose();
+
+        // -- FTD update -------------------------------------------------------
+        if (!_knownDepLoaded)
+            SeedKnownDepositors(mgr, group, monthStart.Date, ci);
+        UpdateFtd(todayDeps, todayStr);
+
+        return sd;
+    }
+
     public static int Main(string[] args)
     {
         var ci       = CultureInfo.InvariantCulture;
@@ -157,7 +323,8 @@ public class MT5LivePusher
         var pw       = Environment.GetEnvironmentVariable("MT5_PASSWORD") ?? "";
         var group    = Environment.GetEnvironmentVariable("CRO_GROUP")    ?? "CMV*";
         var sdkDir   = Environment.GetEnvironmentVariable("MT5_SDK_LIBS") ?? "Z:/app";
-        int interval = int.Parse(Environment.GetEnvironmentVariable("CRO_INTERVAL") ?? "5", ci);
+        int interval    = int.Parse(Environment.GetEnvironmentVariable("CRO_INTERVAL")   ?? "5",  ci);
+        int slowEvery   = int.Parse(Environment.GetEnvironmentVariable("CRO_SLOW_EVERY") ?? "12", ci);
 
         if (string.IsNullOrEmpty(server) || string.IsNullOrEmpty(pw))
         {
@@ -173,7 +340,8 @@ public class MT5LivePusher
             return 3;
         }
 
-        Console.Error.WriteLine("[pusher] group=" + group + "  interval=" + interval + "s");
+        Console.Error.WriteLine("[pusher] group=" + group + "  interval=" + interval +
+                                "s  slow_every=" + slowEvery + " cycles");
 
         CIMTManagerAPI mgr = null;
         while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
@@ -181,7 +349,11 @@ public class MT5LivePusher
         var groupCcy         = LoadGroupCurrencies(mgr, group);
         var ccyRates         = BuildCcyRates(mgr);
         int rateRefreshCycle = 0;
+        int slowCycle        = slowEvery; // trigger slow loop on first iteration
         Console.Error.WriteLine("[pusher] " + groupCcy.Count + " groups, " + ccyRates.Count + " FX rates.");
+
+        // Slow-loop cached values (populated every ~60s, zero until first slow run)
+        var slow = new SlowData();
 
         while (true)
         {
@@ -189,13 +361,16 @@ public class MT5LivePusher
             {
                 if (++rateRefreshCycle >= 60) { ccyRates = BuildCcyRates(mgr); rateRefreshCycle = 0; }
 
-                // Day bounds (UTC midnight as start-of-day)
                 DateTime nowDt      = DateTime.UtcNow;
                 DateTime dayStartDt = nowDt.Date;
+                string   todayStr   = dayStartDt.ToString("yyyy-MM-dd", ci);
+                DateTime monthStart = new DateTime(nowDt.Year, nowDt.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-                // --- floating PnL: per-group with live TickLast rates ---
+                // ── FAST: per-group positions ─────────────────────────────────
                 int    nPositions  = 0;
                 double floatingPnl = 0.0;
+                var    byGroupList = new List<GrpAgg>(groupCcy.Count);
+
                 foreach (var kv in groupCcy)
                 {
                     double usdRate; bool hasRate = ccyRates.TryGetValue(kv.Value, out usdRate);
@@ -205,29 +380,37 @@ public class MT5LivePusher
                         posArr.Dispose();
                         throw new Exception("PositionGetByGroup failed for " + kv.Key);
                     }
-                    nPositions += (int)posArr.Total();
+                    int    grpPos   = (int)posArr.Total();
+                    double grpFloat = 0.0;
                     for (uint i = 0; i < posArr.Total(); i++)
                     {
-                        var p = posArr.Next(i);
-                        double native = p.Profit() + p.Storage();
-                        floatingPnl += hasRate ? native * usdRate : ToUsd(native, p.RateProfit());
+                        var p      = posArr.Next(i);
+                        double nat = p.Profit() + p.Storage();
+                        grpFloat  += hasRate ? nat * usdRate : ToUsd(nat, p.RateProfit());
                     }
                     posArr.Dispose();
+                    nPositions  += grpPos;
+                    floatingPnl += grpFloat;
+                    if (grpPos > 0)
+                        byGroupList.Add(new GrpAgg {
+                            group = kv.Key, nPositions = grpPos,
+                            floatingPnl = grpFloat, currency = kv.Value
+                        });
                 }
 
-                // --- today's deals ---
-                int    nClosingDeals = 0, nDepositors = 0;
-                double closedPnl = 0.0, volumeUsd = 0.0, swap = 0.0, commission = 0.0;
-                double deposits = 0.0, withdrawals = 0.0;
+                // ── FAST: today's deals ───────────────────────────────────────
+                int    nClosingDeals = 0;
+                double closedPnl = 0, volumeUsd = 0, swap = 0, commission = 0;
+                double deposits = 0, withdrawals = 0;
                 var tradersAny    = new HashSet<ulong>();
                 var tradersActive = new HashSet<ulong>();
                 var depositors    = new HashSet<ulong>();
                 var bySymbol      = new Dictionary<string, SymAgg>();
 
                 var dealArr = mgr.DealCreateArray();
-                MTRetCode dealRes = mgr.DealRequestByGroup(group,
-                    SMTTime.FromDateTime(dayStartDt), SMTTime.FromDateTime(nowDt), dealArr);
-                if (dealRes == MTRetCode.MT_RET_OK)
+                if (mgr.DealRequestByGroup(group,
+                    SMTTime.FromDateTime(dayStartDt), SMTTime.FromDateTime(nowDt),
+                    dealArr) == MTRetCode.MT_RET_OK)
                 {
                     for (uint i = 0; i < dealArr.Total(); i++)
                     {
@@ -247,15 +430,9 @@ public class MT5LivePusher
                                 nClosingDeals++;
                             }
                             double lots = d.Volume() / 100.0;
-                            double price = d.Price();
-                            string symU = (d.Symbol() ?? "").ToUpperInvariant();
-                            double dn;
-                            if (symU.EndsWith("USD") || symU.EndsWith("USDC"))
-                                dn = Math.Abs(lots * d.ContractSize() * price);
-                            else
-                                dn = Math.Abs(lots * d.ContractSize());
+                            double dn   = NotionalUsd(lots, d.ContractSize(), d.Price(), d.Symbol());
                             volumeUsd  += dn;
-                            swap       += ToUsd(d.Storage(), rate);
+                            swap       += ToUsd(d.Storage(),    rate);
                             commission += ToUsd(d.Commission(), rate);
 
                             string sym = d.Symbol();
@@ -267,27 +444,27 @@ public class MT5LivePusher
                                 sa.nDeals++;
                                 sa.traders.Add(dLogin);
                                 sa.notionalUsd  += dn;
-                                if (action == ACTION_BUY) sa.notionalBuy += dn; else sa.notionalSell += dn;
-                                sa.swap       += ToUsd(d.Storage(), rate);
+                                if (action == ACTION_BUY) sa.notionalBuy += dn;
+                                else                      sa.notionalSell += dn;
+                                sa.swap       += ToUsd(d.Storage(),    rate);
                                 sa.commission += ToUsd(d.Commission(), rate);
                                 sa.pnl        += ToUsd(d.Profit() + d.Storage() + d.Commission(), rate);
                             }
                         }
                         else if (action == ACTION_BALANCE)
                         {
-                            double amt = ToUsd(d.Profit(), rate);
+                            double amt     = ToUsd(d.Profit(), rate);
                             string comment = (d.Comment() ?? "").ToLowerInvariant();
                             if (comment.Contains("bonus") || comment.Contains("internal") || comment.Contains("transfer"))
                                 continue;
                             if (amt > 0) { deposits += amt; depositors.Add(dLogin); }
-                            else         { withdrawals += amt; }
+                            else           withdrawals += amt;
                         }
                     }
                 }
                 dealArr.Dispose();
-                nDepositors = depositors.Count;
 
-                // Sanity: skip emission if pump returned empty (transient MT5 issue)
+                // ── Sanity guard ─────────────────────────────────────────────
                 if (nPositions == 0 && tradersAny.Count == 0)
                 {
                     Console.Error.WriteLine("[pusher] sanity: 0 positions + 0 traders -- skipping");
@@ -295,10 +472,37 @@ public class MT5LivePusher
                     continue;
                 }
 
-                // --- emit JSON ---
+                // ── SLOW loop ─────────────────────────────────────────────────
+                if (++slowCycle >= slowEvery)
+                {
+                    slowCycle = 0;
+                    try
+                    {
+                        slow = RunSlowLoop(mgr, group, ccyRates, groupCcy,
+                                           monthStart, nowDt, depositors, todayStr, ci);
+                        Console.Error.WriteLine(
+                            "[pusher] slow: bal=" + slow.totalBalance.ToString("N0", ci) +
+                            " cred=" + slow.totalCredit.ToString("N0", ci) +
+                            " mth_closed=" + slow.mthClosedPnl.ToString("N0", ci) +
+                            " ftd=" + _ftdToday);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine("[pusher] slow loop error (non-fatal): " + ex.Message);
+                    }
+                }
+
+                // ── Derived values ────────────────────────────────────────────
+                // equity (live) = balance + credit + floating (standard MT5 formula)
+                double totalEquity = slow.totalBalance + slow.totalCredit + floatingPnl;
+                // wd_equity = max(0, equity - credit - cob) = max(0, balance + floating - cob)
+                double wdEquity = Math.Max(0.0, slow.totalBalance + floatingPnl - slow.mthCob);
+
+                // ── Emit JSON ─────────────────────────────────────────────────
                 string pushedAt = nowDt.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", ci);
-                var sb = new StringBuilder(4096);
+                var sb = new StringBuilder(8192);
                 sb.Append("{");
+                // --- live / fast fields ---
                 sb.Append("\"floating_pnl_usd\":").Append(floatingPnl.ToString("G17", ci));
                 sb.Append(",\"closed_pnl_usd\":").Append(closedPnl.ToString("G17", ci));
                 sb.Append(",\"n_positions\":").Append(nPositions.ToString(ci));
@@ -311,11 +515,30 @@ public class MT5LivePusher
                 sb.Append(",\"withdrawals\":").Append(withdrawals.ToString("G17", ci));
                 sb.Append(",\"n_traders\":").Append(tradersAny.Count.ToString(ci));
                 sb.Append(",\"n_active_traders\":").Append(tradersActive.Count.ToString(ci));
-                sb.Append(",\"n_depositors\":").Append(nDepositors.ToString(ci));
+                sb.Append(",\"n_depositors\":").Append(depositors.Count.ToString(ci));
+                sb.Append(",\"n_ftd\":").Append(_ftdToday.ToString(ci));
+                // --- slow / account fields ---
+                sb.Append(",\"balance\":").Append(slow.totalBalance.ToString("G17", ci));
+                sb.Append(",\"credit\":").Append(slow.totalCredit.ToString("G17", ci));
+                sb.Append(",\"equity\":").Append(totalEquity.ToString("G17", ci));
+                sb.Append(",\"wd_equity\":").Append(wdEquity.ToString("G17", ci));
+                // --- monthly (MTD) fields ---
+                sb.Append(",\"monthly_closed_pnl\":").Append(slow.mthClosedPnl.ToString("G17", ci));
+                sb.Append(",\"monthly_net_deposits\":").Append(slow.mthNetDeps.ToString("G17", ci));
+                sb.Append(",\"monthly_deposits\":").Append(slow.mthDeps.ToString("G17", ci));
+                sb.Append(",\"monthly_withdrawals\":").Append(slow.mthWds.ToString("G17", ci));
+                sb.Append(",\"monthly_volume_usd\":").Append(slow.mthVol.ToString("G17", ci));
+                sb.Append(",\"monthly_swap\":").Append(slow.mthSwap.ToString("G17", ci));
+                sb.Append(",\"monthly_commission\":").Append(slow.mthCommission.ToString("G17", ci));
+                sb.Append(",\"monthly_n_traders\":").Append(slow.mthNTraders.ToString(ci));
+                sb.Append(",\"monthly_n_active_traders\":").Append(slow.mthNActive.ToString(ci));
+                sb.Append(",\"monthly_n_depositors\":").Append(slow.mthNDeps.ToString(ci));
+                // --- meta ---
                 sb.Append(",\"source\":\"AN100\"");
                 sb.Append(",\"group_mask\":\"").Append(JsonEscape(group)).Append("\"");
                 sb.Append(",\"pushed_at\":\"").Append(pushedAt).Append("\"");
 
+                // --- by_symbol (top 30 by notional) ---
                 var symList = new List<SymAgg>(bySymbol.Values);
                 symList.Sort(delegate(SymAgg a, SymAgg b) {
                     return Math.Abs(b.notionalUsd).CompareTo(Math.Abs(a.notionalUsd));
@@ -337,6 +560,25 @@ public class MT5LivePusher
                     sb.Append(",\"pnl\":").Append(sa.pnl.ToString("G17", ci));
                     sb.Append("}");
                 }
+                sb.Append("]");
+
+                // --- by_group (non-empty groups, sorted by abs floating PnL) ---
+                byGroupList.Sort(delegate(GrpAgg a, GrpAgg b) {
+                    return Math.Abs(b.floatingPnl).CompareTo(Math.Abs(a.floatingPnl));
+                });
+                sb.Append(",\"by_group\":[");
+                for (int i = 0; i < byGroupList.Count; i++)
+                {
+                    var g = byGroupList[i];
+                    if (i > 0) sb.Append(",");
+                    sb.Append("{\"groupname\":\"").Append(JsonEscape(g.group)).Append("\"");
+                    sb.Append(",\"n_accounts\":").Append(g.nPositions.ToString(ci));
+                    sb.Append(",\"n_depositors\":0");
+                    sb.Append(",\"floating_pnl\":").Append(g.floatingPnl.ToString("G17", ci));
+                    sb.Append(",\"closed_pnl\":0,\"delta_floating\":").Append(g.floatingPnl.ToString("G17", ci));
+                    sb.Append(",\"net_deposits\":0,\"equity\":0,\"balance\":0");
+                    sb.Append("}");
+                }
                 sb.Append("]}");
 
                 Console.WriteLine(sb.ToString());
@@ -352,6 +594,7 @@ public class MT5LivePusher
                 groupCcy = LoadGroupCurrencies(mgr, group);
                 ccyRates = BuildCcyRates(mgr);
                 rateRefreshCycle = 0;
+                slowCycle = slowEvery; // trigger slow loop immediately after reconnect
             }
 
             Thread.Sleep(interval * 1000);

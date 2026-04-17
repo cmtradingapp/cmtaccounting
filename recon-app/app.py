@@ -2421,9 +2421,19 @@ def cro_data():
     except Exception:
         age = 9e9
 
-    today = date.today().isoformat()
+    today     = date.today().isoformat()
+    today_ym  = today[:7]   # "2026-04"
     flt = lambda k: float(live.get(k, 0) or 0)
     i   = lambda k: int(live.get(k, 0) or 0)
+
+    n_ftd       = i("n_ftd")
+    n_dep_day   = i("n_depositors")
+    n_dep_mth   = i("monthly_n_depositors")
+    floating    = flt("floating_pnl_usd")
+    equity      = flt("equity")    # balance + credit + floating (from slow loop)
+    balance     = flt("balance")
+    credit      = flt("credit")
+    wd_equity   = flt("wd_equity")
 
     daily = {
         "label":         today,
@@ -2431,37 +2441,65 @@ def cro_data():
         "end":           today,
         "source":        live.get("source", "AN100"),
         "group_mask":    live.get("group_mask", "CMV*"),
-        # money
-        "pnl":           flt("floating_pnl_usd") + flt("closed_pnl_usd"),
-        "floating_pnl":  flt("floating_pnl_usd"),
-        "closed_pnl":    flt("closed_pnl_usd"),
-        "delta_floating": 0.0,
-        "net_deposits":  flt("net_deposits"),
-        "deposits":      flt("deposits"),
-        "withdrawals":   flt("withdrawals"),
-        "volume_usd":    flt("volume_usd"),
-        "swap":          flt("swap"),
-        "commission":    flt("commission"),
-        # equity snapshot -- not yet fetched live; zero for now
-        "equity":        0.0,
-        "balance":       0.0,
-        "credit":        0.0,
-        "wd_equity":     0.0,
+        # PnL: daily PnL = closed_pnl + floating (delta_floating tracked server-side below)
+        "pnl":            floating + flt("closed_pnl_usd"),
+        "floating_pnl":   floating,
+        "closed_pnl":     flt("closed_pnl_usd"),
+        "delta_floating":  0.0,   # requires yesterday EOD snapshot; added when available
+        "net_deposits":   flt("net_deposits"),
+        "deposits":       flt("deposits"),
+        "withdrawals":    flt("withdrawals"),
+        "volume_usd":     flt("volume_usd"),
+        "swap":           flt("swap"),
+        "commission":     flt("commission"),
+        # equity (from UserRequestArray slow loop)
+        "equity":         equity,
+        "balance":        balance,
+        "credit":         credit,
+        "wd_equity":      wd_equity,
         # counts
-        "n_accounts":        i("n_traders"),
-        "n_positions":       i("n_positions"),
-        "n_traders":         i("n_traders"),
-        "n_active_traders":  i("n_active_traders"),
-        "n_depositors":      i("n_depositors"),
-        "n_ftd":             0,
-        "n_retention_depositors": i("n_depositors"),
-        "n_deals":           i("n_closing_deals"),
+        "n_accounts":              i("n_traders"),
+        "n_positions":             i("n_positions"),
+        "n_traders":               i("n_traders"),
+        "n_active_traders":        i("n_active_traders"),
+        "n_depositors":            n_dep_day,
+        "n_ftd":                   n_ftd,
+        "n_retention_depositors":  max(n_dep_day - n_ftd, 0),
+        "n_deals":                 i("n_closing_deals"),
     }
 
-    # Monthly / trend / by_group are deferred until the bridge computes them.
-    # For now, UI will render zeros or "No rows".
-    empty_monthly = dict(daily)
-    empty_monthly["label"] = today[:7]
+    monthly = {
+        "label":         today_ym,
+        "start":         today_ym + "-01",
+        "end":           today,
+        "source":        live.get("source", "AN100"),
+        "group_mask":    live.get("group_mask", "CMV*"),
+        # MTD totals from slow loop DealRequestByGroup(month_start, now)
+        "pnl":            flt("monthly_closed_pnl") + floating,  # MTD closed + live float
+        "floating_pnl":   floating,
+        "closed_pnl":     flt("monthly_closed_pnl"),
+        "delta_floating":  0.0,
+        "net_deposits":   flt("monthly_net_deposits"),
+        "deposits":       flt("monthly_deposits"),
+        "withdrawals":    flt("monthly_withdrawals"),
+        "volume_usd":     flt("monthly_volume_usd"),
+        "swap":           flt("monthly_swap"),
+        "commission":     flt("monthly_commission"),
+        # equity same as daily (point-in-time)
+        "equity":         equity,
+        "balance":        balance,
+        "credit":         credit,
+        "wd_equity":      wd_equity,
+        # counts
+        "n_accounts":              i("monthly_n_traders"),
+        "n_positions":             i("n_positions"),
+        "n_traders":               i("monthly_n_traders"),
+        "n_active_traders":        i("monthly_n_active_traders"),
+        "n_depositors":            n_dep_mth,
+        "n_ftd":                   n_ftd,
+        "n_retention_depositors":  max(n_dep_mth - n_ftd, 0),
+        "n_deals":                 i("n_closing_deals"),
+    }
 
     return jsonify({
         "date":       today,
@@ -2470,8 +2508,8 @@ def cro_data():
         "source":     live.get("source", "AN100"),
         "group_mask": live.get("group_mask", "CMV*"),
         "daily":      daily,
-        "monthly":    empty_monthly,
-        "by_group":   [],
+        "monthly":    monthly,
+        "by_group":   live.get("by_group", []),
         "by_symbol":  live.get("by_symbol", []),
         "trend":      [],
         "live_pushed_at": live.get("pushed_at"),
