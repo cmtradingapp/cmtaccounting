@@ -206,29 +206,50 @@
       renderGroupTable(data.by_group);
       renderSymbolTable(data.by_symbol);
       renderTrendTable(data.trend);
-      var fb = data.fellback ? ' · showing latest day with data (' + data.date + ', requested ' + data.requested + ')' : '';
-      setSub(
-        'Source ' + data.source + ' · group ' + data.group_mask +
-        ' · day ' + data.daily.label + ' · ' + fmtInt(data.daily.n_accounts) + ' accounts · ' +
-        fmtInt(data.daily.n_deals) + ' trade deals' + fb,
-        false
-      );
+      var fb = data.fellback ? ' · latest data: ' + data.date + ' (requested ' + data.requested + ')' : '';
+      var baseText = 'Source ' + data.source + ' · group ' + data.group_mask +
+        ' · ' + data.daily.label + ' · ' + fmtInt(data.daily.n_accounts) + ' accounts · ' +
+        fmtInt(data.daily.n_deals) + ' trade deals' + fb;
+      setSub(baseText, false);
+      document.getElementById('croSub').setAttribute('data-base', baseText);
     }).catch(function (e) { setSub('Fetch failed: ' + e.message, true); });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     var today = new Date().toISOString().slice(0, 10);
     document.getElementById('croDate').value = today;
-    document.getElementById('croApply').addEventListener('click', load);
+    var _autoTimer = null;
+    var _countdownTimer = null;
+    var AUTO_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+    var _nextRefreshAt = null;
+
+    function scheduleAuto() {
+      clearTimeout(_autoTimer);
+      clearInterval(_countdownTimer);
+      _nextRefreshAt = Date.now() + AUTO_INTERVAL_MS;
+      _autoTimer = setTimeout(function () { load(); scheduleAuto(); }, AUTO_INTERVAL_MS);
+      _countdownTimer = setInterval(function () {
+        var remaining = Math.max(0, Math.round((_nextRefreshAt - Date.now()) / 1000));
+        var el = document.getElementById('croSub');
+        if (el && !el.textContent.startsWith('Loading') && !el.textContent.startsWith('Refreshing')) {
+          var base = el.getAttribute('data-base') || el.textContent;
+          el.setAttribute('data-base', base.replace(/ -- auto-refresh in.*$/, ''));
+          el.textContent = el.getAttribute('data-base') + ' -- auto-refresh in ' + remaining + 's';
+        }
+      }, 1000);
+    }
+
+    document.getElementById('croApply').addEventListener('click', function () { load(); scheduleAuto(); });
     document.getElementById('croRefresh').addEventListener('click', function () {
       var d = document.getElementById('croDate').value;
       var g = document.getElementById('croGroup').value;
       var s = document.getElementById('croSource').value;
       setSub('Refreshing from Dealio...', false);
       fetch('/cro/refresh?date=' + encodeURIComponent(d) + '&group=' + encodeURIComponent(g) + '&source=' + encodeURIComponent(s), {method:'POST'})
-        .then(function () { load(); });
+        .then(function () { load(); scheduleAuto(); });
     });
     load();
+    scheduleAuto();
   });
 })();
 </script>
