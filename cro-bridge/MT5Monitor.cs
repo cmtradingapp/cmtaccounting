@@ -81,20 +81,23 @@ public class MT5Monitor
                     continue;
                 }
 
-                // open positions
+                // Use server-computed Summary for floating PnL — matches MT5 Manager exactly.
+                // SummaryCurrency("USD") tells the server to express all values in USD.
+                // ProfitFullClients() = Profit + Storage for client positions, already in USD.
                 double floatPnl = 0;
                 int    nPos     = 0;
-                var posArr = mgr.PositionCreateArray();
-                if (mgr.PositionRequestByGroup(group, posArr) == MTRetCode.MT_RET_OK)
+                mgr.SummaryCurrency("USD");
+                var sumArr = mgr.SummaryCreateArray();
+                if (mgr.SummaryGetAll(sumArr) == MTRetCode.MT_RET_OK)
                 {
-                    nPos = (int)posArr.Total();
-                    for (uint i = 0; i < posArr.Total(); i++)
+                    for (uint i = 0; i < sumArr.Total(); i++)
                     {
-                        var p = posArr.Next(i);
-                        floatPnl += ToUsd(p.Profit() + p.Storage(), p.RateProfit());
+                        var s = sumArr.Next(i);
+                        floatPnl += s.ProfitFullClients();
+                        nPos     += (int)s.PositionClients();
                     }
                 }
-                posArr.Dispose();
+                sumArr.Release();
 
                 // today's deals (UTC day boundary)
                 DateTime dayStart = DateTime.UtcNow.Date;
