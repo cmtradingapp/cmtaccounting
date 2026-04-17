@@ -2439,8 +2439,17 @@ def cro_data():
             try:
                 age = (datetime.utcnow() - datetime.fromisoformat(live["received_at"])).total_seconds()
                 if age < _CRO_LIVE_MAX_AGE_S:
-                    bundle["daily"]["floating_pnl"] = float(live.get("floating_pnl", 0))
+                    bundle["daily"]["floating_pnl"] = float(
+                        live.get("floating_pnl_usd", live.get("floating_pnl", 0)))
                     bundle["daily"]["n_positions"]  = int(live.get("n_positions", 0))
+                    # Also merge live closed PnL if present
+                    if "closed_pnl_usd" in live:
+                        bundle["daily"]["closed_pnl"]    = float(live["closed_pnl_usd"])
+                        bundle["daily"]["n_deals"]        = int(live.get("n_closing_deals", bundle["daily"].get("n_deals", 0)))
+                        bundle["daily"]["pnl"] = (
+                            bundle["daily"]["closed_pnl"]
+                            + bundle["daily"].get("delta_floating", 0.0)
+                        )
                     bundle["live_pushed_at"] = live.get("pushed_at")
                     bundle["live_stale"] = False
                 else:

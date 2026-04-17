@@ -216,6 +216,52 @@ class MT5Bridge:
             "liabilities": float(a.Liabilities()),
         }
 
+    # ── currency helpers ───────────────────────────────────────────────────
+    # Known non-USD ISO codes that appear as group name suffixes on this broker.
+    _NON_USD_CURRENCIES = {"ZAR", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD",
+                           "NZD", "KES", "NGN", "GHS", "ZMW"}
+
+    def group_currency(self, group_name: str) -> str:
+        """Return the deposit currency for a group name.
+
+        Tries `GroupRequest` first (authoritative). Falls back to suffix
+        matching (CMV3ZAR -> ZAR, CMV3US -> USD, CMV3USIS -> USD).
+        """
+        if not group_name:
+            return "USD"
+        mgr = self._mgr()
+        try:
+            grp = mgr.GroupCreate()
+            try:
+                res = mgr.GroupRequest(group_name, grp)
+                if res == MTRetCode.MT_RET_OK:
+                    c = str(grp.Currency())
+                    if c:
+                        return c
+            finally:
+                grp.Dispose()
+        except Exception:
+            pass
+        # Heuristic fallback: check ISO suffix (e.g. CMV3ZAR -> ZAR)
+        upper = group_name.upper()
+        for code in self._NON_USD_CURRENCIES:
+            if upper.endswith(code):
+                return code
+        return "USD"
+
+    def get_users_by_logins(self, logins: list[int]) -> list[dict]:
+        """Batch fetch users for the given list of login IDs."""
+        from System import UInt64
+        mgr = self._mgr()
+        net_arr = [UInt64(l) for l in logins]
+        arr = mgr.UserCreateArray()
+        try:
+            _check(mgr.UserRequestByLogins(net_arr, arr),
+                   f"UserRequestByLogins({len(logins)} logins)")
+            return [self._user_dict(arr.Next(i)) for i in range(arr.Total())]
+        finally:
+            arr.Dispose()
+
     # ── fetch APIs ─────────────────────────────────────────────────────────
     def get_user(self, login: int) -> dict:
         mgr = self._mgr()
