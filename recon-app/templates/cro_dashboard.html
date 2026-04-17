@@ -1,6 +1,38 @@
 {% extends "base.html" %}
 {% block title %} — CRO All in One{% endblock %}
 {% block content %}
+<style>
+/* CRO-specific card overrides: wider cards, auto-shrink large numbers */
+#dailyCards .stat-card,
+#monthlyCards .stat-card {
+  padding: 10px 14px;
+  min-width: 0;
+  overflow: hidden;
+}
+#dailyCards .stat-card .value,
+#monthlyCards .stat-card .value {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+/* When the number is long, the JS attaches .long and we shrink the font */
+#dailyCards .stat-card .value.wide,
+#monthlyCards .stat-card .value.wide {
+  font-size: 16px;
+}
+#dailyCards .stat-card .value.xwide,
+#monthlyCards .stat-card .value.xwide {
+  font-size: 14px;
+}
+.stats-grid {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+</style>
 <div class="page-header">
   <div>
     <div class="page-title">CRO All in One</div>
@@ -92,8 +124,7 @@
 (function () {
   var fmtMoney = function (n) {
     n = Number(n || 0);
-    var decimals = Math.abs(n) >= 10000 ? 0 : 2;
-    return '$' + n.toLocaleString('en-US', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+    return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   };
   var fmtInt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
   var cls    = function (n) { return Number(n) > 0 ? 'pos' : Number(n) < 0 ? 'neg' : ''; };
@@ -103,9 +134,12 @@
     var b = badge
       ? ' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;' + badge.style + '">' + badge.text + '</span>'
       : '';
-    return '<div class="stat-card ' + c + '">' +
+    // Auto-shrink font when number is long (to prevent truncation)
+    var len = String(val).length;
+    var widthClass = len > 16 ? 'xwide' : len > 12 ? 'wide' : '';
+    return '<div class="stat-card ' + c + '" title="' + val + '">' +
              '<div class="label">' + lbl + b + '</div>' +
-             '<div class="value">' + val + '</div>' +
+             '<div class="value ' + widthClass + '">' + val + '</div>' +
            '</div>';
   }
 

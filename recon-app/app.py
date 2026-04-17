@@ -54,19 +54,8 @@ import threading as _threading
 _threading.Thread(target=_warm_wide_span_caches, daemon=True).start()
 
 
-def _warm_cro_cache():
-    import time as _time, datetime as _dt
-    import cro_queries
-    _time.sleep(20)  # let the app fully start first
-    try:
-        d = _dt.date.today()
-        cro_queries.dashboard_bundle(d)
-        print(f"[warmup] cro dashboard_bundle({d}) populated")
-    except Exception as e:
-        print(f"[warmup] cro dashboard_bundle failed: {e}")
-
-
-_threading.Thread(target=_warm_cro_cache, daemon=True).start()
+# NOTE: CRO dashboard is now served entirely from live push data (cro-bridge
+# container), so no Dealio-based warmup is needed.
 
 _RECON_USER  = os.environ.get("RECON_USER",  "")
 _RECON_PASS  = os.environ.get("RECON_PASS",  "")
@@ -2400,70 +2389,93 @@ def cro_feed():
 @app.route("/cro/refresh", methods=["POST"])
 @require_cro_auth
 def cro_refresh():
-    """Bust the in-memory cache for a given date so the next /cro/data re-fetches."""
-    import cro_queries
-    from datetime import datetime as _dt
-    d_raw = request.args.get("date")
-    src   = request.args.get("source", cro_queries.DEFAULT_SOURCE)
-    mask  = request.args.get("group",  cro_queries.DEFAULT_GROUP_MASK)
-    try:
-        d = _dt.strptime(d_raw, "%Y-%m-%d").date() if d_raw else date.today()
-    except ValueError:
-        return jsonify({"error": "Bad date"}), 400
-    key = (d.isoformat(), src, mask)
-    with cro_queries._CACHE_LOCK:
-        cro_queries._CACHE.pop(key, None)
-    return jsonify({"ok": True, "invalidated": d.isoformat()})
+    """No-op now that /cro/data serves live bridge data only. Kept for
+    backward-compat with the UI Refresh button -- just returns the last push."""
+    with _CRO_LIVE_LOCK:
+        return jsonify({"ok": True, "last_push": _CRO_LIVE.get("pushed_at")})
 
 
 @app.route("/cro/data")
 @require_cro_auth
 def cro_data():
-    """Return the full CRO dashboard bundle for a given date (or today)."""
-    import cro_queries
-    import traceback
-    from datetime import datetime as _dt
-    d_raw = request.args.get("date")
-    src   = request.args.get("source", cro_queries.DEFAULT_SOURCE)
-    mask  = request.args.get("group",  cro_queries.DEFAULT_GROUP_MASK)
+    """Serve the CRO dashboard data entirely from the live MT5 bridge feed.
+
+    Dealio is no longer consulted -- the Wine-hosted cro-bridge container
+    computes everything from the MT5 Manager API and POSTs it here every 30s.
+    If the bridge hasn't pushed recently (>90s), we return `live_stale: true`
+    so the UI can show a warning badge.
+    """
+    with _CRO_LIVE_LOCK:
+        live = dict(_CRO_LIVE)
+
+    if not live or not live.get("received_at"):
+        return jsonify({
+            "error": "MT5 bridge has not pushed yet; waiting for first cycle...",
+            "live_stale": True,
+        }), 503
+
     try:
-        d = _dt.strptime(d_raw, "%Y-%m-%d").date() if d_raw else date.today()
-    except ValueError:
-        return jsonify({"error": "Bad date; expected YYYY-MM-DD"}), 400
-    try:
-        bundle = cro_queries.dashboard_bundle(d, source=src, mask=mask)
-        # Merge live MT5 floating PnL if the bridge has pushed recently.
-        with _CRO_LIVE_LOCK:
-            live = dict(_CRO_LIVE)
-        if live and live.get("received_at"):
-            try:
-                age = (datetime.utcnow() - datetime.fromisoformat(live["received_at"])).total_seconds()
-                if age < _CRO_LIVE_MAX_AGE_S:
-                    bundle["daily"]["floating_pnl"] = float(
-                        live.get("floating_pnl_usd", live.get("floating_pnl", 0)))
-                    bundle["daily"]["n_positions"]  = int(live.get("n_positions", 0))
-                    # Also merge live closed PnL if present
-                    if "closed_pnl_usd" in live:
-                        bundle["daily"]["closed_pnl"]    = float(live["closed_pnl_usd"])
-                        bundle["daily"]["n_deals"]        = int(live.get("n_closing_deals", bundle["daily"].get("n_deals", 0)))
-                        bundle["daily"]["pnl"] = (
-                            bundle["daily"]["closed_pnl"]
-                            + bundle["daily"].get("delta_floating", 0.0)
-                        )
-                    bundle["live_pushed_at"] = live.get("pushed_at")
-                    bundle["live_stale"] = False
-                else:
-                    bundle["live_pushed_at"] = None
-                    bundle["live_stale"] = True
-            except Exception:
-                bundle["live_stale"] = True
-        else:
-            bundle["live_pushed_at"] = None
-            bundle["live_stale"] = True
-        return jsonify(bundle)
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        age = (datetime.utcnow() - datetime.fromisoformat(live["received_at"])).total_seconds()
+    except Exception:
+        age = 999999
+
+    today = date.today().isoformat()
+    flt = lambda k: float(live.get(k, 0) or 0)
+    i   = lambda k: int(live.get(k, 0) or 0)
+
+    daily = {
+        "label":         today,
+        "start":         today,
+        "end":           today,
+        "source":        live.get("source", "AN100"),
+        "group_mask":    live.get("group_mask", "CMV*"),
+        # money
+        "pnl":           flt("floating_pnl_usd") + flt("closed_pnl_usd"),
+        "floating_pnl":  flt("floating_pnl_usd"),
+        "closed_pnl":    flt("closed_pnl_usd"),
+        "delta_floating": 0.0,
+        "net_deposits":  flt("net_deposits"),
+        "deposits":      flt("deposits"),
+        "withdrawals":   flt("withdrawals"),
+        "volume_usd":    flt("volume_usd"),
+        "swap":          flt("swap"),
+        "commission":    flt("commission"),
+        # equity snapshot -- not yet fetched live; zero for now
+        "equity":        0.0,
+        "balance":       0.0,
+        "credit":        0.0,
+        "wd_equity":     0.0,
+        # counts
+        "n_accounts":        i("n_traders"),
+        "n_positions":       i("n_positions"),
+        "n_traders":         i("n_traders"),
+        "n_active_traders":  i("n_active_traders"),
+        "n_depositors":      i("n_depositors"),
+        "n_ftd":             0,
+        "n_retention_depositors": i("n_depositors"),
+        "n_deals":           i("n_closing_deals"),
+    }
+
+    # Monthly / trend / by_group are deferred until the bridge computes them.
+    # For now, UI will render zeros or "No rows".
+    empty_monthly = dict(daily)
+    empty_monthly["label"] = today[:7]
+
+    return jsonify({
+        "date":       today,
+        "requested":  today,
+        "fellback":   False,
+        "source":     live.get("source", "AN100"),
+        "group_mask": live.get("group_mask", "CMV*"),
+        "daily":      daily,
+        "monthly":    empty_monthly,
+        "by_group":   [],
+        "by_symbol":  live.get("by_symbol", []),
+        "trend":      [],
+        "live_pushed_at": live.get("pushed_at"),
+        "live_stale":  age >= _CRO_LIVE_MAX_AGE_S,
+        "live_age_s": age,
+    })
 
 
 # ── Operators Dashboard ──────────────────────────────────────────────────────
