@@ -625,8 +625,35 @@ function _agentTipHtml(o){
 function _showTip(e,html){
   var tip=document.getElementById('agentTip');
   tip.innerHTML=html; tip.style.display='block';
-  tip.style.left=Math.min(e.clientX+16,window.innerWidth-340)+'px';
-  tip.style.top=Math.min(e.clientY-20,window.innerHeight-tip.offsetHeight-20)+'px';
+  tip.style.left='0px'; tip.style.top='0px';
+  var tw=tip.offsetWidth, th=tip.offsetHeight;
+  var vw=window.innerWidth, vh=window.innerHeight;
+  var cx=e.clientX, cy=e.clientY;
+  // Collect rects of all open matrix cards to avoid covering them
+  var cards=Array.from(document.querySelectorAll('.mx-card')).map(function(c){return c.getBoundingClientRect();});
+  // Candidates in preference order: right, left, below, above, far-right, far-left
+  var tries=[
+    {l:cx+16,       t:cy-20},
+    {l:cx-tw-16,    t:cy-20},
+    {l:cx-tw/2,     t:cy+20},
+    {l:cx-tw/2,     t:cy-th-20},
+    {l:vw-tw-12,    t:Math.max(4,cy-th/2)},
+    {l:12,          t:Math.max(4,cy-th/2)},
+  ];
+  function overlapsCards(l,t){
+    l=Math.max(0,Math.min(l,vw-tw)); t=Math.max(0,Math.min(t,vh-th));
+    for(var i=0;i<cards.length;i++){
+      var r=cards[i];
+      if(l<r.right&&l+tw>r.left&&t<r.bottom&&t+th>r.top) return true;
+    }
+    return false;
+  }
+  var best=tries[0];
+  for(var i=0;i<tries.length;i++){
+    if(!overlapsCards(tries[i].l,tries[i].t)){best=tries[i];break;}
+  }
+  tip.style.left=Math.max(0,Math.min(best.l,vw-tw))+'px';
+  tip.style.top=Math.max(0,Math.min(best.t,vh-th))+'px';
 }
 function showAgent(e,idx){ var o=_currentView[idx];if(!o)return;_showTip(e,_agentTipHtml(o)); }
 function showAgentById(e,id){ var o=_allOps.find(function(x){return x.id===id;});if(!o)return;_showTip(e,_agentTipHtml(o)); }
