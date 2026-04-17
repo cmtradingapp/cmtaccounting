@@ -141,25 +141,21 @@ public class MT5Bridge
         int exitOnErr = 0;
         try
         {
-            // --- open positions: floating PnL via server-computed Summary ---
-            // SummaryCurrency("USD") tells the server to express all values in USD.
-            // ProfitFullClients() = Profit + Storage for client positions, already in USD.
-            // This matches the number shown in MT5 Manager's Open Positions summary row.
-            mgr.SummaryCurrency("USD");
-            var sumArr = mgr.SummaryCreateArray();
-            var sumRes = mgr.SummaryGetAll(sumArr);
-            if (sumRes != MTRetCode.MT_RET_OK)
+            // --- open positions: floating PnL ---
+            var posArr = mgr.PositionCreateArray();
+            var posRes = mgr.PositionRequestByGroup(group, posArr);
+            if (posRes != MTRetCode.MT_RET_OK)
             {
-                Console.Error.WriteLine("SummaryGetAll failed: " + sumRes);
+                Console.Error.WriteLine("PositionRequestByGroup failed: " + posRes);
                 exitOnErr = 6;
             }
-            for (uint i = 0; i < sumArr.Total(); i++)
+            nPositions = (int)posArr.Total();
+            for (uint i = 0; i < posArr.Total(); i++)
             {
-                var s = sumArr.Next(i);
-                floatingPnl += s.ProfitFullClients();
-                nPositions  += (int)s.PositionClients();
+                var p = posArr.Next(i);
+                floatingPnl += ToUsd(p.Profit() + p.Storage(), p.RateProfit());
             }
-            sumArr.Release();
+            posArr.Dispose();
 
             // --- today's deals ---
             DateTime dayStartDt = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(dayStart);
