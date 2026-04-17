@@ -248,6 +248,7 @@
 <script>
 var _allOps=[], _currentView=[], _opFilter='all', _opSearch='', _opSortKey='last_login', _opSortAsc=false;
 var _colFilters={}, _matrixNames={};
+var _statsLoaded=false;
 // Watermark state for exact new-operator detection
 var _wmPrevMax=0, _wmDate='', _wmExplain='', _wmNewCount=0;
 
@@ -292,7 +293,7 @@ function loadOperators(){
       _allOps.forEach(function(o){var s=sd.stats[String(o.id)]||{};
         o.total_clients=s.total_clients||0;o.funded_clients=s.funded_clients||0;
         o.total_deposit_volume=s.total_deposit_volume||0;o.ftd_count=s.ftd_count||0;o.ftd_volume=s.ftd_volume||0;
-      }); buildTable(); buildLeaderboard();
+      }); _statsLoaded=true; buildTable(); buildLeaderboard();
     }).catch(function(){});
   }).catch(function(e){document.getElementById('matrixContainer').innerHTML='<span style="color:var(--red)">'+e+'</span>';});
 }
@@ -780,9 +781,18 @@ function pinMxTip(e,td){
 var _lbMetric='total_deposit_volume';
 
 function buildLeaderboard(){
+  if(!_statsLoaded){
+    document.getElementById('lbBody').innerHTML=
+      '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);font-size:12px;">'+
+      'Loading performance data\u2026</td></tr>';
+    return;
+  }
   var dept=document.getElementById('lbDept').value;
   var ops=_allOps.filter(function(o){
-    return o.status==='Active' && (dept==='__all__'||(o.department||'')===dept);
+    if(o.status!=='Active') return false;
+    if(dept!=='__all__' && (o.department||'')!==dept) return false;
+    // Only show operators who have at least some stats — hides empty system accounts
+    return (o.total_clients||0)>0 || (o.total_deposit_volume||0)>0 || (o.ftd_count||0)>0;
   });
   ops=ops.slice().sort(function(a,b){return (b[_lbMetric]||0)-(a[_lbMetric]||0);});
   var html='';
@@ -790,7 +800,7 @@ function buildLeaderboard(){
     var rank=i+1;
     var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
     var cls=rank===1?'lb-rank top1':rank===2?'lb-rank top2':rank===3?'lb-rank top3':'lb-rank';
-    html+='<tr onmouseenter="showAgent(event,'+_currentView.indexOf(o)+')" onmouseleave="hideAgent()">'+
+    html+='<tr>'+
       '<td class="'+cls+'" style="text-align:right;padding-right:8px;">'+rank+'</td>'+
       '<td style="font-weight:600;" onmouseenter="showAgentById(event,'+o.id+')" onmouseleave="hideAgent()">'+name+'</td>'+
       '<td style="color:var(--muted);">'+(o.department||'—')+'</td>'+
@@ -801,7 +811,8 @@ function buildLeaderboard(){
       '<td class="num">'+(o.ftd_count?o.ftd_count.toLocaleString():'—')+'</td>'+
     '</tr>';
   });
-  document.getElementById('lbBody').innerHTML=html||'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No data</td></tr>';
+  document.getElementById('lbBody').innerHTML=html||
+    '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No operators with data in this department</td></tr>';
 }
 
 function lbSort(metric, btn){
