@@ -2639,6 +2639,8 @@ def cro_data():
         "by_symbol":  live.get("by_symbol", []),
         "closed_pnl_by_ccy":         live.get("closed_pnl_by_ccy", []),
         "monthly_closed_pnl_by_ccy": live.get("monthly_closed_pnl_by_ccy", []),
+        "closed_pnl_by_group":       live.get("closed_pnl_by_group", []),
+        "snap_login_count":          live.get("snap_login_count", 0),
         "trend":      trend,
         "live_pushed_at": live.get("pushed_at"),
         "live_stale":  (not has_data) or age >= _CRO_LIVE_MAX_AGE_S,

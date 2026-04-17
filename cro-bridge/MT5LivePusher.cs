@@ -181,6 +181,14 @@ public class MT5LivePusher
     static volatile Dictionary<ulong, string> _loginCcySnap =
         new Dictionary<ulong, string>();
 
+    // ── Login → group name snapshot (for per-group closed PnL + exclusions) ──
+    static volatile Dictionary<ulong, string> _loginGrpSnap =
+        new Dictionary<ulong, string>();
+
+    // ── Groups to exclude from PnL totals (internal/hedge accounts) ──────────
+    static readonly HashSet<string> _excludeGroups =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
     // ── FTD tracking ──────────────────────────────────────────────────────────
     // Seed once at startup with YTD known depositors; then track incrementally.
     static readonly HashSet<ulong> _knownDepositors = new HashSet<ulong>();
@@ -257,9 +265,11 @@ public class MT5LivePusher
         // IMTUser has Group() but not Currency() -- look up currency via groupCcy dict.
         var userArr = mgr.UserCreateArray();
         var newLoginCcy = new Dictionary<ulong, string>();
+        var newLoginGrp = new Dictionary<ulong, string>();
         if (mgr.UserRequestArray(group, userArr) == MTRetCode.MT_RET_OK)
         {
             newLoginCcy = new Dictionary<ulong, string>((int)userArr.Total());
+            newLoginGrp = new Dictionary<ulong, string>((int)userArr.Total());
             for (uint i = 0; i < userArr.Total(); i++)
             {
                 var u = userArr.Next(i);
@@ -271,8 +281,10 @@ public class MT5LivePusher
                 sd.totalBalance += u.Balance() * rate;
                 sd.totalCredit  += u.Credit()  * rate;
                 newLoginCcy[u.Login()] = ccy;
+                newLoginGrp[u.Login()] = grpName;
             }
             _loginCcySnap = newLoginCcy;  // atomic reference swap
+            _loginGrpSnap = newLoginGrp;
         }
         userArr.Release();
 
@@ -282,8 +294,9 @@ public class MT5LivePusher
             SMTTime.FromDateTime(monthStart), SMTTime.FromDateTime(nowDt), mArr);
         var byDay    = new SortedDictionary<string, double>(StringComparer.Ordinal);
         var mthByCcy = new Dictionary<string, CcyAgg>(StringComparer.Ordinal);
-        // Use the freshly-built loginCcy mapping (populated above)
-        var lcSnap   = newLoginCcy.Count > 0 ? newLoginCcy : _loginCcySnap;
+        // Use the freshly-built loginCcy/Grp mappings (populated above)
+        var lcSnap    = newLoginCcy.Count > 0 ? newLoginCcy : _loginCcySnap;
+        var lcGrpSnap = newLoginGrp.Count > 0 ? newLoginGrp : _loginGrpSnap;
         if (mRes == MTRetCode.MT_RET_OK)
         {
             var mTraders = new HashSet<ulong>();
@@ -294,6 +307,10 @@ public class MT5LivePusher
                 var    d      = mArr.Next(i);
                 uint   action = d.Action();
                 ulong  mLogin = d.Login();
+
+                // Skip excluded groups (internal/hedge accounts)
+                string mGrp; if (!lcGrpSnap.TryGetValue(mLogin, out mGrp)) mGrp = "";
+                if (mGrp.Length > 0 && _excludeGroups.Contains(mGrp)) continue;
 
                 if (action == ACTION_BUY || action == ACTION_SELL)
                 {
@@ -375,6 +392,16 @@ public class MT5LivePusher
         }
         ulong login = ulong.Parse(loginStr, ci);
 
+        // Parse excluded groups (comma-separated group names to omit from PnL totals)
+        {
+            var raw = Environment.GetEnvironmentVariable("CRO_EXCLUDE_GROUPS") ?? "";
+            foreach (var s in raw.Split(','))
+            { var t = s.Trim(); if (t.Length > 0) _excludeGroups.Add(t); }
+            if (_excludeGroups.Count > 0)
+                Console.Error.WriteLine("[pusher] excluding groups: " +
+                    string.Join(", ", _excludeGroups));
+        }
+
         var initRes = SMTManagerAPIFactory.Initialize(sdkDir);
         if (initRes != MTRetCode.MT_RET_OK)
         {
@@ -449,7 +476,9 @@ public class MT5LivePusher
                 var depositors    = new HashSet<ulong>();
                 var bySymbol      = new Dictionary<string, SymAgg>();
                 var closedByCcy   = new Dictionary<string, CcyAgg>(StringComparer.Ordinal);
+                var closedByGrp   = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
                 var lcFast        = _loginCcySnap; // snapshot reference — no lock needed
+                var lcGrp         = _loginGrpSnap;
 
                 var dealArr = mgr.DealCreateArray();
                 if (mgr.DealRequestByGroup(group,
@@ -462,38 +491,48 @@ public class MT5LivePusher
                         uint   action = d.Action();
                         ulong  dLogin = d.Login();
 
+                        // Resolve group name (for exclusion filter + per-group PnL)
+                        string dGrp; if (!lcGrp.TryGetValue(dLogin, out dGrp)) dGrp = "";
+                        bool excluded = dGrp.Length > 0 && _excludeGroups.Contains(dGrp);
+
                         if (action == ACTION_BUY || action == ACTION_SELL)
                         {
-                            tradersAny.Add(dLogin);
-                            if (d.Entry() == ENTRY_IN)
-                                tradersActive.Add(dLogin);
-                            else
+                            if (d.Entry() != ENTRY_IN)
                             {
                                 // Currency-aware USD conversion using deposit currency
                                 string dCcy; if (!lcFast.TryGetValue(dLogin, out dCcy)) dCcy = "USD";
                                 double dRate; if (!ccyRates.TryGetValue(dCcy, out dRate)) dRate = 1.0;
                                 double dNative = d.Profit() + d.Storage() + d.Commission();
-                                closedPnl += dNative * dRate;
-                                nClosingDeals++;
-                                // per-currency bucket
-                                CcyAgg dca; closedByCcy.TryGetValue(dCcy, out dca);
-                                dca.profit     += d.Profit();
-                                dca.swap       += d.Storage();
-                                dca.commission += d.Commission();
-                                dca.usdTotal   += dNative * dRate;
-                                closedByCcy[dCcy] = dca;
+                                double dUsd    = dNative * dRate;
+                                // Always track per-group (shows all groups including excluded ones)
+                                double gv; closedByGrp.TryGetValue(dGrp, out gv);
+                                closedByGrp[dGrp] = gv + dUsd;
+                                if (!excluded)
+                                {
+                                    closedPnl += dUsd;
+                                    nClosingDeals++;
+                                    CcyAgg dca; closedByCcy.TryGetValue(dCcy, out dca);
+                                    dca.profit     += d.Profit();
+                                    dca.swap       += d.Storage();
+                                    dca.commission += d.Commission();
+                                    dca.usdTotal   += dUsd;
+                                    closedByCcy[dCcy] = dca;
+                                }
                             }
+                            // Skip trader/volume/symbol stats for excluded groups
+                            if (excluded) continue;
+                            tradersAny.Add(dLogin);
+                            if (d.Entry() == ENTRY_IN)
+                                tradersActive.Add(dLogin);
                             double lots = d.Volume() / 100.0;
                             double dn   = NotionalUsd(lots, d.ContractSize(), d.Price(), d.Symbol());
                             volumeUsd  += dn;
-                            // swap/commission totals: also currency-aware
                             {
                                 string sCcy; if (!lcFast.TryGetValue(dLogin, out sCcy)) sCcy = "USD";
                                 double sRate; if (!ccyRates.TryGetValue(sCcy, out sRate)) sRate = 1.0;
                                 swap       += d.Storage()    * sRate;
                                 commission += d.Commission() * sRate;
                             }
-
                             string sym = d.Symbol();
                             if (!string.IsNullOrEmpty(sym))
                             {
@@ -514,6 +553,7 @@ public class MT5LivePusher
                         }
                         else if (action == ACTION_BALANCE)
                         {
+                            if (excluded) continue;
                             double amt     = ToUsd(d.Profit(), d.RateProfit());
                             string comment = (d.Comment() ?? "").ToLowerInvariant();
                             if (comment.Contains("bonus") || comment.Contains("internal") || comment.Contains("transfer"))
@@ -644,6 +684,7 @@ public class MT5LivePusher
                 }
                 sb.Append("]");
                 // --- meta ---
+                sb.Append(",\"snap_login_count\":").Append(_loginCcySnap.Count.ToString(ci));
                 sb.Append(",\"source\":\"AN100\"");
                 sb.Append(",\"group_mask\":\"").Append(JsonEscape(group)).Append("\"");
                 sb.Append(",\"pushed_at\":\"").Append(pushedAt).Append("\"");
@@ -681,12 +722,29 @@ public class MT5LivePusher
                 {
                     var g = byGroupList[i];
                     if (i > 0) sb.Append(",");
+                    double grpClosed; closedByGrp.TryGetValue(g.group, out grpClosed);
                     sb.Append("{\"groupname\":\"").Append(JsonEscape(g.group)).Append("\"");
                     sb.Append(",\"n_accounts\":").Append(g.nPositions.ToString(ci));
                     sb.Append(",\"n_depositors\":0");
                     sb.Append(",\"floating_pnl\":").Append(g.floatingPnl.ToString("G17", ci));
-                    sb.Append(",\"closed_pnl\":0,\"delta_floating\":").Append(g.floatingPnl.ToString("G17", ci));
+                    sb.Append(",\"closed_pnl\":").Append(grpClosed.ToString("G17", ci));
+                    sb.Append(",\"delta_floating\":").Append(g.floatingPnl.ToString("G17", ci));
                     sb.Append(",\"net_deposits\":0,\"equity\":0,\"balance\":0");
+                    sb.Append("}");
+                }
+                sb.Append("]");
+                // --- closed_pnl_by_group (all groups with closes today, sorted by abs desc) ---
+                var grpPnlList = new List<KeyValuePair<string, double>>(closedByGrp);
+                grpPnlList.Sort(delegate(KeyValuePair<string, double> a, KeyValuePair<string, double> b) {
+                    return Math.Abs(b.Value).CompareTo(Math.Abs(a.Value));
+                });
+                sb.Append(",\"closed_pnl_by_group\":[");
+                int gTake = Math.Min(100, grpPnlList.Count);
+                for (int i = 0; i < gTake; i++)
+                {
+                    if (i > 0) sb.Append(",");
+                    sb.Append("{\"group\":\"").Append(JsonEscape(grpPnlList[i].Key)).Append("\"");
+                    sb.Append(",\"closed_pnl\":").Append(grpPnlList[i].Value.ToString("G17", ci));
                     sb.Append("}");
                 }
                 sb.Append("]}");
