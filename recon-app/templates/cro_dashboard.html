@@ -92,12 +92,7 @@
 (function () {
   var fmtMoney = function (n) {
     n = Number(n || 0);
-    var a = Math.abs(n), s;
-    if (a >= 1e9) s = (n/1e9).toFixed(2) + 'B';
-    else if (a >= 1e6) s = (n/1e6).toFixed(2) + 'M';
-    else if (a >= 1e3) s = (n/1e3).toFixed(1) + 'k';
-    else s = n.toFixed(0);
-    return '$' + s;
+    return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   };
   var fmtInt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
   var cls    = function (n) { return Number(n) > 0 ? 'pos' : Number(n) < 0 ? 'neg' : ''; };
