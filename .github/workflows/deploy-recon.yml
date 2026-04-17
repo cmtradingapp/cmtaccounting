@@ -107,7 +107,7 @@ jobs:
           if git diff HEAD~1 HEAD -- cro-bridge/Dockerfile cro-bridge/sdk-libs | grep -q .; then
             echo "cro-bridge Dockerfile or sdk-libs changed — full rebuild (~15 min)"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-              "cd /root/cro-bridge && docker compose up -d --build && docker compose ps"
+              "cd /root/cro-bridge && docker compose up -d --build --force-recreate && docker compose ps"
           elif git diff HEAD~1 HEAD -- cro-bridge | grep -q .; then
             echo "cro-bridge code changed — recreate container (fast)"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
