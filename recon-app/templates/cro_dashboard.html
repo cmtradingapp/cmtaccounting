@@ -358,11 +358,11 @@
     tb.innerHTML = html;
   }
 
-  function showCcyTab(tab) {
+  window.showCcyTab = function (tab) {
     document.getElementById('ccyTabDay').classList.toggle('active', tab === 'day');
     document.getElementById('ccyTabMth').classList.toggle('active', tab === 'mtd');
     renderCcyTable(tab === 'day' ? _ccyDay : _ccyMth);
-  }
+  };
 
   function setSub(text, isError) {
     var el = document.getElementById('croSub');
@@ -426,6 +426,9 @@
         if (_hasGoodData && looksEmpty(data.daily)) return;
         if (!looksEmpty(data.daily)) _hasGoodData = true;
         renderAll(data.daily, data.monthly, data);
+        _ccyDay = data.closed_pnl_by_ccy || [];
+        _ccyMth = data.monthly_closed_pnl_by_ccy || [];
+        renderCcyTable(document.getElementById('ccyTabMth').classList.contains('active') ? _ccyMth : _ccyDay);
         _lastUpdated = new Date();
         updateSub(data);
       }).catch(function () {});
