@@ -628,38 +628,43 @@ function _showTip(e,html){
   tip.style.left='0px'; tip.style.top='0px';
   var tw=tip.offsetWidth, th=tip.offsetHeight;
   var vw=window.innerWidth, vh=window.innerHeight;
-  // Find which card (if any) triggered this hover
+
   var src=e.target.closest('.mx-card');
   var others=Array.from(document.querySelectorAll('.mx-card')).filter(function(c){return c!==src;});
-  var tries;
+
+  var best;
   if(src){
-    // Anchor adjacent to the source card — try all four sides
     var sr=src.getBoundingClientRect();
-    tries=[
-      {l:sr.right+8,   t:sr.top},           // right, top-aligned
-      {l:sr.left-tw-8, t:sr.top},            // left, top-aligned
-      {l:sr.right+8,   t:sr.bottom-th},      // right, bottom-aligned
-      {l:sr.left-tw-8, t:sr.bottom-th},      // left, bottom-aligned
-      {l:sr.left,      t:sr.top-th-8},       // above
-      {l:sr.left,      t:sr.bottom+8},       // below
+    // Available space in each direction from card edges
+    var spR=vw-sr.right-8, spL=sr.left-8, spA=sr.top-8, spB=vh-sr.bottom-8;
+    // Vertically centre on card for left/right; horizontally centre for above/below
+    var midT=Math.max(0,Math.min(sr.top+(sr.height||0)/2-th/2, vh-th));
+    var midL=Math.max(0,Math.min(sr.left+(sr.width||0)/2-tw/2, vw-tw));
+    // Four directional candidates, each tagged with how much room exists
+    var dirs=[
+      {need:tw, space:spR, l:sr.right+8,   t:midT},
+      {need:tw, space:spL, l:sr.left-tw-8, t:midT},
+      {need:th, space:spA, l:midL,          t:sr.top-th-8},
+      {need:th, space:spB, l:midL,          t:sr.bottom+8},
     ];
-  } else {
-    // Main table hover — cursor-relative, no card avoidance needed
-    tries=[{l:e.clientX+16, t:e.clientY-20},{l:e.clientX-tw-16, t:e.clientY-20}];
-  }
-  function overlapsOthers(l,t){
-    l=Math.max(0,Math.min(l,vw-tw)); t=Math.max(0,Math.min(t,vh-th));
-    for(var i=0;i<others.length;i++){
-      var r=others[i].getBoundingClientRect();
-      if(l<r.right&&l+tw>r.left&&t<r.bottom&&t+th>r.top) return true;
+    // Sort by available space descending — roomiest direction tried first
+    dirs.sort(function(a,b){return b.space-a.space;});
+    function overlapsOthers(l,t){
+      l=Math.max(0,Math.min(l,vw-tw)); t=Math.max(0,Math.min(t,vh-th));
+      for(var i=0;i<others.length;i++){
+        var r=others[i].getBoundingClientRect();
+        if(l<r.right&&l+tw>r.left&&t<r.bottom&&t+th>r.top) return true;
+      }
+      return false;
     }
-    return false;
-  }
-  // Pick first candidate that doesn't overlap other cards;
-  // if none found fall back to closest (candidate[0]) — user accepts partial overlap
-  var best=tries[0];
-  for(var i=0;i<tries.length;i++){
-    if(!overlapsOthers(tries[i].l,tries[i].t)){best=tries[i];break;}
+    best={l:dirs[0].l, t:dirs[0].t}; // default: roomiest direction
+    for(var i=0;i<dirs.length;i++){
+      if(dirs[i].space>=dirs[i].need&&!overlapsOthers(dirs[i].l,dirs[i].t)){
+        best=dirs[i]; break;
+      }
+    }
+  } else {
+    best={l:e.clientX+16, t:e.clientY-20};
   }
   tip.style.left=Math.max(0,Math.min(best.l,vw-tw))+'px';
   tip.style.top=Math.max(0,Math.min(best.t,vh-th))+'px';
