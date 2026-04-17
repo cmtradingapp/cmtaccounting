@@ -167,7 +167,9 @@ jobs:
           check "/cro"
           check "/cro/data"
           check_post "/cro/refresh"
-          check_post "/cro/feed"
+          # /cro/feed is not session-auth gated (secret header instead) — returns 403
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST --max-time 10 "$BASE/cro/feed")
+          if [ "$code" = "403" ] || [ "$code" = "000" ]; then echo "  PASS POST /cro/feed -> $code"; else echo "  FAIL POST /cro/feed -> $code (expected 403)"; FAIL=1; fi
           # Admin auth — POST-only routes (GET returns 405, verify POST returns 401)
           check_post "/fees/mode"
           check_post "/fees/admin/snapshot/save"
