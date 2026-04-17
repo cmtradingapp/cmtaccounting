@@ -26,8 +26,12 @@
   .mx-tip { display:none; position:fixed; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 14px; box-shadow:0 8px 24px rgba(0,0,0,.5); font-size:12px; pointer-events:none; max-width:90vw; }
   .mx-tip.pinned { pointer-events:auto; border-color:var(--accent); box-shadow:0 12px 36px rgba(0,0,0,.7); }
   .mx-tip-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; }
-  .mx-tip-close { cursor:pointer; color:var(--muted); font-size:14px; line-height:1; padding:0 2px; }
-  .mx-tip-close:hover { color:var(--text); }
+  .mx-tip-close { cursor:pointer; font-size:15px; line-height:1; padding:0 4px; font-weight:700;
+    animation:mx-close-pulse 2s ease-in-out infinite; }
+  @keyframes mx-close-pulse {
+    0%,100% { color:#7f1d1d; text-shadow:0 0 5px rgba(127,29,29,.4); }
+    50%      { color:#ef4444; text-shadow:0 0 10px rgba(239,68,68,.6); }
+  }
   .mx-tip-cols { display:flex; gap:0; }
   .mx-tip-col { flex:1; }
   .mx-tip-col + .mx-tip-col { border-left:1px solid var(--border); padding-left:12px; margin-left:12px; }
@@ -664,6 +668,12 @@ document.addEventListener('click',function(e){
 function opFilter(f,btn){_opFilter=f;document.querySelectorAll('.op-filter-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');buildTable();}
 function opSearchFn(q){_opSearch=q;buildTable();}
 
-document.addEventListener('DOMContentLoaded',loadOperators);
+document.addEventListener('DOMContentLoaded', function(){
+  // Move fixed overlays to <body> so position:fixed is always viewport-relative
+  // (ancestor transforms inside {% block content %} would otherwise break it)
+  document.body.appendChild(document.getElementById('mxTip'));
+  document.body.appendChild(document.getElementById('agentTip'));
+  loadOperators();
+});
 </script>
 {% endblock %}
