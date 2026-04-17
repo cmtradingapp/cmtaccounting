@@ -175,15 +175,15 @@
       <col style="width:9%"><col style="width:13%"><col style="width:11%"><col style="width:15%"><col style="width:7%">
     </colgroup>
     <thead><tr>
-      <th data-sort="name">Name <span class="sort-btn" onclick="doSort('name')">&#8597;</span></th>
-      <th data-sort="email">Email <span class="sort-btn" onclick="doSort('email')">&#8597;</span></th>
-      <th data-sort="department" data-filterable="department">Department <span class="sort-btn" onclick="doSort('department')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('department',this)">&#9662;</span></span></th>
-      <th data-sort="office" data-filterable="office">Location <span class="sort-btn" onclick="doSort('office')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('office',this)">&#9662;</span></span></th>
-      <th data-sort="status" data-filterable="status">Status <span class="sort-btn" onclick="doSort('status')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('status',this)">&#9662;</span></span></th>
-      <th data-sort="role_name" data-filterable="role_name">Role <span class="sort-btn" onclick="doSort('role_name')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('role_name',this)">&#9662;</span></span></th>
-      <th data-sort="position" data-filterable="position">Position <span class="sort-btn" onclick="doSort('position')">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('position',this)">&#9662;</span></span></th>
-      <th data-sort="last_login">Last Login <span class="sort-btn" onclick="doSort('last_login')">&#8597;</span></th>
-      <th data-sort="id" class="num">ID <span class="sort-btn" onclick="doSort('id')">&#8597;</span></th>
+      <th data-sort="name">Name <span class="sort-btn">&#8597;</span></th>
+      <th data-sort="email">Email <span class="sort-btn">&#8597;</span></th>
+      <th data-sort="department" data-filterable="department">Department <span class="sort-btn">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('department',this)">&#9662;</span></span></th>
+      <th data-sort="office" data-filterable="office">Location <span class="sort-btn">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('office',this)">&#9662;</span></span></th>
+      <th data-sort="status" data-filterable="status">Status <span class="sort-btn">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('status',this)">&#9662;</span></span></th>
+      <th data-sort="role_name" data-filterable="role_name">Role <span class="sort-btn">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('role_name',this)">&#9662;</span></span></th>
+      <th data-sort="position" data-filterable="position">Position <span class="sort-btn">&#8597;</span><span class="col-filter"><span class="col-filter-icon" onclick="event.stopPropagation();toggleColFilter('position',this)">&#9662;</span></span></th>
+      <th data-sort="last_login">Last Login <span class="sort-btn">&#8597;</span></th>
+      <th data-sort="id" class="num">ID <span class="sort-btn">&#8597;</span></th>
     </tr></thead>
     <tbody id="mainBody"></tbody>
   </table>
@@ -542,6 +542,16 @@ function buildTable(){
 function doSort(k){
   _opSortAsc=(k===_opSortKey)?!_opSortAsc:false; _opSortKey=k; buildTable();
 }
+
+// Delegated sort listener — the ONLY way sort can be triggered.
+// Fires only when a .sort-btn element is the click target.
+document.getElementById('mainTable').addEventListener('click', function(e){
+  var btn=e.target.closest('.sort-btn');
+  if(!btn) return;              // click was not on a sort button — ignore completely
+  e.stopPropagation();
+  var th=btn.closest('th[data-sort]');
+  if(th) doSort(th.getAttribute('data-sort'));
+});
 
 function _agentTipHtml(o){
   var name=((o.first_name||'')+' '+(o.last_name||'')).trim()||o.user_name||'—';
