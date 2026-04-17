@@ -87,8 +87,8 @@ def main() -> None:
         raise SystemExit("CRO_BRIDGE_SECRET env var is required.")
 
     server, login, pw = _load_mt5_creds()
-    print(f"[pusher] MT5={server} login={login} group={GROUP} -> {FEED_URL}")
-    print(f"[pusher] interval={INTERVAL}s  (Ctrl-C to stop)")
+    print(f"[pusher] MT5={server} login={login} group={GROUP} -> {FEED_URL}", flush=True)
+    print(f"[pusher] interval={INTERVAL}s  (Ctrl-C to stop)", flush=True)
 
     # Import here so the module can be imported on non-Windows without crashing.
     sys.path.insert(0, str(Path(__file__).parent))
@@ -118,7 +118,8 @@ def main() -> None:
             ok = "OK" if status == 200 else f"HTTP {status}"
             print(
                 f"[{ts}] #{cycle:04d}  floating_pnl={floating_pnl:>15,.2f}"
-                f"  n_positions={n_pos:>6}  -> {ok}  ({elapsed:.1f}s)"
+                f"  n_positions={n_pos:>6}  -> {ok}  ({elapsed:.1f}s)",
+                flush=True,
             )
 
         except MT5Error as e:
