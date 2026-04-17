@@ -20,6 +20,7 @@
       <input type="text" id="croSource" value="AN100" size="6" style="height:34px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0 10px;">
     </label>
     <button class="btn btn-primary" id="croApply" style="align-self:flex-end;">Apply</button>
+    <button class="btn" id="croRefresh" style="align-self:flex-end;">Refresh</button>
   </div>
 </div>
 
@@ -219,6 +220,14 @@
     var today = new Date().toISOString().slice(0, 10);
     document.getElementById('croDate').value = today;
     document.getElementById('croApply').addEventListener('click', load);
+    document.getElementById('croRefresh').addEventListener('click', function () {
+      var d = document.getElementById('croDate').value;
+      var g = document.getElementById('croGroup').value;
+      var s = document.getElementById('croSource').value;
+      setSub('Refreshing from Dealio...', false);
+      fetch('/cro/refresh?date=' + encodeURIComponent(d) + '&group=' + encodeURIComponent(g) + '&source=' + encodeURIComponent(s), {method:'POST'})
+        .then(function () { load(); });
+    });
     load();
   });
 })();

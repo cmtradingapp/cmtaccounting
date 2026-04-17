@@ -15,9 +15,10 @@ Key assumptions:
 """
 from __future__ import annotations
 
+import threading
 import time
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import psycopg2
@@ -26,6 +27,36 @@ import db
 
 DEFAULT_SOURCE = "AN100"
 DEFAULT_GROUP_MASK = "CMV%"
+
+# -- in-memory TTL cache -------------------------------------------------------
+# Historical days (before today) are immutable -- cache forever (24 h).
+# "Today / yesterday" can change as EOD snapshots land -- refresh every 5 min.
+_CACHE: dict = {}
+_CACHE_LOCK = threading.Lock()
+_TTL_RECENT_S = 300       # 5 min for dates within the last 2 days
+_TTL_HISTORY_S = 86400    # 24 h for older dates
+
+
+def _cache_ttl(day: date) -> int:
+    return _TTL_RECENT_S if (date.today() - day).days <= 1 else _TTL_HISTORY_S
+
+
+def _cache_get(key: tuple) -> dict | None:
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+    if not entry:
+        return None
+    payload, expires_at = entry
+    if time.monotonic() > expires_at:
+        with _CACHE_LOCK:
+            _CACHE.pop(key, None)
+        return None
+    return payload
+
+
+def _cache_put(key: tuple, payload: dict, ttl: int) -> None:
+    with _CACHE_LOCK:
+        _CACHE[key] = (payload, time.monotonic() + ttl)
 
 
 # -- helpers ----------------------------------------------------------------
@@ -60,27 +91,21 @@ SELECT
    AND groupname LIKE %(group_mask)s
 """
 
-_LATEST_EQUITY_SQL = """
-WITH latest AS (
-    SELECT login, MAX(date) AS d
-      FROM dealio.daily_profits
-     WHERE date <= %(end)s
-       AND sourceid = %(source)s
-       AND groupname LIKE %(group_mask)s
-     GROUP BY login
-)
+# Equity snapshot for a single known date -- O(n) for one partition only.
+# We pass %(snap_date)s = the latest date that has rows (from _latest_data_date).
+_EQUITY_SQL = """
 SELECT
-    COALESCE(SUM(dp.convertedequity),     0) AS equity,
-    COALESCE(SUM(dp.convertedfloatingpnl),0) AS floating_pnl,
-    COALESCE(SUM(dp.convertedbalance),    0) AS balance,
-    COUNT(*)                                  AS n_accounts
-  FROM dealio.daily_profits dp
-  JOIN latest l ON l.login = dp.login AND l.d = dp.date
- WHERE dp.sourceid = %(source)s
-   AND dp.groupname LIKE %(group_mask)s
+    COALESCE(SUM(convertedequity),     0) AS equity,
+    COALESCE(SUM(convertedfloatingpnl),0) AS floating_pnl,
+    COALESCE(SUM(convertedbalance),    0) AS balance,
+    COUNT(*)                               AS n_accounts
+  FROM dealio.daily_profits
+ WHERE date = %(snap_date)s
+   AND sourceid = %(source)s
+   AND groupname LIKE %(group_mask)s
 """
 
-# credit is on dealio.users only (not daily_profits), so one extra roundtrip.
+# credit lives in dealio.users (not daily_profits).
 _CREDIT_SQL = """
 SELECT COALESCE(SUM(credit), 0) AS credit
   FROM dealio.users
@@ -128,14 +153,17 @@ SELECT COUNT(DISTINCT dp.login) AS n_ftd
 """
 
 
-def _window_snapshot(cur, start: date, end: date, source: str, mask: str, label: str) -> dict:
+def _window_snapshot(cur, start: date, end: date, source: str, mask: str,
+                     label: str, snap_date: date | None = None) -> dict:
+    """snap_date: the latest date with daily_profits rows (avoids MAX CTE)."""
+    if snap_date is None:
+        snap_date = end
     params = {"start": start, "end": end, "source": source, "group_mask": mask}
     totals = _fetchone(cur, _TOTALS_SQL, params)
     trades = _fetchone(cur, _TRADE_AGG_SQL, params)
     ftd    = _fetchone(cur, _FTD_SQL, params)
-    # Latest equity is a point-in-time view (end of window).
-    eq_params = {"end": end, "source": source, "group_mask": mask}
-    eq     = _fetchone(cur, _LATEST_EQUITY_SQL, eq_params)
+    eq     = _fetchone(cur, _EQUITY_SQL,
+                       {"snap_date": snap_date, "source": source, "group_mask": mask})
     credit = _fetchone(cur, _CREDIT_SQL,
                        {"source": source, "group_mask": mask})
 
@@ -333,6 +361,11 @@ def dashboard_bundle(day: date, source: str = DEFAULT_SOURCE,
     If the requested day has no daily_profits rows yet (e.g. EOD snapshot hasn't
     been written), we silently fall back to the most recent day that does.
     """
+    cache_key = (day.isoformat(), source, mask)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     def _go():
         with db.dealio() as cur:
             effective = day
@@ -345,10 +378,12 @@ def dashboard_bundle(day: date, source: str = DEFAULT_SOURCE,
             month_end   = date(effective.year, effective.month, last)
             trend_start = effective - timedelta(days=29)
 
+            # Pass snap_date so equity queries hit one date partition, not CTE.
             daily   = _window_snapshot(cur, effective, effective, source, mask,
-                                       effective.isoformat())
+                                       effective.isoformat(), snap_date=effective)
             monthly = _window_snapshot(cur, month_start, month_end, source, mask,
-                                       f"{effective.year:04d}-{effective.month:02d}")
+                                       f"{effective.year:04d}-{effective.month:02d}",
+                                       snap_date=effective)
             by_grp  = _fetchall(cur, _BY_GROUP_SQL,
                                 {"start": effective, "end": effective,
                                  "source": source, "group_mask": mask})
@@ -376,4 +411,6 @@ def dashboard_bundle(day: date, source: str = DEFAULT_SOURCE,
             "trend":     series,
         }
 
-    return _retry_on_replica_conflict(_go)
+    result = _retry_on_replica_conflict(_go)
+    _cache_put(cache_key, result, _cache_ttl(date.fromisoformat(result["date"])))
+    return result

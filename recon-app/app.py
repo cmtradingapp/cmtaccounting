@@ -2358,6 +2358,25 @@ def cro_page():
     return resp
 
 
+@app.route("/cro/refresh", methods=["POST"])
+@require_cro_auth
+def cro_refresh():
+    """Bust the in-memory cache for a given date so the next /cro/data re-fetches."""
+    import cro_queries
+    from datetime import datetime as _dt
+    d_raw = request.args.get("date")
+    src   = request.args.get("source", cro_queries.DEFAULT_SOURCE)
+    mask  = request.args.get("group",  cro_queries.DEFAULT_GROUP_MASK)
+    try:
+        d = _dt.strptime(d_raw, "%Y-%m-%d").date() if d_raw else date.today()
+    except ValueError:
+        return jsonify({"error": "Bad date"}), 400
+    key = (d.isoformat(), src, mask)
+    with cro_queries._CACHE_LOCK:
+        cro_queries._CACHE.pop(key, None)
+    return jsonify({"ok": True, "invalidated": d.isoformat()})
+
+
 @app.route("/cro/data")
 @require_cro_auth
 def cro_data():

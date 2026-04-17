@@ -164,6 +164,7 @@ jobs:
           # CRO auth
           check "/cro"
           check "/cro/data"
+          check_post "/cro/refresh"
           # Admin auth — POST-only routes (GET returns 405, verify POST returns 401)
           check_post "/fees/mode"
           check_post "/fees/admin/snapshot/save"
