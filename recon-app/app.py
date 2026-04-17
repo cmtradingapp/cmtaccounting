@@ -56,6 +56,8 @@ _ADMIN_USER      = os.environ.get("ADMIN_USER",      "")
 _ADMIN_PASS      = os.environ.get("ADMIN_PASS",      "")
 _RETENTION_USER  = os.environ.get("RETENTION_USER",  "")
 _RETENTION_PASS  = os.environ.get("RETENTION_PASS",  "")
+_CRO_USER        = os.environ.get("CRO_USER",        "")
+_CRO_PASS        = os.environ.get("CRO_PASS",        "")
 
 
 def _unauthorized(realm):
@@ -122,6 +124,18 @@ def require_retention_auth(f):
         auth = request.authorization
         if not auth or auth.username != _RETENTION_USER or auth.password != _RETENTION_PASS:
             return _unauthorized("CMT Retention")
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_cro_auth(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _CRO_USER or not _CRO_PASS:
+            abort(500, "CRO_USER and CRO_PASS env vars not set.")
+        auth = request.authorization
+        if not auth or auth.username != _CRO_USER or auth.password != _CRO_PASS:
+            return _unauthorized("CMT CRO")
         return f(*args, **kwargs)
     return wrapper
 
@@ -2331,6 +2345,36 @@ def bank_restore(statement_id):
 def bank_purge(statement_id):
     queries.purge_bank_statement(statement_id)
     return redirect(url_for("banks_main"))
+
+
+# ── CRO All in One Dashboard ─────────────────────────────────────────────────
+
+@app.route("/cro")
+@require_cro_auth
+def cro_page():
+    from flask import make_response
+    resp = make_response(render_template("cro_dashboard.html"))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
+
+
+@app.route("/cro/data")
+@require_cro_auth
+def cro_data():
+    """Return the full CRO dashboard bundle for a given date (or today)."""
+    import cro_queries
+    from datetime import datetime as _dt
+    d_raw = request.args.get("date")
+    src   = request.args.get("source", cro_queries.DEFAULT_SOURCE)
+    mask  = request.args.get("group",  cro_queries.DEFAULT_GROUP_MASK)
+    try:
+        d = _dt.strptime(d_raw, "%Y-%m-%d").date() if d_raw else date.today()
+    except ValueError:
+        return jsonify({"error": "Bad date; expected YYYY-MM-DD"}), 400
+    try:
+        return jsonify(cro_queries.dashboard_bundle(d, source=src, mask=mask))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Operators Dashboard ──────────────────────────────────────────────────────

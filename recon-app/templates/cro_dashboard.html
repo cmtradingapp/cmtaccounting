@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %} — CRO All in One{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">CRO All in One</div>
+    <div class="page-sub" id="croSub">Loading…</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <label class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;display:flex;flex-direction:column;gap:4px;">
+      Date
+      <input type="date" id="croDate" style="height:34px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0 10px;color-scheme:dark;">
+    </label>
+    <label class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;display:flex;flex-direction:column;gap:4px;">
+      Group mask
+      <input type="text" id="croGroup" value="CMV%" size="10" style="height:34px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0 10px;">
+    </label>
+    <label class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;display:flex;flex-direction:column;gap:4px;">
+      Server
+      <input type="text" id="croSource" value="AN100" size="6" style="height:34px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0 10px;">
+    </label>
+    <button class="btn btn-primary" id="croApply" style="align-self:flex-end;">Apply</button>
+  </div>
+</div>
+
+<div class="section-title" style="margin-top:var(--sp-4);">Daily</div>
+<div class="stats-grid" id="dailyCards"></div>
+
+<div class="section-title">Monthly (current month to date)</div>
+<div class="stats-grid" id="monthlyCards"></div>
+
+<div class="section-title">Daily Performance by MT5 group</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-col="0">Group</th>
+        <th data-col="1" class="num"># Accounts</th>
+        <th data-col="2" class="num"># Depositors</th>
+        <th data-col="3" class="num">Closed PnL</th>
+        <th data-col="4" class="num">Δ Floating</th>
+        <th data-col="5" class="num">Net Deposits</th>
+        <th data-col="6" class="num">Equity (EOD)</th>
+        <th data-col="7" class="num">Balance</th>
+      </tr>
+    </thead>
+    <tbody id="groupTbody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<div class="section-title">Volume Distribution (day, by symbol)</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-col="0">Symbol</th>
+        <th data-col="1" class="num"># Deals</th>
+        <th data-col="2" class="num"># Traders</th>
+        <th data-col="3" class="num">Notional</th>
+        <th data-col="4" class="num">Buy</th>
+        <th data-col="5" class="num">Sell</th>
+        <th data-col="6" class="num">Swap</th>
+        <th data-col="7" class="num">Commission</th>
+        <th data-col="8" class="num">PnL</th>
+      </tr>
+    </thead>
+    <tbody id="symbolTbody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<div class="section-title">Trend (last 30 days)</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-col="0">Date</th>
+        <th data-col="1" class="num"># Accounts</th>
+        <th data-col="2" class="num"># Depositors</th>
+        <th data-col="3" class="num">PnL</th>
+        <th data-col="4" class="num">Closed PnL</th>
+        <th data-col="5" class="num">Δ Floating</th>
+        <th data-col="6" class="num">Net Deposits</th>
+        <th data-col="7" class="num">Equity</th>
+      </tr>
+    </thead>
+    <tbody id="trendTbody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<script>
+(function () {
+  var fmtMoney = function (n) {
+    n = Number(n || 0);
+    var a = Math.abs(n), s;
+    if (a >= 1e9) s = (n/1e9).toFixed(2) + 'B';
+    else if (a >= 1e6) s = (n/1e6).toFixed(2) + 'M';
+    else if (a >= 1e3) s = (n/1e3).toFixed(1) + 'k';
+    else s = n.toFixed(0);
+    return '$' + s;
+  };
+  var fmtInt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
+  var cls    = function (n) { return Number(n) > 0 ? 'pos' : Number(n) < 0 ? 'neg' : ''; };
+
+  function card(lbl, val, klass) {
+    var c = klass === 'pos' ? 'green' : klass === 'neg' ? 'red' : '';
+    return '<div class="stat-card ' + c + '">' +
+             '<div class="label">' + lbl + '</div>' +
+             '<div class="value">' + val + '</div>' +
+           '</div>';
+  }
+
+  function renderCards(id, s, flavour) {
+    var isMonth = flavour === 'month';
+    var pfx = isMonth ? 'Monthly' : 'Daily';
+    var html = [
+      card(pfx + ' PnL',           fmtMoney(s.pnl),            cls(s.pnl)),
+      card(pfx + ' Closed PnL',    fmtMoney(s.closed_pnl),     cls(s.closed_pnl)),
+      card(pfx + ' Δ Floating',    fmtMoney(s.delta_floating), cls(s.delta_floating)),
+      card(pfx + ' Net Deposits',  fmtMoney(s.net_deposits),   cls(s.net_deposits)),
+      card(pfx + ' Volume ($)',    fmtMoney(s.volume_usd)),
+      card('# Traders',            fmtInt(s.n_traders)),
+      card('# Active Traders',     fmtInt(s.n_active_traders)),
+      card('# Depositors',         fmtInt(s.n_depositors)),
+      card('# FTD',                fmtInt(s.n_ftd)),
+      card('# Retention Dep.',     fmtInt(s.n_retention_depositors)),
+      card('Equity (EOD)',         fmtMoney(s.equity)),
+      card('WD Equity Z',          fmtMoney(s.wd_equity)),
+      card('Floating PnL',         fmtMoney(s.floating_pnl),   cls(s.floating_pnl)),
+      card('Balance',              fmtMoney(s.balance)),
+      card('Credit',               fmtMoney(s.credit))
+    ].join('');
+    document.getElementById(id).innerHTML = html;
+  }
+
+  function renderGroupTable(rows) {
+    var tb = document.getElementById('groupTbody');
+    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">No rows for this day.</td></tr>'; return; }
+    tb.innerHTML = rows.map(function (r) {
+      return '<tr>' +
+        '<td>' + (r.groupname || '') + '</td>' +
+        '<td class="num" data-val="' + (r.n_accounts||0) + '">' + fmtInt(r.n_accounts) + '</td>' +
+        '<td class="num" data-val="' + (r.n_depositors||0) + '">' + fmtInt(r.n_depositors) + '</td>' +
+        '<td class="num ' + cls(r.closed_pnl) + '" data-val="' + r.closed_pnl + '">' + fmtMoney(r.closed_pnl) + '</td>' +
+        '<td class="num ' + cls(r.delta_floating) + '" data-val="' + r.delta_floating + '">' + fmtMoney(r.delta_floating) + '</td>' +
+        '<td class="num ' + cls(r.net_deposits) + '" data-val="' + r.net_deposits + '">' + fmtMoney(r.net_deposits) + '</td>' +
+        '<td class="num" data-val="' + (r.equity||0) + '">' + fmtMoney(r.equity) + '</td>' +
+        '<td class="num" data-val="' + (r.balance||0) + '">' + fmtMoney(r.balance) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function renderSymbolTable(rows) {
+    var tb = document.getElementById('symbolTbody');
+    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">No rows for this day.</td></tr>'; return; }
+    tb.innerHTML = rows.map(function (r) {
+      return '<tr>' +
+        '<td>' + (r.symbol || '') + '</td>' +
+        '<td class="num" data-val="' + (r.n_deals||0) + '">' + fmtInt(r.n_deals) + '</td>' +
+        '<td class="num" data-val="' + (r.n_traders||0) + '">' + fmtInt(r.n_traders) + '</td>' +
+        '<td class="num" data-val="' + (r.notional_usd||0) + '">' + fmtMoney(r.notional_usd) + '</td>' +
+        '<td class="num" data-val="' + (r.notional_buy||0) + '">' + fmtMoney(r.notional_buy) + '</td>' +
+        '<td class="num" data-val="' + (r.notional_sell||0) + '">' + fmtMoney(r.notional_sell) + '</td>' +
+        '<td class="num ' + cls(r.swap) + '" data-val="' + r.swap + '">' + fmtMoney(r.swap) + '</td>' +
+        '<td class="num" data-val="' + (r.commission||0) + '">' + fmtMoney(r.commission) + '</td>' +
+        '<td class="num ' + cls(r.pnl) + '" data-val="' + r.pnl + '">' + fmtMoney(r.pnl) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function renderTrendTable(rows) {
+    var tb = document.getElementById('trendTbody');
+    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">No rows.</td></tr>'; return; }
+    tb.innerHTML = rows.map(function (r) {
+      return '<tr>' +
+        '<td>' + (r.date || '') + '</td>' +
+        '<td class="num" data-val="' + (r.n_accounts||0) + '">' + fmtInt(r.n_accounts) + '</td>' +
+        '<td class="num" data-val="' + (r.n_depositors||0) + '">' + fmtInt(r.n_depositors) + '</td>' +
+        '<td class="num ' + cls(r.pnl) + '" data-val="' + r.pnl + '">' + fmtMoney(r.pnl) + '</td>' +
+        '<td class="num ' + cls(r.closed_pnl) + '" data-val="' + r.closed_pnl + '">' + fmtMoney(r.closed_pnl) + '</td>' +
+        '<td class="num ' + cls(r.delta_floating) + '" data-val="' + r.delta_floating + '">' + fmtMoney(r.delta_floating) + '</td>' +
+        '<td class="num ' + cls(r.net_deposits) + '" data-val="' + r.net_deposits + '">' + fmtMoney(r.net_deposits) + '</td>' +
+        '<td class="num" data-val="' + (r.equity||0) + '">' + fmtMoney(r.equity) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function setSub(text, isError) {
+    var el = document.getElementById('croSub');
+    el.textContent = text;
+    el.style.color = isError ? 'var(--red)' : 'var(--text-2)';
+  }
+
+  function load() {
+    var d = document.getElementById('croDate').value;
+    var g = document.getElementById('croGroup').value;
+    var s = document.getElementById('croSource').value;
+    setSub('Loading…', false);
+    var q = '?date=' + encodeURIComponent(d) +
+            '&group=' + encodeURIComponent(g) +
+            '&source=' + encodeURIComponent(s);
+    fetch('/cro/data' + q).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.error) { setSub('Error: ' + data.error, true); return; }
+      renderCards('dailyCards',   data.daily,   'day');
+      renderCards('monthlyCards', data.monthly, 'month');
+      renderGroupTable(data.by_group);
+      renderSymbolTable(data.by_symbol);
+      renderTrendTable(data.trend);
+      setSub(
+        'Source ' + data.source + ' · group ' + data.group_mask +
+        ' · day ' + data.daily.label + ' · ' + fmtInt(data.daily.n_accounts) + ' accounts · ' +
+        fmtInt(data.daily.n_deals) + ' trade deals',
+        false
+      );
+    }).catch(function (e) { setSub('Fetch failed: ' + e.message, true); });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var today = new Date().toISOString().slice(0, 10);
+    document.getElementById('croDate').value = today;
+    document.getElementById('croApply').addEventListener('click', load);
+    load();
+  });
+})();
+</script>
+{% endblock %}
