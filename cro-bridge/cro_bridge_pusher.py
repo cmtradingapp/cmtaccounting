@@ -78,16 +78,29 @@ def run_bridge_exe() -> dict | None:
 
     # Wine often prints a pile of 'fixme:' lines before our JSON. Find the
     # last non-empty line that starts with '{' and parse that.
+    payload = None
     for line in reversed(result.stdout.splitlines()):
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
             try:
-                return json.loads(line)
+                payload = json.loads(line)
+                break
             except json.JSONDecodeError:
                 continue
-    print(f"[pusher] no JSON in stdout: {result.stdout[-500:]!r}",
-          file=sys.stderr, flush=True)
-    return None
+    if payload is None:
+        print(f"[pusher] no JSON in stdout: {result.stdout[-500:]!r}",
+              file=sys.stderr, flush=True)
+        return None
+
+    # Belt-and-suspenders sanity: if both position count and trader count
+    # are zero the MT5 query returned empty OK (transient issue); drop it
+    # so _CRO_LIVE retains the last known-good values.
+    if payload.get("n_positions", 0) == 0 and payload.get("n_traders", 0) == 0:
+        print("[pusher] sanity failed: 0 positions + 0 traders -- ignoring push",
+              file=sys.stderr, flush=True)
+        return None
+
+    return payload
 
 
 def push(payload: dict) -> int:

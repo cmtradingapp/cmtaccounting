@@ -2379,6 +2379,13 @@ def cro_feed():
     if not bridge_secret or not hmac.compare_digest(incoming, bridge_secret):
         return jsonify({"ok": False}), 403
     data = request.get_json(force=True, silent=True) or {}
+    # Reject payloads where both position count and trader count are zero —
+    # that is conclusive evidence of a transient MT5 empty-query result.
+    # Keep _CRO_LIVE at its last known-good values instead of overwriting.
+    n_pos     = int(data.get("n_positions", 0) or 0)
+    n_traders = int(data.get("n_traders",   0) or 0)
+    if n_pos == 0 and n_traders == 0:
+        return jsonify({"ok": False, "reason": "sanity_failed_zero_positions"}), 422
     with _CRO_LIVE_LOCK:
         _CRO_LIVE.clear()
         _CRO_LIVE.update(data)

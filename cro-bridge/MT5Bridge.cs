@@ -295,6 +295,16 @@ public class MT5Bridge
         }
         sb.Append("]}");
 
+        // Sanity: this broker has 22 000+ open positions during trading hours.
+        // If both n_positions AND n_traders are zero the query returned empty
+        // silently (transient MT5 issue). Skip emission so the last good push
+        // is preserved in _CRO_LIVE on the server side.
+        if (nPositions == 0 && tradersAny.Count == 0)
+        {
+            Console.Error.WriteLine("[helper] sanity failed: 0 positions AND 0 traders -- skipping");
+            return 8;
+        }
+
         // Don't push a JSON with stale/incomplete values if an MT5 call errored.
         if (exitOnErr != 0)
         {
