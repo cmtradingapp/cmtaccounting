@@ -92,7 +92,8 @@
 (function () {
   var fmtMoney = function (n) {
     n = Number(n || 0);
-    return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    var decimals = Math.abs(n) >= 10000 ? 0 : 2;
+    return '$' + n.toLocaleString('en-US', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
   };
   var fmtInt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
   var cls    = function (n) { return Number(n) > 0 ? 'pos' : Number(n) < 0 ? 'neg' : ''; };

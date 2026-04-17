@@ -86,18 +86,25 @@ def _day_bounds_utc() -> tuple[datetime, datetime]:
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
 
-def _to_usd(native_amount: float, account_currency: str, rate_profit: float) -> float:
-    """Convert an amount in account_currency to USD.
+def _native_to_usd(native_amount: float, rate_profit: float) -> float:
+    """Convert a deal/position's native profit to USD using rate_profit.
 
-    For USD accounts: profit is already in USD regardless of rate_profit.
-    For non-USD accounts: profit = symbol_profit * rate_profit (e.g. *USDZAR),
-      so profit_usd = profit / rate_profit.
+    MT5 stores profit in the account's deposit currency. rate_profit is the
+    rate applied to convert the SYMBOL's profit currency into the account's
+    deposit currency.
+
+    For USD accounts (rate_profit near 1 or < 1):
+        profit is already in USD -- return as-is.
+    For non-USD accounts (rate_profit >> 1, e.g. ZAR ~18, KES ~130):
+        profit is in the native currency; divide by rate_profit to get USD.
+        (USD_profit * USDZAR = ZAR_profit  =>  ZAR_profit / USDZAR = USD_profit)
+
+    Threshold 1.5 safely separates ZAR/KES/NGN (>10) from EUR/GBP (~0.85-0.95)
+    and USD-account USDJPY (~0.006).
     """
-    if account_currency == "USD":
-        return native_amount
-    if rate_profit and rate_profit > 0:
+    if rate_profit > 1.5 and rate_profit != 0:
         return native_amount / rate_profit
-    return native_amount  # fallback
+    return native_amount  # already in USD (or close enough)
 
 
 def _compute(bridge) -> dict:
@@ -105,32 +112,11 @@ def _compute(bridge) -> dict:
     # -- open positions (floating PnL) --
     positions = bridge.get_positions_by_group(GROUP)
 
-    # For floating PnL: batch-fetch groups of logins in positions
-    pos_logins = list({int(p["login"]) for p in positions})
-
-    # Batch fetch in chunks of 500 (API limit may vary)
-    CHUNK = 500
-    login_group: dict[int, str] = {}
-    for i in range(0, len(pos_logins), CHUNK):
-        chunk = pos_logins[i : i + CHUNK]
-        try:
-            for u in bridge.get_users_by_logins(chunk):
-                login_group[int(u["login"])] = str(u["group"])
-        except Exception:
-            pass  # fallback to USD if lookup fails
-
-    # Cache group -> currency (same for every call, cheap)
-    grp_currency_cache: dict[str, str] = {}
-    def currency_of(login: int) -> str:
-        grp = login_group.get(login, "")
-        if grp not in grp_currency_cache:
-            grp_currency_cache[grp] = bridge.group_currency(grp) if grp else "USD"
-        return grp_currency_cache[grp]
-
+    # Use rate_profit heuristic to convert each position's profit to USD.
+    # This avoids the expensive UserRequestByLogins for 20k+ logins.
     floating_pnl_usd = sum(
-        _to_usd(
+        _native_to_usd(
             float(p["profit"]) + float(p["storage"]),
-            currency_of(int(p["login"])),
             float(p.get("rate_profit", 1.0)),
         )
         for p in positions
@@ -145,20 +131,9 @@ def _compute(bridge) -> dict:
         if d["action"] in (_ACT_BUY, _ACT_SELL) and d["entry"] != _ENTRY_IN
     ]
 
-    # Add any new logins from deals to the lookup
-    deal_logins = list({int(d["login"]) for d in closing} - set(login_group))
-    for i in range(0, len(deal_logins), CHUNK):
-        chunk = deal_logins[i : i + CHUNK]
-        try:
-            for u in bridge.get_users_by_logins(chunk):
-                login_group[int(u["login"])] = str(u["group"])
-        except Exception:
-            pass
-
     closed_pnl_usd = sum(
-        _to_usd(
+        _native_to_usd(
             float(d["profit"]) + float(d.get("storage", 0)) + float(d.get("commission", 0)),
-            currency_of(int(d["login"])),
             float(d.get("rate_profit", 1.0)),
         )
         for d in closing
