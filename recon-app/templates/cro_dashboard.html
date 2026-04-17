@@ -205,10 +205,11 @@
       renderGroupTable(data.by_group);
       renderSymbolTable(data.by_symbol);
       renderTrendTable(data.trend);
+      var fb = data.fellback ? ' · showing latest day with data (' + data.date + ', requested ' + data.requested + ')' : '';
       setSub(
         'Source ' + data.source + ' · group ' + data.group_mask +
         ' · day ' + data.daily.label + ' · ' + fmtInt(data.daily.n_accounts) + ' accounts · ' +
-        fmtInt(data.daily.n_deals) + ' trade deals',
+        fmtInt(data.daily.n_deals) + ' trade deals' + fb,
         false
       );
     }).catch(function (e) { setSub('Fetch failed: ' + e.message, true); });

@@ -2363,6 +2363,7 @@ def cro_page():
 def cro_data():
     """Return the full CRO dashboard bundle for a given date (or today)."""
     import cro_queries
+    import traceback
     from datetime import datetime as _dt
     d_raw = request.args.get("date")
     src   = request.args.get("source", cro_queries.DEFAULT_SOURCE)
@@ -2374,6 +2375,7 @@ def cro_data():
     try:
         return jsonify(cro_queries.dashboard_bundle(d, source=src, mask=mask))
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 

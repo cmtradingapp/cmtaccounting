@@ -15,9 +15,12 @@ Key assumptions:
 """
 from __future__ import annotations
 
+import time
 from calendar import monthrange
 from datetime import date, timedelta
 from typing import Any
+
+import psycopg2
 
 import db
 
@@ -106,18 +109,22 @@ SELECT
 
 
 _FTD_SQL = """
--- First-ever positive net-deposit date per login, then count those landing in window.
-WITH first_dep AS (
-    SELECT login, MIN(date) AS first_date
-      FROM dealio.daily_profits
-     WHERE convertednetdeposit > 0
-       AND sourceid = %(source)s
-       AND groupname LIKE %(group_mask)s
-     GROUP BY login
-)
-SELECT COUNT(*) AS n_ftd
-  FROM first_dep
- WHERE first_date BETWEEN %(start)s AND %(end)s
+-- FTD = a login whose first-ever positive net-deposit falls in the window.
+-- Start from the small window-set and prove no earlier deposit exists —
+-- avoids a full-table MIN()/GROUP BY which was taking ~30s on the replica.
+SELECT COUNT(DISTINCT dp.login) AS n_ftd
+  FROM dealio.daily_profits dp
+ WHERE dp.date BETWEEN %(start)s AND %(end)s
+   AND dp.convertednetdeposit > 0
+   AND dp.sourceid = %(source)s
+   AND dp.groupname LIKE %(group_mask)s
+   AND NOT EXISTS (
+       SELECT 1 FROM dealio.daily_profits pre
+        WHERE pre.login = dp.login
+          AND pre.date < dp.date
+          AND pre.convertednetdeposit > 0
+          AND pre.sourceid = %(source)s
+   )
 """
 
 
@@ -286,38 +293,87 @@ def daily_series(start: date, end: date, source: str = DEFAULT_SOURCE,
     return rows
 
 
+# ── retry wrapper ──────────────────────────────────────────────────────────
+def _retry_on_replica_conflict(fn, *, attempts: int = 3, backoff: float = 1.5):
+    """Dealio is a hot-standby. Long-running queries can be cancelled by the WAL
+    apply process ("canceling statement due to conflict with recovery"). Retry
+    a bounded number of times before giving up.
+    """
+    last_exc = None
+    for i in range(attempts):
+        try:
+            return fn()
+        except psycopg2.errors.QueryCanceled as e:
+            last_exc = e
+        except psycopg2.OperationalError as e:
+            msg = str(e).lower()
+            if "conflict with recovery" not in msg and "canceling statement" not in msg:
+                raise
+            last_exc = e
+        time.sleep(backoff ** i)
+    raise last_exc
+
+
+def _latest_data_date(cur, source: str, mask: str, before: date) -> date | None:
+    cur.execute(
+        "SELECT MAX(date) AS d FROM dealio.daily_profits "
+        " WHERE date <= %(before)s AND sourceid = %(source)s "
+        "   AND groupname LIKE %(mask)s",
+        {"before": before, "source": source, "mask": mask},
+    )
+    row = cur.fetchone()
+    return (dict(row) or {}).get("d")
+
+
 # ── dashboard bundle ───────────────────────────────────────────────────────
 def dashboard_bundle(day: date, source: str = DEFAULT_SOURCE,
                      mask: str = DEFAULT_GROUP_MASK) -> dict:
-    """One call that gathers everything the dashboard needs."""
-    month_start = day.replace(day=1)
-    last = monthrange(day.year, day.month)[1]
-    month_end = date(day.year, day.month, last)
-    # last-30-days trend for the daily series
-    trend_start = day - timedelta(days=29)
+    """One call that gathers everything the dashboard needs.
 
-    with db.dealio() as cur:
-        daily   = _window_snapshot(cur, day, day, source, mask, day.isoformat())
-        monthly = _window_snapshot(cur, month_start, month_end, source, mask,
-                                   f"{day.year:04d}-{day.month:02d}")
-        by_grp  = _fetchall(cur, _BY_GROUP_SQL,
-                            {"start": day, "end": day, "source": source, "group_mask": mask})
-        by_sym  = _fetchall(cur, _BY_SYMBOL_SQL,
-                            {"start": day, "end": day, "source": source, "group_mask": mask})
-        series  = _fetchall(cur, _DAILY_SERIES_SQL,
-                            {"start": trend_start, "end": day, "source": source, "group_mask": mask})
+    If the requested day has no daily_profits rows yet (e.g. EOD snapshot hasn't
+    been written), we silently fall back to the most recent day that does.
+    """
+    def _go():
+        with db.dealio() as cur:
+            effective = day
+            latest = _latest_data_date(cur, source, mask, day)
+            if latest and latest < day:
+                effective = latest
 
-    for r in series:
-        r["date"] = r["date"].isoformat() if r.get("date") else None
-        r["pnl"] = _coalesce(r, "delta_floating") + _coalesce(r, "closed_pnl")
+            month_start = effective.replace(day=1)
+            last = monthrange(effective.year, effective.month)[1]
+            month_end   = date(effective.year, effective.month, last)
+            trend_start = effective - timedelta(days=29)
 
-    return {
-        "date": day.isoformat(),
-        "source": source,
-        "group_mask": mask,
-        "daily":   daily,
-        "monthly": monthly,
-        "by_group":  by_grp,
-        "by_symbol": by_sym,
-        "trend":     series,
-    }
+            daily   = _window_snapshot(cur, effective, effective, source, mask,
+                                       effective.isoformat())
+            monthly = _window_snapshot(cur, month_start, month_end, source, mask,
+                                       f"{effective.year:04d}-{effective.month:02d}")
+            by_grp  = _fetchall(cur, _BY_GROUP_SQL,
+                                {"start": effective, "end": effective,
+                                 "source": source, "group_mask": mask})
+            by_sym  = _fetchall(cur, _BY_SYMBOL_SQL,
+                                {"start": effective, "end": effective,
+                                 "source": source, "group_mask": mask})
+            series  = _fetchall(cur, _DAILY_SERIES_SQL,
+                                {"start": trend_start, "end": effective,
+                                 "source": source, "group_mask": mask})
+
+        for r in series:
+            r["date"] = r["date"].isoformat() if r.get("date") else None
+            r["pnl"] = _coalesce(r, "delta_floating") + _coalesce(r, "closed_pnl")
+
+        return {
+            "date":      effective.isoformat(),
+            "requested": day.isoformat(),
+            "fellback":  effective != day,
+            "source":    source,
+            "group_mask": mask,
+            "daily":   daily,
+            "monthly": monthly,
+            "by_group":  by_grp,
+            "by_symbol": by_sym,
+            "trend":     series,
+        }
+
+    return _retry_on_replica_conflict(_go)
