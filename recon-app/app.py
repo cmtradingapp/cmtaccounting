@@ -46,6 +46,21 @@ def _warm_wide_span_caches():
 import threading as _threading
 _threading.Thread(target=_warm_wide_span_caches, daemon=True).start()
 
+
+def _warm_cro_cache():
+    import time as _time, datetime as _dt
+    import cro_queries
+    _time.sleep(20)  # let the app fully start first
+    try:
+        d = _dt.date.today()
+        cro_queries.dashboard_bundle(d)
+        print(f"[warmup] cro dashboard_bundle({d}) populated")
+    except Exception as e:
+        print(f"[warmup] cro dashboard_bundle failed: {e}")
+
+
+_threading.Thread(target=_warm_cro_cache, daemon=True).start()
+
 _RECON_USER  = os.environ.get("RECON_USER",  "")
 _RECON_PASS  = os.environ.get("RECON_PASS",  "")
 _FEES_USER   = os.environ.get("FEES_USER",   "")
