@@ -99,19 +99,28 @@ public sealed class MT5LivePusher
         public HashSet<ulong> DepositorLogins;
         public HashSet<ulong> TraderLogins;
         public HashSet<ulong> ActiveTraderLogins;
-        public Dictionary<string, Mt5PositionHistoryCurrencyTotal> ClosedTotalsByCurrency;
-        public Dictionary<string, Dictionary<string, Mt5PositionHistoryCurrencyTotal>> ClosedTotalsByDay;
-        public Mt5DailyClosedPnlResult ClosedPnl;
-        public List<MonthlyByDayPayload> MonthlyByDay;
-        public Mt5WdEquityZReport WdEquityZ;
-    }
+	        public Dictionary<string, Mt5PositionHistoryCurrencyTotal> ClosedTotalsByCurrency;
+	        public Dictionary<string, Dictionary<string, Mt5PositionHistoryCurrencyTotal>> ClosedTotalsByDay;
+	        public Mt5DailyClosedPnlResult ClosedPnl;
+	        public List<MonthlyByDayPayload> MonthlyByDay;
+	    }
 
-    private sealed class WdEquityBridgeConfig
-    {
-        public string BonusCommentContains;
-        public Mt5WdEquityZComputationMode Mode;
-        public DateTime? BonusHistoryFrom;
-    }
+	    private sealed class WdEquityBridgeConfig
+	    {
+	        public string BonusCommentContains;
+	        public Mt5WdEquityZComputationMode Mode;
+	        public DateTime? BonusHistoryFrom;
+	        public int RefreshSeconds;
+	    }
+
+	    private sealed class WdEquityPollingState
+	    {
+	        public Mt5WdEquityZReport Report;
+	        public int AccountCount;
+	        public DateTime RefreshedAtUtc;
+	        public DateTime NextRefreshUtc;
+	        public int RefreshSeconds;
+	    }
 
     [DataContract]
     public sealed class PusherPayload
@@ -149,8 +158,12 @@ public sealed class MT5LivePusher
         [DataMember] public int wd_equity_daily_rows { get; set; }
         [DataMember] public int wd_equity_bonus_deals { get; set; }
         [DataMember] public string wd_equity_mode { get; set; }
+        [DataMember] public string wd_equity_source { get; set; }
         [DataMember] public string wd_equity_bonus_comment { get; set; }
         [DataMember] public string wd_equity_bonus_history_from { get; set; }
+        [DataMember] public string wd_equity_refreshed_at { get; set; }
+        [DataMember] public int wd_equity_refresh_seconds { get; set; }
+        [DataMember] public int wd_equity_account_count { get; set; }
         [DataMember] public string wd_equity_summary { get; set; }
         [DataMember] public double monthly_closed_pnl { get; set; }
         [DataMember] public double monthly_net_deposits { get; set; }
@@ -253,27 +266,29 @@ public sealed class MT5LivePusher
             return 3;
         }
 
-        Console.Error.WriteLine(
-            string.Format(
-                ci,
-                "[pusher] group={0} interval={1}s slow_every={2} cycles wd_mode={3} bonus_filter=\"{4}\" bonus_from={5}",
-                settings.GroupMask,
-                intervalSeconds,
-                slowEvery,
-                ToWdEquityModeName(wdEquityConfig.Mode),
-                wdEquityConfig.BonusCommentContains,
-                wdEquityConfig.BonusHistoryFrom.HasValue
-                    ? wdEquityConfig.BonusHistoryFrom.Value.ToString("yyyy-MM-dd", ci)
+	        Console.Error.WriteLine(
+	            string.Format(
+	                ci,
+	                "[pusher] group={0} interval={1}s slow_every={2} cycles wd_mode={3} wd_refresh={4}s bonus_filter=\"{5}\" bonus_from={6}",
+	                settings.GroupMask,
+	                intervalSeconds,
+	                slowEvery,
+	                ToWdEquityModeName(wdEquityConfig.Mode),
+	                wdEquityConfig.RefreshSeconds,
+	                wdEquityConfig.BonusCommentContains,
+	                wdEquityConfig.BonusHistoryFrom.HasValue
+	                    ? wdEquityConfig.BonusHistoryFrom.Value.ToString("yyyy-MM-dd", ci)
                     : "year-start"));
 
         CIMTManagerAPI manager = null;
         Dictionary<string, string> groupCurrencies = null;
         Dictionary<ulong, Mt5LoginContext> loginContexts = null;
-        IDictionary<string, Mt5UsdConversionRate> usdRates = null;
-        var closedPnlCalculator = new Mt5DailyClosedPnlCalculator();
-        var slow = new SlowStats();
-        int slowCycle = slowEvery;
-        int refreshCycle = 60;
+	        IDictionary<string, Mt5UsdConversionRate> usdRates = null;
+	        var closedPnlCalculator = new Mt5DailyClosedPnlCalculator();
+	        var slow = new SlowStats();
+	        WdEquityPollingState wdPolling = null;
+	        int slowCycle = slowEvery;
+	        int refreshCycle = 60;
 
         try
         {
@@ -285,11 +300,12 @@ public sealed class MT5LivePusher
                     {
                         manager = ConnectWithRetry(settings);
                         groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
-                        loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
-                        usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
-                        slow = new SlowStats();
-                        slowCycle = slowEvery;
-                        refreshCycle = 60;
+	                        loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+	                        usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+	                        slow = new SlowStats();
+	                        wdPolling = null;
+	                        slowCycle = slowEvery;
+	                        refreshCycle = 60;
                         Console.Error.WriteLine(
                             string.Format(
                                 ci,
@@ -327,12 +343,51 @@ public sealed class MT5LivePusher
                     if (fast.PositionCount == 0 && fast.TraderLogins.Count == 0)
                     {
                         Console.Error.WriteLine("[pusher] sanity: 0 positions + 0 traders -- skipping");
-                        Thread.Sleep(intervalSeconds * 1000);
-                        continue;
-                    }
+	                        Thread.Sleep(intervalSeconds * 1000);
+	                        continue;
+	                    }
 
-                    if (++slowCycle >= slowEvery)
-                    {
+	                    if (IsWdRefreshDue(wdPolling, nowUtc))
+	                    {
+	                        DateTime wdRefreshStartedUtc = DateTime.UtcNow;
+	                        Console.Error.WriteLine("[pusher] wd refresh: polling live Trading Accounts...");
+	                        try
+	                        {
+	                            wdPolling = RefreshWdEquityZ(
+	                                manager,
+	                                settings,
+	                                groupCurrencies,
+	                                loginContexts,
+	                                usdRates,
+	                                wdEquityConfig,
+	                                nowUtc,
+	                                ci);
+
+	                            TimeSpan wdRefreshDuration = DateTime.UtcNow - wdRefreshStartedUtc;
+	                            Console.Error.WriteLine(
+	                                string.Format(
+	                                    ci,
+	                                    "[pusher] wd refresh: accounts={0:N0} equity={1:N0} credit={2:N0} bonuses={3:N0} wdz={4:N0} took={5:N1}s",
+	                                    wdPolling.AccountCount,
+	                                    wdPolling.Report != null ? wdPolling.Report.EndEquityUsd : 0.0,
+	                                    wdPolling.Report != null ? wdPolling.Report.EndCreditsUsd : 0.0,
+	                                    wdPolling.Report != null ? wdPolling.Report.EndProtectedBonusesUsd : 0.0,
+	                                    wdPolling.Report != null ? wdPolling.Report.WdEquityZUsd : 0.0,
+	                                    wdRefreshDuration.TotalSeconds));
+	                        }
+	                        catch (Exception ex)
+	                        {
+	                            int retrySeconds = Math.Max(1, Math.Min(60, wdEquityConfig.RefreshSeconds));
+	                            Console.Error.WriteLine("[pusher] wd refresh failed: " + ex.Message + " -- keeping previous cached value");
+	                            if (wdPolling == null)
+	                                wdPolling = new WdEquityPollingState();
+	                            wdPolling.RefreshSeconds = wdEquityConfig.RefreshSeconds;
+	                            wdPolling.NextRefreshUtc = nowUtc.AddSeconds(retrySeconds);
+	                        }
+	                    }
+
+	                    if (++slowCycle >= slowEvery)
+	                    {
                         slowCycle = 0;
                         slow = CollectSlowStats(
                             manager,
@@ -340,26 +395,25 @@ public sealed class MT5LivePusher
                             groupCurrencies,
                             loginContexts,
                             usdRates,
-                            monthStartUtc,
-                            nowUtc,
-                            closedPnlCalculator,
-                            wdEquityConfig,
-                            fast.DepositorLogins,
-                            todayKey,
-                            ci);
+	                            monthStartUtc,
+	                            nowUtc,
+	                            closedPnlCalculator,
+	                            fast.DepositorLogins,
+	                            todayKey,
+	                            ci);
 
                         Console.Error.WriteLine(
                             string.Format(
                                 ci,
                                 "[pusher] slow: bal={0:N0} cred={1:N0} mth_closed={2:N0} wdz={3:N0} ftd={4}",
-                                slow.TotalBalanceUsd,
-                                slow.TotalCreditUsd,
-                                slow.ClosedPnl != null ? slow.ClosedPnl.TotalClosedPnlUsd : 0.0,
-                                slow.WdEquityZ != null ? slow.WdEquityZ.WdEquityZUsd : 0.0,
-                                _ftdToday));
-                    }
+	                                slow.TotalBalanceUsd,
+	                                slow.TotalCreditUsd,
+	                                slow.ClosedPnl != null ? slow.ClosedPnl.TotalClosedPnlUsd : 0.0,
+	                                wdPolling != null && wdPolling.Report != null ? wdPolling.Report.WdEquityZUsd : 0.0,
+	                                _ftdToday));
+	                    }
 
-                    PusherPayload payload = BuildPayload(settings, loginContexts, fast, slow, wdEquityConfig, nowUtc, ci);
+	                    PusherPayload payload = BuildPayload(settings, loginContexts, fast, slow, wdPolling, wdEquityConfig, nowUtc, ci);
                     Console.WriteLine(SerializeJson(payload));
                     Console.Out.Flush();
                 }
@@ -592,14 +646,13 @@ public sealed class MT5LivePusher
         Mt5MonitorSettings settings,
         Dictionary<string, string> groupCurrencies,
         Dictionary<ulong, Mt5LoginContext> loginContexts,
-        IDictionary<string, Mt5UsdConversionRate> usdRates,
-        DateTime monthStartUtc,
-        DateTime nowUtc,
-        Mt5DailyClosedPnlCalculator calculator,
-        WdEquityBridgeConfig wdEquityConfig,
-        HashSet<ulong> todayDepositors,
-        string todayKey,
-        CultureInfo ci)
+	        IDictionary<string, Mt5UsdConversionRate> usdRates,
+	        DateTime monthStartUtc,
+	        DateTime nowUtc,
+	        Mt5DailyClosedPnlCalculator calculator,
+	        HashSet<ulong> todayDepositors,
+	        string todayKey,
+	        CultureInfo ci)
     {
         var stats = new SlowStats();
 
@@ -728,27 +781,18 @@ public sealed class MT5LivePusher
         UpdateFtd(todayDepositors, todayKey);
 
         stats.ClosedPnl = calculator.Calculate(stats.ClosedTotalsByCurrency.Values, usdRates);
-        stats.MonthlyByDay = stats.ClosedTotalsByDay
-            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-            .Select(
+	        stats.MonthlyByDay = stats.ClosedTotalsByDay
+	            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+	            .Select(
                 pair => new MonthlyByDayPayload
                 {
-                    date = pair.Key,
-                    closed_pnl = calculator.Calculate(pair.Value.Values, usdRates).TotalClosedPnlUsd
-                })
-            .ToList();
-        stats.WdEquityZ = CollectWdEquityZ(
-            manager,
-            settings,
-            groupCurrencies,
-            loginContexts,
-            usdRates,
-            wdEquityConfig,
-            nowUtc,
-            ci);
+	                    date = pair.Key,
+	                    closed_pnl = calculator.Calculate(pair.Value.Values, usdRates).TotalClosedPnlUsd
+	                })
+	            .ToList();
 
-        return stats;
-    }
+	        return stats;
+	    }
 
     private static void SeedKnownDepositors(
         CIMTManagerAPI manager,
@@ -824,30 +868,33 @@ public sealed class MT5LivePusher
         _knownDepositorsDate = todayKey;
     }
 
-    private static PusherPayload BuildPayload(
-        Mt5MonitorSettings settings,
-        Dictionary<ulong, Mt5LoginContext> loginContexts,
-        FastStats fast,
-        SlowStats slow,
-        WdEquityBridgeConfig wdEquityConfig,
-        DateTime nowUtc,
-        CultureInfo ci)
-    {
-        Mt5DailyClosedPnlResult dailyClosed = fast.ClosedPnl ?? new Mt5DailyClosedPnlResult();
-        Mt5DailyClosedPnlResult monthlyClosed = slow.ClosedPnl ?? new Mt5DailyClosedPnlResult();
-        Mt5WdEquityZReport wdReport = slow.WdEquityZ ?? new Mt5WdEquityZReport();
+	    private static PusherPayload BuildPayload(
+	        Mt5MonitorSettings settings,
+	        Dictionary<ulong, Mt5LoginContext> loginContexts,
+	        FastStats fast,
+	        SlowStats slow,
+	        WdEquityPollingState wdPolling,
+	        WdEquityBridgeConfig wdEquityConfig,
+	        DateTime nowUtc,
+	        CultureInfo ci)
+	    {
+	        Mt5DailyClosedPnlResult dailyClosed = fast.ClosedPnl ?? new Mt5DailyClosedPnlResult();
+	        Mt5DailyClosedPnlResult monthlyClosed = slow.ClosedPnl ?? new Mt5DailyClosedPnlResult();
+	        Mt5WdEquityZReport wdReport = wdPolling != null && wdPolling.Report != null
+	            ? wdPolling.Report
+	            : new Mt5WdEquityZReport();
 
         double dailySwap = dailyClosed.CurrencyBreakdowns.Sum(item => item.SwapUsd);
         double dailyCommission = dailyClosed.CurrencyBreakdowns.Sum(item => item.CommissionUsd);
         double dailyFee = dailyClosed.CurrencyBreakdowns.Sum(item => item.FeeUsd);
         double monthlySwap = monthlyClosed.CurrencyBreakdowns.Sum(item => item.SwapUsd);
         double monthlyCommission = monthlyClosed.CurrencyBreakdowns.Sum(item => item.CommissionUsd);
-        double monthlyFee = monthlyClosed.CurrencyBreakdowns.Sum(item => item.FeeUsd);
+	        double monthlyFee = monthlyClosed.CurrencyBreakdowns.Sum(item => item.FeeUsd);
 
-        double totalEquity = slow.TotalBalanceUsd + slow.TotalCreditUsd + fast.FloatingPnlUsd;
-        double legacyWdEquity = Math.Max(0.0, slow.TotalBalanceUsd + fast.FloatingPnlUsd - slow.MonthlyCobUsd);
-        bool hasWdReport = wdReport.DailyRowCount > 0 || wdReport.ProtectedBonusDealCount > 0 || wdReport.GeneratedAt != default(DateTime);
-        double wdEquity = hasWdReport ? wdReport.WdEquityZUsd : legacyWdEquity;
+	        double totalEquity = slow.TotalBalanceUsd + slow.TotalCreditUsd + fast.FloatingPnlUsd;
+	        double legacyWdEquity = Math.Max(0.0, slow.TotalBalanceUsd + fast.FloatingPnlUsd - slow.MonthlyCobUsd);
+	        bool hasWdReport = wdPolling != null && wdPolling.Report != null && wdReport.GeneratedAt != default(DateTime);
+	        double wdEquity = hasWdReport ? wdReport.WdEquityZUsd : 0.0;
 
         var bySymbol = fast.Symbols.Values
             .OrderByDescending(item => Math.Abs(item.NotionalUsd))
@@ -925,18 +972,26 @@ public sealed class MT5LivePusher
             wd_equity_end_bonuses = wdReport.EndProtectedBonusesUsd,
             wd_equity_start_equity = wdReport.StartEquityUsd,
             wd_equity_start_credits = wdReport.StartCreditsUsd,
-            wd_equity_start_bonuses = wdReport.StartProtectedBonusesUsd,
-            wd_equity_daily_rows = wdReport.DailyRowCount,
-            wd_equity_bonus_deals = wdReport.ProtectedBonusDealCount,
-            wd_equity_mode = ToWdEquityModeName(wdEquityConfig.Mode),
-            wd_equity_bonus_comment = wdReport.BonusCommentContains ?? wdEquityConfig.BonusCommentContains,
-            wd_equity_bonus_history_from = (wdReport.BonusHistoryFrom != default(DateTime)
-                ? wdReport.BonusHistoryFrom
-                : ResolveWdEquityBonusHistoryFrom(wdEquityConfig, nowUtc))
-                .ToString("yyyy-MM-dd", ci),
-            wd_equity_summary = hasWdReport
-                ? wdReport.CalculationSummary
-                : "Fallback to legacy bridge formula: max(balance + floating - monthly bonus, 0).",
+	            wd_equity_start_bonuses = wdReport.StartProtectedBonusesUsd,
+	            wd_equity_daily_rows = wdReport.DailyRowCount,
+	            wd_equity_bonus_deals = wdReport.ProtectedBonusDealCount,
+	            wd_equity_mode = ToWdEquityModeName(wdEquityConfig.Mode),
+	            wd_equity_source = hasWdReport ? "trading_accounts_live" : "pending_live_refresh",
+	            wd_equity_bonus_comment = wdReport.BonusCommentContains ?? wdEquityConfig.BonusCommentContains,
+	            wd_equity_bonus_history_from = (wdReport.BonusHistoryFrom != default(DateTime)
+	                ? wdReport.BonusHistoryFrom
+	                : ResolveWdEquityBonusHistoryFrom(wdEquityConfig, nowUtc))
+	                .ToString("yyyy-MM-dd", ci),
+	            wd_equity_refreshed_at = hasWdReport
+	                ? wdPolling.RefreshedAtUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", ci)
+	                : string.Empty,
+	            wd_equity_refresh_seconds = wdPolling != null && wdPolling.RefreshSeconds > 0
+	                ? wdPolling.RefreshSeconds
+	                : wdEquityConfig.RefreshSeconds,
+	            wd_equity_account_count = wdPolling != null ? wdPolling.AccountCount : 0,
+	            wd_equity_summary = hasWdReport
+	                ? wdReport.CalculationSummary
+	                : "WD Equity Z pending first live Trading Accounts refresh.",
             monthly_closed_pnl = monthlyClosed.TotalClosedPnlUsd,
             monthly_net_deposits = slow.MonthlyDepositsUsd + slow.MonthlyWithdrawalsUsd,
             monthly_deposits = slow.MonthlyDepositsUsd,
@@ -1010,9 +1065,9 @@ public sealed class MT5LivePusher
         total.Fee = MoneyAdd(total.Fee, fee, total.CurrencyDigits);
     }
 
-    private static double ConvertNativeToUsd(
-        double nativeAmount,
-        string currency,
+	    private static double ConvertNativeToUsd(
+	        double nativeAmount,
+	        string currency,
         IDictionary<string, Mt5UsdConversionRate> usdRates,
         double fallbackRateProfit)
     {
@@ -1030,11 +1085,40 @@ public sealed class MT5LivePusher
                 return nativeAmount * usdRate;
         }
 
-        return ToUsd(nativeAmount, fallbackRateProfit);
-    }
+	        return ToUsd(nativeAmount, fallbackRateProfit);
+	    }
 
-    private static bool ShouldSkipBalanceDeal(string comment, bool onlyBonus)
-    {
+	    private static double ConvertNativeToUsdTracked(
+	        double nativeAmount,
+	        string currency,
+	        IDictionary<string, Mt5UsdConversionRate> usdRates,
+	        ISet<string> missingCurrencies)
+	    {
+	        if (nativeAmount == 0.0)
+	            return 0.0;
+
+	        string effectiveCurrency = string.IsNullOrWhiteSpace(currency) ? "USD" : currency;
+	        Mt5UsdConversionRate rate;
+	        if (usdRates != null &&
+	            usdRates.TryGetValue(effectiveCurrency, out rate) &&
+	            rate != null)
+	        {
+	            double usdRate = nativeAmount >= 0.0 ? rate.PositiveToUsd : rate.NegativeToUsd;
+	            if (usdRate > 0.0)
+	                return nativeAmount * usdRate;
+	        }
+
+	        if (!string.Equals(effectiveCurrency, "USD", StringComparison.OrdinalIgnoreCase) &&
+	            missingCurrencies != null)
+	        {
+	            missingCurrencies.Add(effectiveCurrency);
+	        }
+
+	        return ToUsd(nativeAmount, 1.0);
+	    }
+
+	    private static bool ShouldSkipBalanceDeal(string comment, bool onlyBonus)
+	    {
         string lowered = (comment ?? string.Empty).ToLowerInvariant();
         bool isBonus = lowered.Contains("bonus");
         if (onlyBonus)
@@ -1087,75 +1171,138 @@ public sealed class MT5LivePusher
         return "USD";
     }
 
-    private static Mt5WdEquityZReport CollectWdEquityZ(
-        CIMTManagerAPI manager,
-        Mt5MonitorSettings settings,
-        Dictionary<string, string> groupCurrencies,
+	    private static WdEquityPollingState RefreshWdEquityZ(
+	        CIMTManagerAPI manager,
+	        Mt5MonitorSettings settings,
+	        Dictionary<string, string> groupCurrencies,
         Dictionary<ulong, Mt5LoginContext> loginContexts,
         IDictionary<string, Mt5UsdConversionRate> usdRates,
         WdEquityBridgeConfig wdEquityConfig,
         DateTime nowUtc,
-        CultureInfo ci)
-    {
-        DateTime reportDate = nowUtc.Date;
-        DateTime bonusHistoryFrom = ResolveWdEquityBonusHistoryFrom(wdEquityConfig, nowUtc);
-        var silentWriter = new Action<string>(_ => { });
+	        CultureInfo ci)
+	    {
+	        DateTime reportDate = nowUtc.Date;
+	        DateTime bonusHistoryFrom = ResolveWdEquityBonusHistoryFrom(wdEquityConfig, nowUtc);
+	        var silentWriter = new Action<string>(_ => { });
 
-        Mt5DailyReportSnapshot dailySnapshot = Mt5MonitorCollector.CollectDailyReport(
-            manager,
-            groupCurrencies,
-            settings.GroupMask,
-            reportDate,
-            reportDate,
-            silentWriter);
-
-        Mt5MonitorCollector.WdEquityZProtectedBonusCollection bonusCollection =
-            Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
+	        Mt5MonitorCollector.WdEquityZProtectedBonusCollection bonusCollection =
+	            Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
                 manager,
                 groupCurrencies,
                 loginContexts,
                 settings.GroupMask,
                 bonusHistoryFrom,
                 reportDate,
-                wdEquityConfig.BonusCommentContains,
-                false,
-                silentWriter);
+	                wdEquityConfig.BonusCommentContains,
+	                false,
+	                silentWriter);
 
-        var calculator = new Mt5WdEquityZCalculator();
-        Mt5WdEquityZReport report = calculator.Calculate(
-            reportDate,
-            dailySnapshot.Rows ?? new List<Mt5DailyReportRow>(),
-            usdRates,
-            bonusCollection.StartProtectedBonusesUsd,
-            bonusCollection.EndProtectedBonusesUsd,
-            wdEquityConfig.Mode);
+	        double endEquityUsd = 0.0;
+	        double endCreditsUsd = 0.0;
+	        int includedAccountCount = 0;
+	        var missingCurrencies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+	        var accounts = manager.UserCreateAccountArray();
+	        try
+	        {
+	            MTRetCode result = manager.UserAccountRequestArray(settings.GroupMask, accounts);
+	            if (result != MTRetCode.MT_RET_OK)
+	                throw new InvalidOperationException("UserAccountRequestArray failed: " + result + " (" + (uint)result + ")");
 
-        report.GeneratedAt = DateTime.Now;
-        report.ReportDate = reportDate;
-        report.BonusHistoryFrom = bonusHistoryFrom;
-        report.BonusCommentContains = wdEquityConfig.BonusCommentContains;
-        report.ComputationMode = wdEquityConfig.Mode;
-        report.DailyRowCount = dailySnapshot.Rows != null ? dailySnapshot.Rows.Count : 0;
-        report.ProtectedBonusDealCount = bonusCollection.DealCount;
-        report.MissingCurrencyRates = report.MissingCurrencyRates
-            .Concat(bonusCollection.MissingCurrencyRates)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        report.Assumptions = report.Assumptions
-            .Concat(
-                new[]
-                {
-                    string.Format(
-                        ci,
-                        "Bridge bonus history start resolved to {0:yyyy-MM-dd}.",
-                        bonusHistoryFrom)
-                })
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+	            for (uint i = 0; i < accounts.Total(); i++)
+	            {
+	                CIMTAccount account = accounts.Next(i);
+	                if (account == null)
+	                    continue;
 
-        return report;
-    }
+	                ulong login = account.Login();
+	                string groupName = ResolveLoginGroup(login, loginContexts);
+	                if (IsExcludedGroup(groupName))
+	                    continue;
+
+	                string currency = ResolveLoginCurrency(login, loginContexts, groupCurrencies, groupName);
+	                endEquityUsd += ConvertNativeToUsdTracked(account.Equity(), currency, usdRates, missingCurrencies);
+	                endCreditsUsd += ConvertNativeToUsdTracked(account.Credit(), currency, usdRates, missingCurrencies);
+	                includedAccountCount++;
+	            }
+	        }
+	        finally
+	        {
+	            accounts.Release();
+	        }
+
+	        double endWdEquityUsd = Math.Max(0.0, endEquityUsd - endCreditsUsd - bonusCollection.EndProtectedBonusesUsd);
+	        List<string> reportMissingCurrencies = missingCurrencies
+	            .Concat(bonusCollection.MissingCurrencyRates)
+	            .Distinct(StringComparer.OrdinalIgnoreCase)
+	            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+	            .ToList();
+
+	        var assumptions = new List<string>
+	        {
+	            "WD Equity Z is calculated only from live Trading Accounts totals.",
+	            "End equity is the USD sum of live Trading Accounts Equity.",
+	            "End credits are the USD sum of live Trading Accounts Credit.",
+	            string.Format(
+	                ci,
+	                "Protected bonuses are reconstructed from balance deals whose comment contains \"{0}\" and history start {1:yyyy-MM-dd}.",
+	                wdEquityConfig.BonusCommentContains,
+	                bonusHistoryFrom),
+	            string.Format(
+	                ci,
+	                "Live Trading Accounts refresh cadence is {0} seconds.",
+	                wdEquityConfig.RefreshSeconds)
+	        };
+	        if (reportMissingCurrencies.Count > 0)
+	        {
+	            assumptions.Add(
+	                "Missing USD rates fallback to native amounts for: " +
+	                string.Join(", ", reportMissingCurrencies));
+	        }
+
+	        var report = new Mt5WdEquityZReport
+	        {
+	            GeneratedAt = nowUtc,
+	            ReportDate = reportDate,
+	            BonusHistoryFrom = bonusHistoryFrom,
+	            BonusCommentContains = wdEquityConfig.BonusCommentContains,
+	            ComputationMode = Mt5WdEquityZComputationMode.EndOnly,
+	            DailyRowCount = 0,
+	            ProtectedBonusDealCount = bonusCollection.DealCount,
+	            EndEquityUsd = endEquityUsd,
+	            EndCreditsUsd = endCreditsUsd,
+	            EndProtectedBonusesUsd = bonusCollection.EndProtectedBonusesUsd,
+	            EndWdEquityUsd = endWdEquityUsd,
+	            StartEquityUsd = 0.0,
+	            StartCreditsUsd = 0.0,
+	            StartProtectedBonusesUsd = 0.0,
+	            StartWdEquityUsd = 0.0,
+	            WdEquityZUsd = endWdEquityUsd,
+	            CalculationSummary = string.Format(
+	                ci,
+	                "WD Equity Z = max(sum(live Trading Accounts Equity in USD) - sum(live Trading Accounts Credit in USD) - Protected Bonuses in USD, 0). Polled {0:N0} trading accounts; refresh every {1} seconds.",
+	                includedAccountCount,
+	                wdEquityConfig.RefreshSeconds),
+	            MissingCurrencyRates = reportMissingCurrencies,
+	            Assumptions = assumptions
+	        };
+
+	        return new WdEquityPollingState
+	        {
+	            Report = report,
+	            AccountCount = includedAccountCount,
+	            RefreshedAtUtc = nowUtc,
+	            NextRefreshUtc = nowUtc.AddSeconds(wdEquityConfig.RefreshSeconds),
+	            RefreshSeconds = wdEquityConfig.RefreshSeconds
+	        };
+	    }
+
+	    private static bool IsWdRefreshDue(WdEquityPollingState state, DateTime nowUtc)
+	    {
+	        return state == null ||
+	            state.Report == null ||
+	            state.Report.GeneratedAt == default(DateTime) ||
+	            nowUtc >= state.NextRefreshUtc;
+	    }
 
     private static void ParseExcludedGroups()
     {
@@ -1176,32 +1323,37 @@ public sealed class MT5LivePusher
 
     private static WdEquityBridgeConfig LoadWdEquityBridgeConfig(CultureInfo ci)
     {
-        return new WdEquityBridgeConfig
-        {
-            BonusCommentContains = Environment.GetEnvironmentVariable("CRO_WD_BONUS_COMMENT") ?? "Bonus Protected Trad",
-            Mode = ParseWdEquityMode(Environment.GetEnvironmentVariable("CRO_WD_EQUITY_MODE")),
-            BonusHistoryFrom = ParseOptionalDate(Environment.GetEnvironmentVariable("CRO_WD_BONUS_FROM"), "CRO_WD_BONUS_FROM", ci)
-        };
-    }
+	        return new WdEquityBridgeConfig
+	        {
+	            BonusCommentContains = Environment.GetEnvironmentVariable("CRO_WD_BONUS_COMMENT") ?? "Bonus Protected Trad",
+	            Mode = ParseWdEquityMode(Environment.GetEnvironmentVariable("CRO_WD_EQUITY_MODE")),
+	            BonusHistoryFrom = ParseOptionalDate(Environment.GetEnvironmentVariable("CRO_WD_BONUS_FROM"), "CRO_WD_BONUS_FROM", ci),
+	            RefreshSeconds = ParsePositiveInt(Environment.GetEnvironmentVariable("CRO_WD_REFRESH_SECONDS"), 900)
+	        };
+	    }
 
-    private static Mt5WdEquityZComputationMode ParseWdEquityMode(string text)
-    {
-        string normalized = (text ?? string.Empty).Trim().ToLowerInvariant();
-        if (normalized.Length == 0 ||
-            normalized == "delta" ||
-            normalized == "delta_from_start" ||
-            normalized == "deltafromstart" ||
-            normalized == "wd_equity_z")
-        {
-            return Mt5WdEquityZComputationMode.DeltaFromStartWhenBothPositive;
-        }
+	    private static Mt5WdEquityZComputationMode ParseWdEquityMode(string text)
+	    {
+	        string normalized = (text ?? string.Empty).Trim().ToLowerInvariant();
+	        if (normalized.Length == 0 ||
+	            normalized == "live" ||
+	            normalized == "live_end" ||
+	            normalized == "live_end_only" ||
+	            normalized == "liveaccountsendonly" ||
+	            normalized == "live_accounts_end_only" ||
+	            normalized == "trading_accounts_live" ||
+	            normalized == "delta" ||
+	            normalized == "delta_from_start" ||
+	            normalized == "deltafromstart" ||
+	            normalized == "wd_equity_z" ||
+	            normalized == "end" ||
+	            normalized == "end_only" ||
+	            normalized == "endonly")
+	            return Mt5WdEquityZComputationMode.EndOnly;
 
-        if (normalized == "end" || normalized == "end_only" || normalized == "endonly")
-            return Mt5WdEquityZComputationMode.EndOnly;
-
-        throw new InvalidOperationException(
-            "CRO_WD_EQUITY_MODE must be 'delta_from_start' or 'end_only'.");
-    }
+	        throw new InvalidOperationException(
+	            "CRO_WD_EQUITY_MODE must be 'live_end_only' or 'end_only'.");
+	    }
 
     private static DateTime ResolveWdEquityBonusHistoryFrom(WdEquityBridgeConfig config, DateTime nowUtc)
     {
@@ -1211,12 +1363,10 @@ public sealed class MT5LivePusher
         return new DateTime(nowUtc.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     }
 
-    private static string ToWdEquityModeName(Mt5WdEquityZComputationMode mode)
-    {
-        return mode == Mt5WdEquityZComputationMode.EndOnly
-            ? "end_only"
-            : "delta_from_start";
-    }
+	    private static string ToWdEquityModeName(Mt5WdEquityZComputationMode mode)
+	    {
+	        return "live_accounts_end_only";
+	    }
 
     private static DateTime? ParseOptionalDate(string text, string variableName, CultureInfo ci)
     {

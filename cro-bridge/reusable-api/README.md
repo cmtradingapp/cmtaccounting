@@ -6,9 +6,13 @@ by-symbol breakdown) every 30s and POSTs it to the recon-app `/cro/feed`
 endpoint. The dashboard at `recon.cmtrading.com/cro` reads entirely from
 these live pushes — **Dealio is no longer used** for the CRO panel.
 
-The live pusher now computes `WD Equity Z` from MT5 daily fields plus
-protected-bonus balance deals. For backward compatibility the payload still
-includes `wd_equity`, but it now carries the `WD Equity Z` value; the old
+The live pusher now computes `WD Equity Z` from live MT5 Trading Accounts:
+sum all live account `Equity`, subtract all live account `Credit`, convert both
+to USD first, then subtract protected-bonus balance deals. Because the Trading
+Accounts pull is heavy on large books, the bridge caches that result and
+refreshes it every 15 minutes by default instead of recomputing it on each
+2-second live push. For backward compatibility the payload still includes
+`wd_equity`, but it now carries the cached live `WD Equity Z` value; the old
 bridge formula is also emitted as `wd_equity_legacy`.
 
 ## Architecture
@@ -60,13 +64,16 @@ CI does this automatically when `cro-bridge/` changes under `main`.
 
 | Var | Default | Purpose |
 |---|---|---|
-| `CRO_WD_EQUITY_MODE` | `delta_from_start` | `delta_from_start` or `end_only` |
+| `CRO_WD_EQUITY_MODE` | `live_end_only` | live Trading Accounts WD mode; legacy values are accepted as aliases |
 | `CRO_WD_BONUS_COMMENT` | `Bonus Protected Trad` | substring used to identify protected-bonus balance deals |
 | `CRO_WD_BONUS_FROM` | current year start | `yyyy-MM-dd` history start used to reconstruct protected-bonus balances |
+| `CRO_WD_REFRESH_SECONDS` | `900` | refresh cadence for the heavy live Trading Accounts WD poll |
 
 The payload now also includes `wd_equity_z`, `wd_equity_legacy`, and a set of
-start/end breakdown fields (`wd_equity_end_*`, `wd_equity_start_*`) to make
-validation against MT5 Manager screens easier.
+live-account breakdown/metadata fields such as `wd_equity_end_*`,
+`wd_equity_account_count`, `wd_equity_refreshed_at`, and
+`wd_equity_refresh_seconds` to make validation against MT5 Manager screens
+easier.
 
 ## Zero-downtime guarantees
 
