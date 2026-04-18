@@ -1,12 +1,12 @@
 # cro-bridge: Wine-hosted MT5 Manager bridge, driven by a C# helper.
 #
 # Architecture:
-#   - Linux Python 3 runs the pusher loop.
-#   - Every 30s it execs `wine /app/MT5Bridge.exe` -- our tiny C# helper
-#     compiled with Mono's mcs against the MT5 Manager .NET wrapper.
+#   - Linux Python 3 (cro_live_pusher.py) starts MT5LivePusher.exe once and
+#     reads its stdout indefinitely. The exe holds a persistent PUMP_MODE_POSITIONS
+#     connection and emits one JSON line every CRO_INTERVAL seconds.
 #   - The .exe runs under Wine's bundled Wine-Mono .NET runtime, which loads
 #     the native MT5APIManager64.dll (a Windows PE binary) via Wine's loader.
-#   - The .exe prints one JSON line on stdout; Python POSTs it to /cro/feed.
+#   - MT5Bridge.exe (one-shot legacy) is also compiled but not used in production.
 #
 # Critical:
 #   Run-time MUST set  WINEDLLOVERRIDES=mscoree=n,b;fusion=n,b  (see compose).

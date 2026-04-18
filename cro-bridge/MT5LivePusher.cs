@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading;
@@ -112,115 +113,121 @@ public sealed class MT5LivePusher
         public DateTime? BonusHistoryFrom;
     }
 
+    [DataContract]
     public sealed class PusherPayload
     {
-        public double floating_pnl_usd { get; set; }
-        public double closed_pnl_usd { get; set; }
-        public int n_positions { get; set; }
-        public int n_closing_deals { get; set; }
-        public double volume_usd { get; set; }
-        public double swap { get; set; }
-        public double commission { get; set; }
-        public double fee { get; set; }
-        public double net_deposits { get; set; }
-        public double deposits { get; set; }
-        public double withdrawals { get; set; }
-        public int n_traders { get; set; }
-        public int n_active_traders { get; set; }
-        public int n_depositors { get; set; }
-        public int n_ftd { get; set; }
-        public List<ClosedPnlByCurrencyPayload> closed_pnl_by_ccy { get; set; }
-        public double balance { get; set; }
-        public double credit { get; set; }
-        public double equity { get; set; }
-        public double wd_equity { get; set; }
-        public double wd_equity_z { get; set; }
-        public double wd_equity_legacy { get; set; }
-        public double wd_equity_end { get; set; }
-        public double wd_equity_start { get; set; }
-        public double wd_equity_end_equity { get; set; }
-        public double wd_equity_end_credits { get; set; }
-        public double wd_equity_end_bonuses { get; set; }
-        public double wd_equity_start_equity { get; set; }
-        public double wd_equity_start_credits { get; set; }
-        public double wd_equity_start_bonuses { get; set; }
-        public int wd_equity_daily_rows { get; set; }
-        public int wd_equity_bonus_deals { get; set; }
-        public string wd_equity_mode { get; set; }
-        public string wd_equity_bonus_comment { get; set; }
-        public string wd_equity_bonus_history_from { get; set; }
-        public string wd_equity_summary { get; set; }
-        public double monthly_closed_pnl { get; set; }
-        public double monthly_net_deposits { get; set; }
-        public double monthly_deposits { get; set; }
-        public double monthly_withdrawals { get; set; }
-        public double monthly_volume_usd { get; set; }
-        public double monthly_swap { get; set; }
-        public double monthly_commission { get; set; }
-        public double monthly_fee { get; set; }
-        public int monthly_n_traders { get; set; }
-        public int monthly_n_active_traders { get; set; }
-        public int monthly_n_depositors { get; set; }
-        public List<MonthlyByDayPayload> monthly_by_day { get; set; }
-        public List<ClosedPnlByCurrencyPayload> monthly_closed_pnl_by_ccy { get; set; }
-        public int snap_login_count { get; set; }
-        public string source { get; set; }
-        public string group_mask { get; set; }
-        public string pushed_at { get; set; }
-        public List<BySymbolPayload> by_symbol { get; set; }
-        public List<ByGroupPayload> by_group { get; set; }
-        public List<ClosedPnlByGroupPayload> closed_pnl_by_group { get; set; }
-        public string daily_closed_pnl_conversion_summary { get; set; }
-        public string monthly_closed_pnl_conversion_summary { get; set; }
+        [DataMember] public double floating_pnl_usd { get; set; }
+        [DataMember] public double closed_pnl_usd { get; set; }
+        [DataMember] public int n_positions { get; set; }
+        [DataMember] public int n_closing_deals { get; set; }
+        [DataMember] public double volume_usd { get; set; }
+        [DataMember] public double swap { get; set; }
+        [DataMember] public double commission { get; set; }
+        [DataMember] public double fee { get; set; }
+        [DataMember] public double net_deposits { get; set; }
+        [DataMember] public double deposits { get; set; }
+        [DataMember] public double withdrawals { get; set; }
+        [DataMember] public int n_traders { get; set; }
+        [DataMember] public int n_active_traders { get; set; }
+        [DataMember] public int n_depositors { get; set; }
+        [DataMember] public int n_ftd { get; set; }
+        [DataMember] public List<ClosedPnlByCurrencyPayload> closed_pnl_by_ccy { get; set; }
+        [DataMember] public double balance { get; set; }
+        [DataMember] public double credit { get; set; }
+        [DataMember] public double equity { get; set; }
+        [DataMember] public double wd_equity { get; set; }
+        [DataMember] public double wd_equity_z { get; set; }
+        [DataMember] public double wd_equity_legacy { get; set; }
+        [DataMember] public double wd_equity_end { get; set; }
+        [DataMember] public double wd_equity_start { get; set; }
+        [DataMember] public double wd_equity_end_equity { get; set; }
+        [DataMember] public double wd_equity_end_credits { get; set; }
+        [DataMember] public double wd_equity_end_bonuses { get; set; }
+        [DataMember] public double wd_equity_start_equity { get; set; }
+        [DataMember] public double wd_equity_start_credits { get; set; }
+        [DataMember] public double wd_equity_start_bonuses { get; set; }
+        [DataMember] public int wd_equity_daily_rows { get; set; }
+        [DataMember] public int wd_equity_bonus_deals { get; set; }
+        [DataMember] public string wd_equity_mode { get; set; }
+        [DataMember] public string wd_equity_bonus_comment { get; set; }
+        [DataMember] public string wd_equity_bonus_history_from { get; set; }
+        [DataMember] public string wd_equity_summary { get; set; }
+        [DataMember] public double monthly_closed_pnl { get; set; }
+        [DataMember] public double monthly_net_deposits { get; set; }
+        [DataMember] public double monthly_deposits { get; set; }
+        [DataMember] public double monthly_withdrawals { get; set; }
+        [DataMember] public double monthly_volume_usd { get; set; }
+        [DataMember] public double monthly_swap { get; set; }
+        [DataMember] public double monthly_commission { get; set; }
+        [DataMember] public double monthly_fee { get; set; }
+        [DataMember] public int monthly_n_traders { get; set; }
+        [DataMember] public int monthly_n_active_traders { get; set; }
+        [DataMember] public int monthly_n_depositors { get; set; }
+        [DataMember] public List<MonthlyByDayPayload> monthly_by_day { get; set; }
+        [DataMember] public List<ClosedPnlByCurrencyPayload> monthly_closed_pnl_by_ccy { get; set; }
+        [DataMember] public int snap_login_count { get; set; }
+        [DataMember] public string source { get; set; }
+        [DataMember] public string group_mask { get; set; }
+        [DataMember] public string pushed_at { get; set; }
+        [DataMember] public List<BySymbolPayload> by_symbol { get; set; }
+        [DataMember] public List<ByGroupPayload> by_group { get; set; }
+        [DataMember] public List<ClosedPnlByGroupPayload> closed_pnl_by_group { get; set; }
+        [DataMember] public string daily_closed_pnl_conversion_summary { get; set; }
+        [DataMember] public string monthly_closed_pnl_conversion_summary { get; set; }
     }
 
+    [DataContract]
     public sealed class ClosedPnlByCurrencyPayload
     {
-        public string ccy { get; set; }
-        public double profit { get; set; }
-        public double swap { get; set; }
-        public double commission { get; set; }
-        public double fee { get; set; }
-        public double usd_total { get; set; }
+        [DataMember] public string ccy { get; set; }
+        [DataMember] public double profit { get; set; }
+        [DataMember] public double swap { get; set; }
+        [DataMember] public double commission { get; set; }
+        [DataMember] public double fee { get; set; }
+        [DataMember] public double usd_total { get; set; }
     }
 
+    [DataContract]
     public sealed class MonthlyByDayPayload
     {
-        public string date { get; set; }
-        public double closed_pnl { get; set; }
+        [DataMember] public string date { get; set; }
+        [DataMember] public double closed_pnl { get; set; }
     }
 
+    [DataContract]
     public sealed class BySymbolPayload
     {
-        public string symbol { get; set; }
-        public int n_deals { get; set; }
-        public int n_traders { get; set; }
-        public double notional_usd { get; set; }
-        public double notional_buy { get; set; }
-        public double notional_sell { get; set; }
-        public double swap { get; set; }
-        public double commission { get; set; }
-        public double fee { get; set; }
-        public double pnl { get; set; }
+        [DataMember] public string symbol { get; set; }
+        [DataMember] public int n_deals { get; set; }
+        [DataMember] public int n_traders { get; set; }
+        [DataMember] public double notional_usd { get; set; }
+        [DataMember] public double notional_buy { get; set; }
+        [DataMember] public double notional_sell { get; set; }
+        [DataMember] public double swap { get; set; }
+        [DataMember] public double commission { get; set; }
+        [DataMember] public double fee { get; set; }
+        [DataMember] public double pnl { get; set; }
     }
 
+    [DataContract]
     public sealed class ByGroupPayload
     {
-        public string groupname { get; set; }
-        public int n_accounts { get; set; }
-        public int n_depositors { get; set; }
-        public double floating_pnl { get; set; }
-        public double closed_pnl { get; set; }
-        public double delta_floating { get; set; }
-        public double net_deposits { get; set; }
-        public double equity { get; set; }
-        public double balance { get; set; }
+        [DataMember] public string groupname { get; set; }
+        [DataMember] public int n_accounts { get; set; }
+        [DataMember] public int n_depositors { get; set; }
+        [DataMember] public double floating_pnl { get; set; }
+        [DataMember] public double closed_pnl { get; set; }
+        [DataMember] public double delta_floating { get; set; }
+        [DataMember] public double net_deposits { get; set; }
+        [DataMember] public double equity { get; set; }
+        [DataMember] public double balance { get; set; }
     }
 
+    [DataContract]
     public sealed class ClosedPnlByGroupPayload
     {
-        public string group { get; set; }
-        public double closed_pnl { get; set; }
+        [DataMember] public string group { get; set; }
+        [DataMember] public double closed_pnl { get; set; }
     }
 
     public static int Main(string[] args)
