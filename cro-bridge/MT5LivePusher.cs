@@ -1,13 +1,11 @@
 // MT5 Manager API -> continuous JSON line pusher.
 // Connects once, stays connected; outputs one JSON line per CRO_INTERVAL seconds.
-// v2: closed PnL by deposit currency via _loginCcySnap + ccyRates (fixes EUR/GBP FX heuristic).
+// v3: FX conversion via Mt5MonitorApiBundle (proper bid/ask PositiveToUsd/NegativeToUsd per sign,
+//     replacing the mid-rate heuristic). RateProfit is only used as a last-resort fallback.
 //
 // Two-speed loop:
 //   Fast (every CRO_INTERVAL):  positions + today's deals + per-group floating PnL
 //   Slow (every ~60s):          monthly deals (MTD totals), user balance/credit/equity, FTD
-//
-// All values in USD via TickLast live FX rates. RateProfit is NOT used for conversion
-// (it is the entry-time rate, stale for old positions).
 //
 // Env vars: MT5_SERVER, MT5_LOGIN, MT5_PASSWORD, CRO_GROUP, MT5_SDK_LIBS
 //           CRO_INTERVAL (seconds, default 5)   -- fast loop cadence
@@ -20,6 +18,7 @@ using System.Text;
 using System.Threading;
 using MetaQuotes.MT5CommonAPI;
 using MetaQuotes.MT5ManagerAPI;
+using Mt5Monitor.Api;
 
 public class MT5LivePusher
 {
@@ -52,12 +51,20 @@ public class MT5LivePusher
         return sb.ToString();
     }
 
-    // Fallback for currencies whose TickLast symbol isn't on this broker (AED, CLP, INR).
-    // Correct for those since rates >> 1.5.
+    // Last-resort fallback when no live FX rate exists (RateProfit is entry-time, stale).
     static double ToUsd(double native, double rate)
     {
         if (rate > 1.5 && rate != 0) return native / rate;
         return native;
+    }
+
+    // Sign-aware conversion using proper bid/ask rates from Mt5MonitorApiBundle.
+    // Positive amounts use PositiveToUsd (e.g. 1/Ask for USDxxx), negative use NegativeToUsd.
+    static double ApplyRate(double native, Mt5UsdConversionRate r)
+    {
+        if (native == 0.0) return 0.0;
+        double rate = native >= 0.0 ? r.PositiveToUsd : r.NegativeToUsd;
+        return rate > 0.0 ? native * rate : 0.0;
     }
 
     // Compute notional USD for a deal.
@@ -94,37 +101,6 @@ public class MT5LivePusher
     struct CcyAgg
     {
         public double profit, swap, commission, usdTotal;
-    }
-
-    struct CcyEntry { public string Sym, Ccy; public bool UsdBase; }
-    static readonly CcyEntry[] CcyTable = {
-        new CcyEntry { Sym="EURUSD", Ccy="EUR", UsdBase=false },
-        new CcyEntry { Sym="GBPUSD", Ccy="GBP", UsdBase=false },
-        new CcyEntry { Sym="AUDUSD", Ccy="AUD", UsdBase=false },
-        new CcyEntry { Sym="NZDUSD", Ccy="NZD", UsdBase=false },
-        new CcyEntry { Sym="USDZAR", Ccy="ZAR", UsdBase=true  },
-        new CcyEntry { Sym="USDKES", Ccy="KES", UsdBase=true  },
-        new CcyEntry { Sym="USDNGN", Ccy="NGN", UsdBase=true  },
-        new CcyEntry { Sym="USDMXN", Ccy="MXN", UsdBase=true  },
-        new CcyEntry { Sym="USDAED", Ccy="AED", UsdBase=true  },
-        new CcyEntry { Sym="USDCLP", Ccy="CLP", UsdBase=true  },
-        new CcyEntry { Sym="USDINR", Ccy="INR", UsdBase=true  },
-    };
-
-    static Dictionary<string, double> BuildCcyRates(CIMTManagerAPI mgr)
-    {
-        var d = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        d["USD"] = 1.0;
-        foreach (var c in CcyTable)
-        {
-            MTTickShort tick;
-            if (mgr.TickLast(c.Sym, out tick) == MTRetCode.MT_RET_OK && tick.bid > 0 && tick.ask > 0)
-            {
-                double mid = (tick.bid + tick.ask) * 0.5;
-                d[c.Ccy] = c.UsdBase ? 1.0 / mid : mid;
-            }
-        }
-        return d;
     }
 
     static Dictionary<string, string> LoadGroupCurrencies(CIMTManagerAPI mgr, string mask)
@@ -213,9 +189,8 @@ public class MT5LivePusher
             {
                 var d = arr.Next(i);
                 if (d.Action() != ACTION_BALANCE) continue;
-                double amt = ToUsd(d.Profit(), d.RateProfit());
-                string c   = (d.Comment() ?? "").ToLowerInvariant();
-                if (amt > 0 && !c.Contains("bonus") && !c.Contains("internal") && !c.Contains("transfer"))
+                string c = (d.Comment() ?? "").ToLowerInvariant();
+                if (d.Profit() > 0 && !c.Contains("bonus") && !c.Contains("internal") && !c.Contains("transfer"))
                     _knownDepositors.Add(d.Login());
             }
         }
@@ -250,7 +225,7 @@ public class MT5LivePusher
     }
 
     static SlowData RunSlowLoop(CIMTManagerAPI mgr, string group,
-                                Dictionary<string, double> ccyRates,
+                                IDictionary<string, Mt5UsdConversionRate> ccyRates,
                                 Dictionary<string, string> groupCcyRef,
                                 DateTime monthStart, DateTime nowDt,
                                 HashSet<ulong> todayDeps, string todayStr,
@@ -276,10 +251,17 @@ public class MT5LivePusher
                 string grpName = u.Group() ?? "";
                 string ccy;
                 if (!groupCcyRef.TryGetValue(grpName, out ccy)) ccy = "USD";
-                double rate;
-                if (!ccyRates.TryGetValue(ccy, out rate)) rate = 1.0;
-                sd.totalBalance += u.Balance() * rate;
-                sd.totalCredit  += u.Credit()  * rate;
+                Mt5UsdConversionRate cRate;
+                if (ccyRates.TryGetValue(ccy, out cRate))
+                {
+                    sd.totalBalance += ApplyRate(u.Balance(), cRate);
+                    sd.totalCredit  += ApplyRate(u.Credit(),  cRate);
+                }
+                else
+                {
+                    sd.totalBalance += u.Balance();
+                    sd.totalCredit  += u.Credit();
+                }
                 newLoginCcy[u.Login()] = ccy;
                 newLoginGrp[u.Login()] = grpName;
             }
@@ -319,24 +301,26 @@ public class MT5LivePusher
                         mActive.Add(mLogin);
                     else
                     {
-                        // Currency-aware USD conversion using deposit currency
+                        // Currency-aware USD conversion using proper bid/ask rates
                         string mCcy; if (!lcSnap.TryGetValue(mLogin, out mCcy)) mCcy = "USD";
-                        double mRate; if (!ccyRates.TryGetValue(mCcy, out mRate)) mRate = 1.0;
-                        double mNative = d.Profit() + d.Storage() + d.Commission();
-                        double cpDay   = mNative * mRate;
+                        Mt5UsdConversionRate mRate; bool hasMRate = ccyRates.TryGetValue(mCcy, out mRate);
+                        double mProfitUsd = hasMRate ? ApplyRate(d.Profit(),     mRate) : d.Profit();
+                        double mSwapUsd   = hasMRate ? ApplyRate(d.Storage(),    mRate) : d.Storage();
+                        double mCommUsd   = hasMRate ? ApplyRate(d.Commission(), mRate) : d.Commission();
+                        double cpDay      = mProfitUsd + mSwapUsd + mCommUsd;
                         sd.mthClosedPnl  += cpDay;
-                        sd.mthSwap       += d.Storage()    * mRate;
-                        sd.mthCommission += d.Commission() * mRate;
+                        sd.mthSwap       += mSwapUsd;
+                        sd.mthCommission += mCommUsd;
                         // per-day breakdown
                         string dayStr = SMTTime.ToDateTime(d.Time()).ToString("yyyy-MM-dd", ci);
                         double ex; byDay.TryGetValue(dayStr, out ex);
                         byDay[dayStr] = ex + cpDay;
-                        // per-currency breakdown
+                        // per-currency breakdown (native amounts stay in deposit currency)
                         CcyAgg ca; mthByCcy.TryGetValue(mCcy, out ca);
                         ca.profit     += d.Profit();
                         ca.swap       += d.Storage();
                         ca.commission += d.Commission();
-                        ca.usdTotal   += mNative * mRate;
+                        ca.usdTotal   += cpDay;
                         mthByCcy[mCcy] = ca;
                     }
                     double lots = d.Volume() / 100.0;
@@ -344,8 +328,12 @@ public class MT5LivePusher
                 }
                 else if (action == ACTION_BALANCE)
                 {
+                    string bCcy; if (!lcSnap.TryGetValue(mLogin, out bCcy)) bCcy = "USD";
+                    Mt5UsdConversionRate bRate;
+                    double amt = ccyRates.TryGetValue(bCcy, out bRate)
+                        ? ApplyRate(d.Profit(), bRate)
+                        : ToUsd(d.Profit(), d.RateProfit());
                     string comment = (d.Comment() ?? "").ToLowerInvariant();
-                    double amt = ToUsd(d.Profit(), d.RateProfit());
                     if (comment.Contains("bonus"))
                     {
                         sd.mthCob += amt;   // COB: bonus balance for WD Equity Z
@@ -416,7 +404,7 @@ public class MT5LivePusher
         while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
 
         var groupCcy         = LoadGroupCurrencies(mgr, group);
-        var ccyRates         = BuildCcyRates(mgr);
+        var ccyRates         = Mt5UsdRateLoader.LoadLiveRates(mgr);
         int rateRefreshCycle = 0;
         int slowCycle        = slowEvery; // trigger slow loop on first iteration
         Console.Error.WriteLine("[pusher] " + groupCcy.Count + " groups, " + ccyRates.Count + " FX rates.");
@@ -428,7 +416,7 @@ public class MT5LivePusher
         {
             try
             {
-                if (++rateRefreshCycle >= 60) { ccyRates = BuildCcyRates(mgr); rateRefreshCycle = 0; }
+                if (++rateRefreshCycle >= 60) { ccyRates = Mt5UsdRateLoader.LoadLiveRates(mgr); rateRefreshCycle = 0; }
 
                 DateTime nowDt      = DateTime.UtcNow;
                 DateTime dayStartDt = nowDt.Date;
@@ -442,7 +430,7 @@ public class MT5LivePusher
 
                 foreach (var kv in groupCcy)
                 {
-                    double usdRate; bool hasRate = ccyRates.TryGetValue(kv.Value, out usdRate);
+                    Mt5UsdConversionRate grpRate; bool hasRate = ccyRates.TryGetValue(kv.Value, out grpRate);
                     var posArr = mgr.PositionCreateArray();
                     if (mgr.PositionGetByGroup(kv.Key, posArr) != MTRetCode.MT_RET_OK)
                     {
@@ -453,9 +441,11 @@ public class MT5LivePusher
                     double grpFloat = 0.0;
                     for (uint i = 0; i < posArr.Total(); i++)
                     {
-                        var p      = posArr.Next(i);
-                        double nat = p.Profit() + p.Storage();
-                        grpFloat  += hasRate ? nat * usdRate : ToUsd(nat, p.RateProfit());
+                        var p = posArr.Next(i);
+                        if (hasRate)
+                            grpFloat += ApplyRate(p.Profit(), grpRate) + ApplyRate(p.Storage(), grpRate);
+                        else
+                            grpFloat += ToUsd(p.Profit() + p.Storage(), p.RateProfit());
                     }
                     posArr.Dispose();
                     nPositions  += grpPos;
@@ -499,11 +489,12 @@ public class MT5LivePusher
                         {
                             if (d.Entry() != ENTRY_IN)
                             {
-                                // Currency-aware USD conversion using deposit currency
+                                // Currency-aware USD conversion using proper bid/ask rates
                                 string dCcy; if (!lcFast.TryGetValue(dLogin, out dCcy)) dCcy = "USD";
-                                double dRate; if (!ccyRates.TryGetValue(dCcy, out dRate)) dRate = 1.0;
-                                double dNative = d.Profit() + d.Storage() + d.Commission();
-                                double dUsd    = dNative * dRate;
+                                Mt5UsdConversionRate dRate; bool hasDRate = ccyRates.TryGetValue(dCcy, out dRate);
+                                double dUsd = hasDRate
+                                    ? ApplyRate(d.Profit(), dRate) + ApplyRate(d.Storage(), dRate) + ApplyRate(d.Commission(), dRate)
+                                    : d.Profit() + d.Storage() + d.Commission();
                                 // Always track per-group (shows all groups including excluded ones)
                                 double gv; closedByGrp.TryGetValue(dGrp, out gv);
                                 closedByGrp[dGrp] = gv + dUsd;
@@ -529,15 +520,15 @@ public class MT5LivePusher
                             volumeUsd  += dn;
                             {
                                 string sCcy; if (!lcFast.TryGetValue(dLogin, out sCcy)) sCcy = "USD";
-                                double sRate; if (!ccyRates.TryGetValue(sCcy, out sRate)) sRate = 1.0;
-                                swap       += d.Storage()    * sRate;
-                                commission += d.Commission() * sRate;
+                                Mt5UsdConversionRate sRate; bool hasSRate = ccyRates.TryGetValue(sCcy, out sRate);
+                                swap       += hasSRate ? ApplyRate(d.Storage(),    sRate) : d.Storage();
+                                commission += hasSRate ? ApplyRate(d.Commission(), sRate) : d.Commission();
                             }
                             string sym = d.Symbol();
                             if (!string.IsNullOrEmpty(sym))
                             {
                                 string symCcy; if (!lcFast.TryGetValue(dLogin, out symCcy)) symCcy = "USD";
-                                double symRate; if (!ccyRates.TryGetValue(symCcy, out symRate)) symRate = 1.0;
+                                Mt5UsdConversionRate symRate; bool hasSymRate = ccyRates.TryGetValue(symCcy, out symRate);
                                 SymAgg sa;
                                 if (!bySymbol.TryGetValue(sym, out sa))
                                     { sa = new SymAgg { symbol = sym }; bySymbol[sym] = sa; }
@@ -546,15 +537,21 @@ public class MT5LivePusher
                                 sa.notionalUsd  += dn;
                                 if (action == ACTION_BUY) sa.notionalBuy += dn;
                                 else                      sa.notionalSell += dn;
-                                sa.swap       += d.Storage()    * symRate;
-                                sa.commission += d.Commission() * symRate;
-                                sa.pnl        += (d.Profit() + d.Storage() + d.Commission()) * symRate;
+                                sa.swap       += hasSymRate ? ApplyRate(d.Storage(),    symRate) : d.Storage();
+                                sa.commission += hasSymRate ? ApplyRate(d.Commission(), symRate) : d.Commission();
+                                sa.pnl        += hasSymRate
+                                    ? ApplyRate(d.Profit(), symRate) + ApplyRate(d.Storage(), symRate) + ApplyRate(d.Commission(), symRate)
+                                    : d.Profit() + d.Storage() + d.Commission();
                             }
                         }
                         else if (action == ACTION_BALANCE)
                         {
                             if (excluded) continue;
-                            double amt     = ToUsd(d.Profit(), d.RateProfit());
+                            string fCcy; if (!lcFast.TryGetValue(dLogin, out fCcy)) fCcy = "USD";
+                            Mt5UsdConversionRate fRate;
+                            double amt = ccyRates.TryGetValue(fCcy, out fRate)
+                                ? ApplyRate(d.Profit(), fRate)
+                                : ToUsd(d.Profit(), d.RateProfit());
                             string comment = (d.Comment() ?? "").ToLowerInvariant();
                             if (comment.Contains("bonus") || comment.Contains("internal") || comment.Contains("transfer"))
                                 continue;
@@ -760,7 +757,7 @@ public class MT5LivePusher
                 mgr = null;
                 while (mgr == null) { mgr = Connect(server, login, pw); if (mgr == null) Thread.Sleep(5000); }
                 groupCcy = LoadGroupCurrencies(mgr, group);
-                ccyRates = BuildCcyRates(mgr);
+                ccyRates = Mt5UsdRateLoader.LoadLiveRates(mgr);
                 rateRefreshCycle = 0;
                 slowCycle = slowEvery; // trigger slow loop immediately after reconnect
             }

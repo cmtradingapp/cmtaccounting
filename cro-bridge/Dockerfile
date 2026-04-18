@@ -35,6 +35,7 @@ RUN wget -qO /tmp/wine-mono.msi \
 WORKDIR /app
 COPY sdk-libs /sdk-libs
 COPY MT5Bridge.cs MT5LivePusher.cs /app/
+COPY reusable-api/Mt5MonitorApiBundle.cs /app/
 RUN mcs -out:/app/MT5Bridge.exe \
         -reference:/sdk-libs/MetaQuotes.MT5CommonAPI64.dll \
         -reference:/sdk-libs/MetaQuotes.MT5ManagerAPI64.dll \
@@ -42,7 +43,7 @@ RUN mcs -out:/app/MT5Bridge.exe \
  && mcs -out:/app/MT5LivePusher.exe \
         -reference:/sdk-libs/MetaQuotes.MT5CommonAPI64.dll \
         -reference:/sdk-libs/MetaQuotes.MT5ManagerAPI64.dll \
-        /app/MT5LivePusher.cs \
+        /app/Mt5MonitorApiBundle.cs /app/MT5LivePusher.cs \
  && cp /sdk-libs/*.dll /app/
 
 COPY cro_bridge_pusher.py cro_live_pusher.py /app/
