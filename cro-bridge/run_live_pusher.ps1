@@ -4,7 +4,7 @@ cd "c:\Projects\cmtaccounting\cro-bridge"
     /out:MT5LivePusher.exe `
     /reference:"C:\MetaTrader5SDK\Libs\MetaQuotes.MT5CommonAPI64.dll" `
     /reference:"C:\MetaTrader5SDK\Libs\MetaQuotes.MT5ManagerAPI64.dll" `
-    MT5LivePusher.cs
+    MT5LivePusher.cs reusable-api\Mt5MonitorApiBundle.cs
 
 Copy-Item "C:\MetaTrader5SDK\Libs\MetaQuotes.MT5CommonAPI64.dll" . -Force
 Copy-Item "C:\MetaTrader5SDK\Libs\MetaQuotes.MT5ManagerAPI64.dll" . -Force

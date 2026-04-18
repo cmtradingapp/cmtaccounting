@@ -21,6 +21,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates wget \
         mono-mcs mono-runtime libmono-system-core4.0-cil \
+        libmono-system-runtime-serialization4.0-cil \
+        libmono-system-xml4.0-cil \
         python3 python3-urllib3 tzdata \
  && rm -rf /var/lib/apt/lists/*
 
@@ -43,6 +45,8 @@ RUN mcs -out:/app/MT5Bridge.exe \
  && mcs -out:/app/MT5LivePusher.exe \
         -reference:/sdk-libs/MetaQuotes.MT5CommonAPI64.dll \
         -reference:/sdk-libs/MetaQuotes.MT5ManagerAPI64.dll \
+        -r:System.Runtime.Serialization \
+        -r:System.Xml \
         /app/Mt5MonitorApiBundle.cs /app/MT5LivePusher.cs \
  && cp /sdk-libs/*.dll /app/
 
