@@ -520,6 +520,7 @@
         _ccyDay = data.closed_pnl_by_ccy || [];
         _ccyMth = data.monthly_closed_pnl_by_ccy || [];
         renderCcyTable(document.getElementById('ccyTabMth').classList.contains('active') ? _ccyMth : _ccyDay);
+        renderGroupTable(data.by_group);
         renderClosedPnlByGroup(data.closed_pnl_by_group);
         _lastUpdated = new Date();
         updateSub(data);
