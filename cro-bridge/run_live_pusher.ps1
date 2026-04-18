@@ -15,6 +15,7 @@ $env:MT5_LOGIN     = "1111"
 $env:MT5_PASSWORD  = "Zt*pE5AkZ_SkEgH5"
 $env:MT5_SDK_LIBS  = "C:\MetaTrader5SDK\Libs"
 $env:CRO_GROUP     = "CMV*"
-$env:CRO_INTERVAL  = "5"
+$env:CRO_INTERVAL  = "2"
+$env:CRO_SLOW_EVERY = "30"
 
 .\MT5LivePusher.exe
