@@ -109,6 +109,7 @@
   background: transparent; color: var(--text-2); cursor: pointer;
 }
 .ccy-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.total-row td { border-top: 2px solid var(--border); font-weight: 700; }
 </style>
 <div class="page-header">
   <div>
@@ -174,6 +175,7 @@
       </tr>
     </thead>
     <tbody id="groupTbody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+    <tfoot id="groupTfoot"></tfoot>
   </table>
 </div>
 
@@ -289,7 +291,8 @@
 
   function renderGroupTable(rows) {
     var tb = document.getElementById('groupTbody');
-    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">No rows for this day.</td></tr>'; return; }
+    var tf = document.getElementById('groupTfoot');
+    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">No rows for this day.</td></tr>'; tf.innerHTML = ''; return; }
     tb.innerHTML = rows.map(function (r) {
       return '<tr>' +
         '<td>' + (r.groupname || '') + '</td>' +
@@ -302,6 +305,26 @@
         '<td class="num" data-val="' + (r.balance||0) + '">' + fmtMoney(r.balance) + '</td>' +
       '</tr>';
     }).join('');
+    var tot = rows.reduce(function (acc, r) {
+      acc.n_accounts   += (r.n_accounts   || 0);
+      acc.n_depositors += (r.n_depositors || 0);
+      acc.closed_pnl   += (r.closed_pnl   || 0);
+      acc.delta_floating += (r.delta_floating || 0);
+      acc.net_deposits += (r.net_deposits || 0);
+      acc.equity       += (r.equity       || 0);
+      acc.balance      += (r.balance      || 0);
+      return acc;
+    }, {n_accounts:0, n_depositors:0, closed_pnl:0, delta_floating:0, net_deposits:0, equity:0, balance:0});
+    tf.innerHTML = '<tr class="total-row">' +
+      '<td><strong>Total</strong></td>' +
+      '<td class="num"><strong>' + fmtInt(tot.n_accounts) + '</strong></td>' +
+      '<td class="num"><strong>' + fmtInt(tot.n_depositors) + '</strong></td>' +
+      '<td class="num ' + cls(tot.closed_pnl) + '"><strong>' + fmtMoney(tot.closed_pnl) + '</strong></td>' +
+      '<td class="num ' + cls(tot.delta_floating) + '"><strong>' + fmtMoney(tot.delta_floating) + '</strong></td>' +
+      '<td class="num ' + cls(tot.net_deposits) + '"><strong>' + fmtMoney(tot.net_deposits) + '</strong></td>' +
+      '<td class="num"><strong>' + fmtMoney(tot.equity) + '</strong></td>' +
+      '<td class="num"><strong>' + fmtMoney(tot.balance) + '</strong></td>' +
+    '</tr>';
   }
 
   function renderSymbolTable(rows) {
