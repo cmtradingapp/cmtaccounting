@@ -356,8 +356,11 @@ namespace Mt5Monitor.Api
         public double PrevBalance { get; set; }
         public double Deposit { get; set; }
         public double ClosedPnl { get; set; }
+        public double EquityPrevDay { get; set; }
         public double Balance { get; set; }
         public double Credit { get; set; }
+        public double DailyCredit { get; set; }
+        public double DailyBonus { get; set; }
         public double FloatingPnl { get; set; }
         public double Equity { get; set; }
         public double Margin { get; set; }
@@ -438,6 +441,96 @@ namespace Mt5Monitor.Api
         public double NegativeToUsd { get; set; }
     }
 
+    public enum Mt5WdEquityZComputationMode
+    {
+        EndOnly = 0,
+        DeltaFromStartWhenBothPositive = 1
+    }
+
+    public sealed class Mt5WdEquityZRequest
+    {
+        public Mt5WdEquityZRequest()
+        {
+            BonusCommentContains = "Bonus Protected Trad";
+            ComputationMode = Mt5WdEquityZComputationMode.EndOnly;
+            IncludeBonusDealRows = true;
+        }
+
+        public DateTime ReportDate { get; set; }
+        public DateTime BonusHistoryFrom { get; set; }
+        public string BonusCommentContains { get; set; }
+        public Mt5WdEquityZComputationMode ComputationMode { get; set; }
+        public bool IncludeBonusDealRows { get; set; }
+    }
+
+    public sealed class Mt5WdEquityZProtectedBonusDeal
+    {
+        public ulong Deal { get; set; }
+        public ulong Login { get; set; }
+        public string Name { get; set; }
+        public string Group { get; set; }
+        public DateTime Time { get; set; }
+        public string Currency { get; set; }
+        public int CurrencyDigits { get; set; }
+        public string Comment { get; set; }
+        public double Amount { get; set; }
+        public double AmountUsd { get; set; }
+    }
+
+    public sealed class Mt5WdEquityZInputs
+    {
+        public Mt5WdEquityZInputs()
+        {
+            MissingCurrencyRates = new List<string>();
+            Assumptions = new List<string>();
+            ComputationMode = Mt5WdEquityZComputationMode.EndOnly;
+        }
+
+        public DateTime ReportDate { get; set; }
+        public Mt5WdEquityZComputationMode ComputationMode { get; set; }
+        public double EndEquityUsd { get; set; }
+        public double EndCreditsUsd { get; set; }
+        public double EndProtectedBonusesUsd { get; set; }
+        public double StartEquityUsd { get; set; }
+        public double StartCreditsUsd { get; set; }
+        public double StartProtectedBonusesUsd { get; set; }
+        public IList<string> MissingCurrencyRates { get; set; }
+        public IList<string> Assumptions { get; set; }
+    }
+
+    public sealed class Mt5WdEquityZReport
+    {
+        public Mt5WdEquityZReport()
+        {
+            MissingCurrencyRates = new List<string>();
+            Assumptions = new List<string>();
+            DailyRows = new List<Mt5DailyReportRow>();
+            ProtectedBonusDeals = new List<Mt5WdEquityZProtectedBonusDeal>();
+        }
+
+        public DateTime GeneratedAt { get; set; }
+        public DateTime ReportDate { get; set; }
+        public DateTime BonusHistoryFrom { get; set; }
+        public string BonusCommentContains { get; set; }
+        public Mt5WdEquityZComputationMode ComputationMode { get; set; }
+        public int DailyRowCount { get; set; }
+        public int ProtectedBonusDealCount { get; set; }
+        public double EndEquityUsd { get; set; }
+        public double EndCreditsUsd { get; set; }
+        public double EndProtectedBonusesUsd { get; set; }
+        public double EndWdEquityUsd { get; set; }
+        public double StartEquityUsd { get; set; }
+        public double StartCreditsUsd { get; set; }
+        public double StartProtectedBonusesUsd { get; set; }
+        public double StartWdEquityUsd { get; set; }
+        public double WdEquityZUsd { get; set; }
+        public string CalculationSummary { get; set; }
+        public IList<string> MissingCurrencyRates { get; set; }
+        public IList<string> Assumptions { get; set; }
+        public IList<Mt5DailyReportRow> DailyRows { get; set; }
+        public IList<Mt5WdEquityZProtectedBonusDeal> ProtectedBonusDeals { get; set; }
+    }
+
     public sealed class Mt5DailyClosedPnlCurrencyBreakdown
     {
         public string Currency { get; set; }
@@ -495,6 +588,19 @@ namespace Mt5Monitor.Api
             IDictionary<string, Mt5UsdConversionRate> usdRates);
     }
 
+    public interface IMt5WdEquityZCalculator
+    {
+        Mt5WdEquityZReport Calculate(Mt5WdEquityZInputs inputs);
+
+        Mt5WdEquityZReport Calculate(
+            DateTime reportDate,
+            IEnumerable<Mt5DailyReportRow> dailyRows,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            double startProtectedBonusesUsd,
+            double endProtectedBonusesUsd,
+            Mt5WdEquityZComputationMode computationMode);
+    }
+
     public sealed class Mt5DailyReportJsonRow
     {
         public string Timestamp { get; set; }
@@ -506,8 +612,11 @@ namespace Mt5Monitor.Api
         public double PrevBalance { get; set; }
         public double Deposit { get; set; }
         public double ClosedPnl { get; set; }
+        public double EquityPrevDay { get; set; }
         public double Balance { get; set; }
         public double Credit { get; set; }
+        public double DailyCredit { get; set; }
+        public double DailyBonus { get; set; }
         public double FloatingPnl { get; set; }
         public double Equity { get; set; }
         public double Margin { get; set; }
@@ -1200,8 +1309,11 @@ namespace Mt5Monitor.Api
                         PrevBalance = row.PrevBalance,
                         Deposit = row.Deposit,
                         ClosedPnl = row.ClosedPnl,
+                        EquityPrevDay = row.EquityPrevDay,
                         Balance = row.Balance,
                         Credit = row.Credit,
+                        DailyCredit = row.DailyCredit,
+                        DailyBonus = row.DailyBonus,
                         FloatingPnl = row.FloatingPnl,
                         Equity = row.Equity,
                         Margin = row.Margin,
@@ -1745,6 +1857,195 @@ namespace Mt5Monitor.Api
         }
     }
 
+    public sealed class Mt5WdEquityZCalculator : IMt5WdEquityZCalculator
+    {
+        public Mt5WdEquityZReport Calculate(Mt5WdEquityZInputs inputs)
+        {
+            if (inputs == null)
+                throw new ArgumentNullException("inputs");
+
+            double endWdEquityUsd = Math.Max(
+                0.0,
+                inputs.EndEquityUsd - inputs.EndCreditsUsd - inputs.EndProtectedBonusesUsd);
+
+            double startWdEquityUsd = Math.Max(
+                0.0,
+                inputs.StartEquityUsd - inputs.StartCreditsUsd - inputs.StartProtectedBonusesUsd);
+
+            return new Mt5WdEquityZReport
+            {
+                GeneratedAt = DateTime.Now,
+                ReportDate = inputs.ReportDate == default(DateTime) ? DateTime.Today : inputs.ReportDate.Date,
+                ComputationMode = inputs.ComputationMode,
+                EndEquityUsd = inputs.EndEquityUsd,
+                EndCreditsUsd = inputs.EndCreditsUsd,
+                EndProtectedBonusesUsd = inputs.EndProtectedBonusesUsd,
+                EndWdEquityUsd = endWdEquityUsd,
+                StartEquityUsd = inputs.StartEquityUsd,
+                StartCreditsUsd = inputs.StartCreditsUsd,
+                StartProtectedBonusesUsd = inputs.StartProtectedBonusesUsd,
+                StartWdEquityUsd = startWdEquityUsd,
+                WdEquityZUsd = ComputeFinalValue(endWdEquityUsd, startWdEquityUsd, inputs.ComputationMode),
+                CalculationSummary = BuildCalculationSummary(inputs.ComputationMode),
+                MissingCurrencyRates = NormalizeStrings(inputs.MissingCurrencyRates),
+                Assumptions = NormalizeStrings(inputs.Assumptions)
+            };
+        }
+
+        public Mt5WdEquityZReport Calculate(
+            DateTime reportDate,
+            IEnumerable<Mt5DailyReportRow> dailyRows,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            double startProtectedBonusesUsd,
+            double endProtectedBonusesUsd,
+            Mt5WdEquityZComputationMode computationMode)
+        {
+            if (dailyRows == null)
+                throw new ArgumentNullException("dailyRows");
+
+            List<Mt5DailyReportRow> rows = dailyRows.Where(row => row != null).ToList();
+            Dictionary<string, Mt5UsdConversionRate> normalizedRates = NormalizeRates(usdRates);
+            var missingCurrencies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            double endEquityUsd = 0.0;
+            double endCreditsUsd = 0.0;
+            double startEquityUsd = 0.0;
+            double startCreditsUsd = 0.0;
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                Mt5DailyReportRow row = rows[i];
+                string currency = string.IsNullOrWhiteSpace(row.Currency) ? "USD" : row.Currency;
+
+                endEquityUsd += ConvertNativeToUsd(row.Equity, currency, normalizedRates, missingCurrencies);
+                endCreditsUsd += ConvertNativeToUsd(row.Credit, currency, normalizedRates, missingCurrencies);
+                startEquityUsd += ConvertNativeToUsd(row.EquityPrevDay, currency, normalizedRates, missingCurrencies);
+                startCreditsUsd += ConvertNativeToUsd(row.Credit - row.DailyCredit, currency, normalizedRates, missingCurrencies);
+            }
+
+            Mt5WdEquityZReport report = Calculate(
+                new Mt5WdEquityZInputs
+                {
+                    ReportDate = reportDate.Date,
+                    ComputationMode = computationMode,
+                    EndEquityUsd = endEquityUsd,
+                    EndCreditsUsd = endCreditsUsd,
+                    EndProtectedBonusesUsd = endProtectedBonusesUsd,
+                    StartEquityUsd = startEquityUsd,
+                    StartCreditsUsd = startCreditsUsd,
+                    StartProtectedBonusesUsd = startProtectedBonusesUsd,
+                    MissingCurrencyRates = missingCurrencies.OrderBy(code => code, StringComparer.OrdinalIgnoreCase).ToList(),
+                    Assumptions = new List<string>
+                    {
+                        "Start equity uses EquityPrevDay from MT5 daily rows.",
+                        "Start credits are derived as Credit minus DailyCredit because MT5 daily rows do not expose CreditPrevDay.",
+                        "Protected bonus totals must be supplied separately from filtered balance deals.",
+                        "USD conversion uses the supplied MT5 USD rate table."
+                    }
+                });
+
+            report.DailyRowCount = rows.Count;
+            return report;
+        }
+
+        private static double ComputeFinalValue(
+            double endWdEquityUsd,
+            double startWdEquityUsd,
+            Mt5WdEquityZComputationMode computationMode)
+        {
+            if (computationMode == Mt5WdEquityZComputationMode.DeltaFromStartWhenBothPositive)
+                return endWdEquityUsd > 0.0 && startWdEquityUsd > 0.0
+                    ? endWdEquityUsd - startWdEquityUsd
+                    : endWdEquityUsd;
+
+            return endWdEquityUsd;
+        }
+
+        private static string BuildCalculationSummary(Mt5WdEquityZComputationMode computationMode)
+        {
+            if (computationMode == Mt5WdEquityZComputationMode.DeltaFromStartWhenBothPositive)
+                return "End WD Equity Z = max(End Equity - End Credits - Protected Bonuses, 0); Start WD Equity Z = max(Start Equity - Start Credits - Start Protected Bonuses, 0); final WD Equity Z = End WD Equity Z - Start WD Equity Z when both are positive, otherwise End WD Equity Z.";
+
+            return "WD Equity Z = max(End Equity - End Credits - Protected Bonuses, 0).";
+        }
+
+        private static Dictionary<string, Mt5UsdConversionRate> NormalizeRates(IDictionary<string, Mt5UsdConversionRate> usdRates)
+        {
+            var normalized = new Dictionary<string, Mt5UsdConversionRate>(StringComparer.OrdinalIgnoreCase);
+            if (usdRates != null)
+            {
+                foreach (KeyValuePair<string, Mt5UsdConversionRate> pair in usdRates)
+                {
+                    if (string.IsNullOrWhiteSpace(pair.Key))
+                        continue;
+
+                    Mt5UsdConversionRate rate = pair.Value ?? new Mt5UsdConversionRate();
+                    normalized[pair.Key] = new Mt5UsdConversionRate
+                    {
+                        Currency = string.IsNullOrWhiteSpace(rate.Currency) ? pair.Key : rate.Currency,
+                        FxSymbol = rate.FxSymbol,
+                        Bid = rate.Bid,
+                        Ask = rate.Ask,
+                        UsdBase = rate.UsdBase,
+                        PositiveToUsd = rate.PositiveToUsd,
+                        NegativeToUsd = rate.NegativeToUsd
+                    };
+                }
+            }
+
+            if (!normalized.ContainsKey("USD"))
+            {
+                normalized["USD"] = new Mt5UsdConversionRate
+                {
+                    Currency = "USD",
+                    FxSymbol = "USD",
+                    Bid = 1.0,
+                    Ask = 1.0,
+                    UsdBase = false,
+                    PositiveToUsd = 1.0,
+                    NegativeToUsd = 1.0
+                };
+            }
+
+            return normalized;
+        }
+
+        private static double ConvertNativeToUsd(
+            double nativeAmount,
+            string currency,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            ISet<string> missingCurrencies)
+        {
+            if (nativeAmount == 0.0)
+                return 0.0;
+
+            string effectiveCurrency = string.IsNullOrWhiteSpace(currency) ? "USD" : currency;
+            Mt5UsdConversionRate rate;
+            if (usdRates != null && usdRates.TryGetValue(effectiveCurrency, out rate) && rate != null)
+            {
+                double usdRate = nativeAmount >= 0.0 ? rate.PositiveToUsd : rate.NegativeToUsd;
+                if (usdRate > 0.0)
+                    return nativeAmount * usdRate;
+            }
+
+            if (missingCurrencies != null)
+                missingCurrencies.Add(effectiveCurrency);
+
+            return 0.0;
+        }
+
+        private static List<string> NormalizeStrings(IEnumerable<string> values)
+        {
+            return values == null
+                ? new List<string>()
+                : values
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+        }
+    }
+
     public static class Mt5DailyReportGenerator
     {
         public static Mt5DailyReportSnapshot Generate(Mt5MonitorSettings settings, DateTime reportDate, Action<string> statusWriter)
@@ -1882,6 +2183,166 @@ namespace Mt5Monitor.Api
             DateTime reportDate)
         {
             return GenerateJson(settings, reportDate, reportDate, null, true);
+        }
+    }
+
+    public static class Mt5WdEquityZGenerator
+    {
+        public static Mt5WdEquityZReport Generate(
+            Mt5MonitorSettings settings,
+            Mt5WdEquityZRequest request,
+            Action<string> statusWriter)
+        {
+            if (settings == null)
+                throw new ArgumentNullException("settings");
+            if (request == null)
+                throw new ArgumentNullException("request");
+
+            DateTime reportDate = request.ReportDate.Date;
+            DateTime bonusHistoryFrom = request.BonusHistoryFrom.Date;
+            if (reportDate == default(DateTime))
+                throw new InvalidOperationException("ReportDate is required.");
+            if (bonusHistoryFrom == default(DateTime))
+                throw new InvalidOperationException("BonusHistoryFrom is required to reconstruct protected bonus balances.");
+            if (bonusHistoryFrom > reportDate)
+                throw new InvalidOperationException("BonusHistoryFrom must be on or before ReportDate.");
+            if (string.IsNullOrWhiteSpace(request.BonusCommentContains))
+                throw new InvalidOperationException("Bonus comment filter is required.");
+
+            settings.Validate();
+
+            Action<string> writer = statusWriter ?? (_ => { });
+            writer(string.Format(
+                CultureInfo.InvariantCulture,
+                "Generating WD Equity Z for {0:yyyy-MM-dd} using bonus history from {1:yyyy-MM-dd}.",
+                reportDate,
+                bonusHistoryFrom));
+
+            MTRetCode initializeResult = SMTManagerAPIFactory.Initialize(settings.SdkLibsPath);
+            if (initializeResult != MTRetCode.MT_RET_OK)
+                throw new InvalidOperationException("Initialize failed: " + initializeResult);
+
+            CIMTManagerAPI manager = Mt5MonitorCollector.Connect(settings.Server, settings.Login, settings.Password, writer);
+            if (manager == null)
+            {
+                SMTManagerAPIFactory.Shutdown();
+                throw new InvalidOperationException("Failed to connect to MT5 Manager API.");
+            }
+
+            try
+            {
+                Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
+                Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+                IDictionary<string, Mt5UsdConversionRate> usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+
+                Mt5DailyReportSnapshot dailySnapshot = Mt5MonitorCollector.CollectDailyReport(
+                    manager,
+                    groupCurrencies,
+                    settings.GroupMask,
+                    reportDate,
+                    reportDate,
+                    writer);
+
+                Mt5MonitorCollector.WdEquityZProtectedBonusCollection bonusCollection =
+                    Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
+                        manager,
+                        groupCurrencies,
+                        loginContexts,
+                        settings.GroupMask,
+                        bonusHistoryFrom,
+                        reportDate,
+                        request.BonusCommentContains,
+                        request.IncludeBonusDealRows,
+                        writer);
+
+                var calculator = new Mt5WdEquityZCalculator();
+                Mt5WdEquityZReport report = calculator.Calculate(
+                    reportDate,
+                    dailySnapshot.Rows ?? new List<Mt5DailyReportRow>(),
+                    usdRates,
+                    bonusCollection.StartProtectedBonusesUsd,
+                    bonusCollection.EndProtectedBonusesUsd,
+                    request.ComputationMode);
+
+                report.GeneratedAt = DateTime.Now;
+                report.ReportDate = reportDate;
+                report.BonusHistoryFrom = bonusHistoryFrom;
+                report.BonusCommentContains = request.BonusCommentContains;
+                report.ComputationMode = request.ComputationMode;
+                report.DailyRows = dailySnapshot.Rows != null
+                    ? new List<Mt5DailyReportRow>(dailySnapshot.Rows)
+                    : new List<Mt5DailyReportRow>();
+                report.DailyRowCount = report.DailyRows.Count;
+                report.ProtectedBonusDealCount = bonusCollection.DealCount;
+                report.ProtectedBonusDeals = request.IncludeBonusDealRows
+                    ? bonusCollection.Deals
+                    : new List<Mt5WdEquityZProtectedBonusDeal>();
+                report.MissingCurrencyRates = report.MissingCurrencyRates
+                    .Concat(bonusCollection.MissingCurrencyRates)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                report.Assumptions = report.Assumptions
+                    .Concat(
+                        new[]
+                        {
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "Protected bonuses are reconstructed from ActionBalance deals whose comment contains '{0}'.",
+                                request.BonusCommentContains),
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "BonusHistoryFrom ({0:yyyy-MM-dd}) must be early enough to capture the full protected-bonus balance you want to subtract.",
+                                bonusHistoryFrom)
+                        })
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                writer(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "WD Equity Z ready. Daily rows: {0}, protected bonus deals: {1}, value: {2:N2}.",
+                    report.DailyRowCount,
+                    report.ProtectedBonusDealCount,
+                    report.WdEquityZUsd));
+
+                return report;
+            }
+            finally
+            {
+                Mt5MonitorCollector.Disconnect(manager);
+                SMTManagerAPIFactory.Shutdown();
+            }
+        }
+
+        public static Mt5WdEquityZReport Generate(
+            Mt5MonitorSettings settings,
+            Mt5WdEquityZRequest request)
+        {
+            return Generate(settings, request, null);
+        }
+
+        public static Mt5WdEquityZReport Generate(
+            Mt5MonitorSettings settings,
+            DateTime reportDate,
+            DateTime bonusHistoryFrom,
+            Action<string> statusWriter)
+        {
+            return Generate(
+                settings,
+                new Mt5WdEquityZRequest
+                {
+                    ReportDate = reportDate,
+                    BonusHistoryFrom = bonusHistoryFrom
+                },
+                statusWriter);
+        }
+
+        public static Mt5WdEquityZReport Generate(
+            Mt5MonitorSettings settings,
+            DateTime reportDate,
+            DateTime bonusHistoryFrom)
+        {
+            return Generate(settings, reportDate, bonusHistoryFrom, null);
         }
     }
 
@@ -2352,6 +2813,21 @@ namespace Mt5Monitor.Api
             public string Comment;
             public int Digits;
             public int CurrencyDigits;
+        }
+
+        internal sealed class WdEquityZProtectedBonusCollection
+        {
+            public WdEquityZProtectedBonusCollection()
+            {
+                Deals = new List<Mt5WdEquityZProtectedBonusDeal>();
+                MissingCurrencyRates = new List<string>();
+            }
+
+            public double StartProtectedBonusesUsd { get; set; }
+            public double EndProtectedBonusesUsd { get; set; }
+            public int DealCount { get; set; }
+            public IList<Mt5WdEquityZProtectedBonusDeal> Deals { get; set; }
+            public IList<string> MissingCurrencyRates { get; set; }
         }
 
         private static readonly CurrencyEntry[] CurrencyTable =
@@ -2835,8 +3311,11 @@ namespace Mt5Monitor.Api
                         PrevBalance = daily.BalancePrevDay(),
                         Deposit = daily.DailyBalance(),
                         ClosedPnl = closedPnl,
+                        EquityPrevDay = daily.EquityPrevDay(),
                         Balance = daily.Balance(),
                         Credit = daily.Credit(),
+                        DailyCredit = daily.DailyCredit(),
+                        DailyBonus = daily.DailyBonus(),
                         FloatingPnl = floatingPnl,
                         Equity = daily.ProfitEquity(),
                         Margin = daily.Margin(),
@@ -2858,6 +3337,119 @@ namespace Mt5Monitor.Api
             {
                 dailies.Release();
             }
+        }
+
+        public static WdEquityZProtectedBonusCollection CollectWdEquityZProtectedBonuses(
+            CIMTManagerAPI manager,
+            Dictionary<string, string> groupCurrencies,
+            Dictionary<ulong, Mt5LoginContext> loginContexts,
+            string groupMask,
+            DateTime bonusHistoryFrom,
+            DateTime reportDate,
+            string bonusCommentContains,
+            bool includeDealRows,
+            Action<string> statusWriter)
+        {
+            if (manager == null)
+                throw new ArgumentNullException("manager");
+            if (string.IsNullOrWhiteSpace(groupMask))
+                throw new InvalidOperationException("Group mask is required.");
+            if (string.IsNullOrWhiteSpace(bonusCommentContains))
+                throw new InvalidOperationException("Bonus comment filter is required.");
+
+            DateTime normalizedHistoryFrom = bonusHistoryFrom.Date;
+            DateTime normalizedReportDate = reportDate.Date;
+            if (normalizedHistoryFrom > normalizedReportDate)
+                throw new InvalidOperationException("Bonus history start must be on or before the report date.");
+
+            Dictionary<string, CurrencyRate> currencyRates = BuildCurrencyRates(manager);
+            var missingCurrencies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int fallbackConversionCount = 0;
+            var collection = new WdEquityZProtectedBonusCollection();
+
+            DateTime historyStartUtc = CreateUtcBoundary(normalizedHistoryFrom, false);
+            DateTime reportStartUtc = CreateUtcBoundary(normalizedReportDate, false);
+            DateTime reportEndUtc = CreateUtcBoundary(normalizedReportDate, true);
+            Action<string> writer = statusWriter ?? (_ => { });
+            writer(string.Format(
+                CultureInfo.InvariantCulture,
+                "Requesting protected bonus deals for {0:yyyy-MM-dd} to {1:yyyy-MM-dd}.",
+                normalizedHistoryFrom,
+                normalizedReportDate));
+
+            var deals = manager.DealCreateArray();
+            try
+            {
+                MTRetCode result = manager.DealRequestByGroup(
+                    groupMask,
+                    SMTTime.FromDateTime(historyStartUtc),
+                    SMTTime.FromDateTime(reportEndUtc),
+                    deals);
+
+                if (result != MTRetCode.MT_RET_OK)
+                    throw new InvalidOperationException("DealRequestByGroup failed: " + result + " (" + (uint)result + ")");
+
+                for (uint i = 0; i < deals.Total(); i++)
+                {
+                    CIMTDeal deal = deals.Next(i);
+                    if (deal == null || deal.Action() != ActionBalance)
+                        continue;
+
+                    string comment = deal.Comment() ?? string.Empty;
+                    if (comment.IndexOf(bonusCommentContains, StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
+                    DateTime dealTime = SMTTime.ToDateTime(deal.Time());
+                    Mt5LoginContext loginContext = ResolveLoginContext(deal.Login(), loginContexts);
+                    string currency = ResolveLoginCurrency(loginContext, groupCurrencies);
+                    double amountUsd = ConvertComponentsToUsd(
+                        currency,
+                        deal.RateProfit(),
+                        currencyRates,
+                        missingCurrencies,
+                        ref fallbackConversionCount,
+                        deal.Profit());
+
+                    collection.EndProtectedBonusesUsd += amountUsd;
+                    if (dealTime < reportStartUtc)
+                        collection.StartProtectedBonusesUsd += amountUsd;
+
+                    collection.DealCount++;
+                    if (includeDealRows)
+                    {
+                        collection.Deals.Add(new Mt5WdEquityZProtectedBonusDeal
+                        {
+                            Deal = deal.Deal(),
+                            Login = deal.Login(),
+                            Name = loginContext.Name ?? string.Empty,
+                            Group = loginContext.Group ?? string.Empty,
+                            Time = dealTime,
+                            Currency = currency,
+                            CurrencyDigits = NormalizeCurrencyDigits((int)deal.DigitsCurrency()),
+                            Comment = comment,
+                            Amount = deal.Profit(),
+                            AmountUsd = amountUsd
+                        });
+                    }
+                }
+            }
+            finally
+            {
+                deals.Dispose();
+            }
+
+            collection.MissingCurrencyRates = missingCurrencies
+                .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (fallbackConversionCount > 0)
+            {
+                writer(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Protected bonus deal conversion used {0} fallback conversions.",
+                    fallbackConversionCount));
+            }
+
+            return collection;
         }
 
         public static Mt5PositionHistorySnapshot CollectPositionHistory(
@@ -3555,6 +4147,45 @@ namespace Mt5Monitor.Api
             string dailyCurrency = daily.Currency();
             if (!string.IsNullOrWhiteSpace(dailyCurrency))
                 return dailyCurrency;
+
+            return "USD";
+        }
+
+        private static Mt5LoginContext ResolveLoginContext(
+            ulong login,
+            Dictionary<ulong, Mt5LoginContext> loginContexts)
+        {
+            Mt5LoginContext context;
+            if (loginContexts != null && loginContexts.TryGetValue(login, out context) && context != null)
+                return context;
+
+            return new Mt5LoginContext
+            {
+                Login = login,
+                Name = string.Empty,
+                Group = string.Empty,
+                Currency = "USD"
+            };
+        }
+
+        private static string ResolveLoginCurrency(
+            Mt5LoginContext loginContext,
+            Dictionary<string, string> groupCurrencies)
+        {
+            if (loginContext != null)
+            {
+                if (!string.IsNullOrWhiteSpace(loginContext.Currency))
+                    return loginContext.Currency;
+
+                string groupCurrency;
+                if (!string.IsNullOrWhiteSpace(loginContext.Group) &&
+                    groupCurrencies != null &&
+                    groupCurrencies.TryGetValue(loginContext.Group, out groupCurrency) &&
+                    !string.IsNullOrWhiteSpace(groupCurrency))
+                {
+                    return groupCurrency;
+                }
+            }
 
             return "USD";
         }
