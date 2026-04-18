@@ -62,3 +62,5 @@ cro-bridge/sdk-libs/
 
 # Reference / scratch docs
 MT5_API_Summary.md
+MT5Check.obj
+cro-bridge/MT5Check.cpp
