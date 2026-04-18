@@ -156,6 +156,7 @@
       </tr>
     </thead>
     <tbody id="ccyTbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    <tfoot id="ccyTfoot"></tfoot>
   </table>
 </div>
 
@@ -189,6 +190,7 @@
       </tr>
     </thead>
     <tbody id="grpClosedTbody"><tr><td colspan="2" class="empty">Loading…</td></tr></tbody>
+    <tfoot id="grpClosedTfoot"></tfoot>
   </table>
 </div>
 
@@ -209,6 +211,7 @@
       </tr>
     </thead>
     <tbody id="symbolTbody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+    <tfoot id="symbolTfoot"></tfoot>
   </table>
 </div>
 
@@ -329,7 +332,8 @@
 
   function renderSymbolTable(rows) {
     var tb = document.getElementById('symbolTbody');
-    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">No rows for this day.</td></tr>'; return; }
+    var tf = document.getElementById('symbolTfoot');
+    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">No rows for this day.</td></tr>'; tf.innerHTML = ''; return; }
     tb.innerHTML = rows.map(function (r) {
       return '<tr>' +
         '<td>' + (r.symbol || '') + '</td>' +
@@ -343,6 +347,28 @@
         '<td class="num ' + cls(r.pnl) + '" data-val="' + r.pnl + '">' + fmtMoney(r.pnl) + '</td>' +
       '</tr>';
     }).join('');
+    var tot = rows.reduce(function (acc, r) {
+      acc.n_deals       += (r.n_deals       || 0);
+      acc.n_traders     += (r.n_traders     || 0);
+      acc.notional_usd  += (r.notional_usd  || 0);
+      acc.notional_buy  += (r.notional_buy  || 0);
+      acc.notional_sell += (r.notional_sell || 0);
+      acc.swap          += (r.swap          || 0);
+      acc.commission    += (r.commission    || 0);
+      acc.pnl           += (r.pnl          || 0);
+      return acc;
+    }, {n_deals:0, n_traders:0, notional_usd:0, notional_buy:0, notional_sell:0, swap:0, commission:0, pnl:0});
+    tf.innerHTML = '<tr class="total-row">' +
+      '<td><strong>Total</strong></td>' +
+      '<td class="num"><strong>' + fmtInt(tot.n_deals) + '</strong></td>' +
+      '<td class="num"><strong>' + fmtInt(tot.n_traders) + '</strong></td>' +
+      '<td class="num"><strong>' + fmtMoney(tot.notional_usd) + '</strong></td>' +
+      '<td class="num"><strong>' + fmtMoney(tot.notional_buy) + '</strong></td>' +
+      '<td class="num"><strong>' + fmtMoney(tot.notional_sell) + '</strong></td>' +
+      '<td class="num ' + cls(tot.swap) + '"><strong>' + fmtMoney(tot.swap) + '</strong></td>' +
+      '<td class="num"><strong>' + fmtMoney(tot.commission) + '</strong></td>' +
+      '<td class="num ' + cls(tot.pnl) + '"><strong>' + fmtMoney(tot.pnl) + '</strong></td>' +
+    '</tr>';
   }
 
   function renderTrendTable(rows) {
@@ -373,15 +399,17 @@
 
   function renderCcyTable(rows) {
     var tb = document.getElementById('ccyTbody');
+    var tf = document.getElementById('ccyTfoot');
     if (!rows || !rows.length) {
       var msg = _snapLoginCount === 0
         ? 'Account map loading\u2026 data available after first slow cycle (~60\u2013120s)'
         : 'No closed trades yet for this period';
       tb.innerHTML = '<tr><td colspan="5" class="empty">' + msg + '</td></tr>';
+      tf.innerHTML = '';
       return;
     }
     var totalUsd = 0;
-    var html = rows.map(function (r) {
+    tb.innerHTML = rows.map(function (r) {
       var native = (r.profit || 0) + (r.swap || 0) + (r.commission || 0);
       totalUsd += (r.usd_total || 0);
       return '<tr>' +
@@ -392,10 +420,10 @@
         '<td class="num ' + cls(r.usd_total) + '"><strong>' + fmtMoney(r.usd_total) + '</strong></td>' +
       '</tr>';
     }).join('');
-    html += '<tr style="border-top:2px solid var(--border);font-weight:700;">' +
-      '<td>Total</td><td class="num"></td><td class="num"></td><td class="num"></td>' +
-      '<td class="num ' + cls(totalUsd) + '">' + fmtMoney(totalUsd) + '</td></tr>';
-    tb.innerHTML = html;
+    tf.innerHTML = '<tr class="total-row">' +
+      '<td><strong>Total</strong></td><td class="num"></td><td class="num"></td><td class="num"></td>' +
+      '<td class="num ' + cls(totalUsd) + '"><strong>' + fmtMoney(totalUsd) + '</strong></td>' +
+    '</tr>';
   }
 
   window.showCcyTab = function (tab) {
@@ -406,15 +434,22 @@
 
   function renderClosedPnlByGroup(rows) {
     var tb = document.getElementById('grpClosedTbody');
+    var tf = document.getElementById('grpClosedTfoot');
     if (!tb) return;
     if (!rows || !rows.length) {
       tb.innerHTML = '<tr><td colspan="2" class="empty">No data</td></tr>';
+      if (tf) tf.innerHTML = '';
       return;
     }
+    var total = rows.reduce(function (s, r) { return s + (r.closed_pnl || 0); }, 0);
     tb.innerHTML = rows.map(function (r) {
       return '<tr><td>' + (r.group || '') + '</td>' +
         '<td class="num ' + cls(r.closed_pnl) + '">' + fmtMoney(r.closed_pnl) + '</td></tr>';
     }).join('');
+    if (tf) tf.innerHTML = '<tr class="total-row">' +
+      '<td><strong>Total</strong></td>' +
+      '<td class="num ' + cls(total) + '"><strong>' + fmtMoney(total) + '</strong></td>' +
+    '</tr>';
   }
 
   function setSub(text, isError) {
