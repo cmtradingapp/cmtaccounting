@@ -498,11 +498,11 @@ namespace Mt5Monitor.Api
         public IList<string> Assumptions { get; set; }
     }
 
-    public sealed class Mt5WdEquityZReport
-    {
-        public Mt5WdEquityZReport()
-        {
-            MissingCurrencyRates = new List<string>();
+	    public sealed class Mt5WdEquityZReport
+	    {
+	        public Mt5WdEquityZReport()
+	        {
+	            MissingCurrencyRates = new List<string>();
             Assumptions = new List<string>();
             DailyRows = new List<Mt5DailyReportRow>();
             ProtectedBonusDeals = new List<Mt5WdEquityZProtectedBonusDeal>();
@@ -527,13 +527,111 @@ namespace Mt5Monitor.Api
         public string CalculationSummary { get; set; }
         public IList<string> MissingCurrencyRates { get; set; }
         public IList<string> Assumptions { get; set; }
-        public IList<Mt5DailyReportRow> DailyRows { get; set; }
-        public IList<Mt5WdEquityZProtectedBonusDeal> ProtectedBonusDeals { get; set; }
-    }
+	        public IList<Mt5DailyReportRow> DailyRows { get; set; }
+	        public IList<Mt5WdEquityZProtectedBonusDeal> ProtectedBonusDeals { get; set; }
+	    }
 
-    public sealed class Mt5DailyClosedPnlCurrencyBreakdown
-    {
-        public string Currency { get; set; }
+	    public sealed class Mt5DailyPnlCashRequest
+	    {
+	        public Mt5DailyPnlCashRequest()
+	        {
+	            BonusCommentContains = "Bonus Protected Trad";
+	            NetDepositExcludedCommentContains = new List<string>
+	            {
+	                "bonus",
+	                "cash on balance bonus",
+	                "internal",
+	                "transfer"
+	            };
+	            IncludeBonusDealRows = true;
+	            IncludeNetDepositDealRows = true;
+	        }
+
+	        public DateTime ReportDate { get; set; }
+	        public DateTime BonusHistoryFrom { get; set; }
+	        public string BonusCommentContains { get; set; }
+	        public IList<string> NetDepositExcludedCommentContains { get; set; }
+	        public bool IncludeBonusDealRows { get; set; }
+	        public bool IncludeNetDepositDealRows { get; set; }
+	    }
+
+	    public sealed class Mt5DailyPnlCashNetDepositDeal
+	    {
+	        public ulong Deal { get; set; }
+	        public ulong Login { get; set; }
+	        public string Name { get; set; }
+	        public string Group { get; set; }
+	        public DateTime Time { get; set; }
+	        public string Currency { get; set; }
+	        public int CurrencyDigits { get; set; }
+	        public string Comment { get; set; }
+	        public double Amount { get; set; }
+	        public double AmountUsd { get; set; }
+	    }
+
+	    public sealed class Mt5DailyPnlCashInputs
+	    {
+	        public Mt5DailyPnlCashInputs()
+	        {
+	            MissingCurrencyRates = new List<string>();
+	            Assumptions = new List<string>();
+	        }
+
+	        public DateTime ReportDate { get; set; }
+	        public double EndEquityUsd { get; set; }
+	        public double EndCreditsUsd { get; set; }
+	        public double EndProtectedBonusesUsd { get; set; }
+	        public double StartEquityUsd { get; set; }
+	        public double StartCreditsUsd { get; set; }
+	        public double StartProtectedBonusesUsd { get; set; }
+	        public double NetDepositsUsd { get; set; }
+	        public IList<string> MissingCurrencyRates { get; set; }
+	        public IList<string> Assumptions { get; set; }
+	    }
+
+	    public sealed class Mt5DailyPnlCashReport
+	    {
+	        public Mt5DailyPnlCashReport()
+	        {
+	            MissingCurrencyRates = new List<string>();
+	            Assumptions = new List<string>();
+	            NetDepositExcludedCommentContains = new List<string>();
+	            DailyRows = new List<Mt5DailyReportRow>();
+	            ProtectedBonusDeals = new List<Mt5WdEquityZProtectedBonusDeal>();
+	            NetDepositDeals = new List<Mt5DailyPnlCashNetDepositDeal>();
+	        }
+
+	        public DateTime GeneratedAt { get; set; }
+	        public DateTime ReportDate { get; set; }
+	        public DateTime BonusHistoryFrom { get; set; }
+	        public string BonusCommentContains { get; set; }
+	        public IList<string> NetDepositExcludedCommentContains { get; set; }
+	        public int DailyRowCount { get; set; }
+	        public int ProtectedBonusDealCount { get; set; }
+	        public int NetDepositDealCount { get; set; }
+	        public double EndEquityUsd { get; set; }
+	        public double EndCreditsUsd { get; set; }
+	        public double EndProtectedBonusesUsd { get; set; }
+	        public double EndCleanEquityUsd { get; set; }
+	        public double EndPositiveCleanEquityUsd { get; set; }
+	        public double StartEquityUsd { get; set; }
+	        public double StartCreditsUsd { get; set; }
+	        public double StartProtectedBonusesUsd { get; set; }
+	        public double StartCleanEquityUsd { get; set; }
+	        public double StartPositiveCleanEquityUsd { get; set; }
+	        public double NetDepositsUsd { get; set; }
+	        public double DailyPnlCashUsd { get; set; }
+	        public string CalculationSummary { get; set; }
+	        public IList<string> MissingCurrencyRates { get; set; }
+	        public IList<string> Assumptions { get; set; }
+	        public IList<Mt5DailyReportRow> DailyRows { get; set; }
+	        public IList<Mt5WdEquityZProtectedBonusDeal> ProtectedBonusDeals { get; set; }
+	        public IList<Mt5DailyPnlCashNetDepositDeal> NetDepositDeals { get; set; }
+	    }
+
+	    public sealed class Mt5DailyClosedPnlCurrencyBreakdown
+	    {
+	        public string Currency { get; set; }
         public int CurrencyDigits { get; set; }
         public string FxSymbol { get; set; }
         public double FxBid { get; set; }
@@ -588,21 +686,34 @@ namespace Mt5Monitor.Api
             IDictionary<string, Mt5UsdConversionRate> usdRates);
     }
 
-    public interface IMt5WdEquityZCalculator
-    {
-        Mt5WdEquityZReport Calculate(Mt5WdEquityZInputs inputs);
+	    public interface IMt5WdEquityZCalculator
+	    {
+	        Mt5WdEquityZReport Calculate(Mt5WdEquityZInputs inputs);
 
         Mt5WdEquityZReport Calculate(
             DateTime reportDate,
             IEnumerable<Mt5DailyReportRow> dailyRows,
             IDictionary<string, Mt5UsdConversionRate> usdRates,
             double startProtectedBonusesUsd,
-            double endProtectedBonusesUsd,
-            Mt5WdEquityZComputationMode computationMode);
-    }
+	            double endProtectedBonusesUsd,
+	            Mt5WdEquityZComputationMode computationMode);
+	    }
 
-    public sealed class Mt5DailyReportJsonRow
-    {
+	    public interface IMt5DailyPnlCashCalculator
+	    {
+	        Mt5DailyPnlCashReport Calculate(Mt5DailyPnlCashInputs inputs);
+
+	        Mt5DailyPnlCashReport Calculate(
+	            DateTime reportDate,
+	            IEnumerable<Mt5DailyReportRow> dailyRows,
+	            IDictionary<string, Mt5UsdConversionRate> usdRates,
+	            double startProtectedBonusesUsd,
+	            double endProtectedBonusesUsd,
+	            double netDepositsUsd);
+	    }
+
+	    public sealed class Mt5DailyReportJsonRow
+	    {
         public string Timestamp { get; set; }
         public ulong Login { get; set; }
         public string Name { get; set; }
@@ -2034,20 +2145,142 @@ namespace Mt5Monitor.Api
             return 0.0;
         }
 
-        private static List<string> NormalizeStrings(IEnumerable<string> values)
-        {
-            return values == null
-                ? new List<string>()
+	        private static List<string> NormalizeStrings(IEnumerable<string> values)
+	        {
+	            return values == null
+	                ? new List<string>()
                 : values
                     .Where(value => !string.IsNullOrWhiteSpace(value))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-        }
-    }
+	                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+	                    .ToList();
+	        }
+	    }
 
-    public static class Mt5DailyReportGenerator
-    {
+	    public sealed class Mt5DailyPnlCashCalculator : IMt5DailyPnlCashCalculator
+	    {
+	        public Mt5DailyPnlCashReport Calculate(Mt5DailyPnlCashInputs inputs)
+	        {
+	            if (inputs == null)
+	                throw new ArgumentNullException("inputs");
+
+	            var wdCalculator = new Mt5WdEquityZCalculator();
+	            Mt5WdEquityZReport wdReport = wdCalculator.Calculate(
+	                new Mt5WdEquityZInputs
+	                {
+	                    ReportDate = inputs.ReportDate,
+	                    ComputationMode = Mt5WdEquityZComputationMode.EndOnly,
+	                    EndEquityUsd = inputs.EndEquityUsd,
+	                    EndCreditsUsd = inputs.EndCreditsUsd,
+	                    EndProtectedBonusesUsd = inputs.EndProtectedBonusesUsd,
+	                    StartEquityUsd = inputs.StartEquityUsd,
+	                    StartCreditsUsd = inputs.StartCreditsUsd,
+	                    StartProtectedBonusesUsd = inputs.StartProtectedBonusesUsd
+	                });
+
+	            return CreateReport(
+	                inputs.ReportDate,
+	                wdReport,
+	                inputs.NetDepositsUsd,
+	                inputs.MissingCurrencyRates,
+	                inputs.Assumptions);
+	        }
+
+	        public Mt5DailyPnlCashReport Calculate(
+	            DateTime reportDate,
+	            IEnumerable<Mt5DailyReportRow> dailyRows,
+	            IDictionary<string, Mt5UsdConversionRate> usdRates,
+	            double startProtectedBonusesUsd,
+	            double endProtectedBonusesUsd,
+	            double netDepositsUsd)
+	        {
+	            if (dailyRows == null)
+	                throw new ArgumentNullException("dailyRows");
+
+	            List<Mt5DailyReportRow> rows = dailyRows.Where(row => row != null).ToList();
+	            var wdCalculator = new Mt5WdEquityZCalculator();
+	            Mt5WdEquityZReport wdReport = wdCalculator.Calculate(
+	                reportDate,
+	                rows,
+	                usdRates,
+	                startProtectedBonusesUsd,
+	                endProtectedBonusesUsd,
+	                Mt5WdEquityZComputationMode.EndOnly);
+
+	            Mt5DailyPnlCashReport report = CreateReport(
+	                reportDate,
+	                wdReport,
+	                netDepositsUsd,
+	                wdReport.MissingCurrencyRates,
+	                new List<string>
+	                {
+	                    "Start equity uses EquityPrevDay from MT5 daily rows.",
+	                    "Start credits are derived as Credit minus DailyCredit because MT5 daily rows do not expose CreditPrevDay.",
+	                    "Protected bonus totals must be supplied separately from filtered balance deals.",
+	                    "Net deposits must be supplied separately from MT5 deposit/withdrawal balance deals.",
+	                    "USD conversion uses the supplied MT5 USD rate table."
+	                });
+
+	            report.DailyRowCount = rows.Count;
+	            return report;
+	        }
+
+	        private static Mt5DailyPnlCashReport CreateReport(
+	            DateTime reportDate,
+	            Mt5WdEquityZReport wdReport,
+	            double netDepositsUsd,
+	            IEnumerable<string> missingCurrencyRates,
+	            IEnumerable<string> assumptions)
+	        {
+	            if (wdReport == null)
+	                throw new ArgumentNullException("wdReport");
+
+	            double endCleanEquityUsd = wdReport.EndEquityUsd - wdReport.EndCreditsUsd - wdReport.EndProtectedBonusesUsd;
+	            double startCleanEquityUsd = wdReport.StartEquityUsd - wdReport.StartCreditsUsd - wdReport.StartProtectedBonusesUsd;
+	            double endPositiveCleanEquityUsd = wdReport.EndWdEquityUsd;
+	            double startPositiveCleanEquityUsd = wdReport.StartWdEquityUsd;
+
+	            return new Mt5DailyPnlCashReport
+	            {
+	                GeneratedAt = DateTime.Now,
+	                ReportDate = reportDate == default(DateTime) ? DateTime.Today : reportDate.Date,
+	                EndEquityUsd = wdReport.EndEquityUsd,
+	                EndCreditsUsd = wdReport.EndCreditsUsd,
+	                EndProtectedBonusesUsd = wdReport.EndProtectedBonusesUsd,
+	                EndCleanEquityUsd = endCleanEquityUsd,
+	                EndPositiveCleanEquityUsd = endPositiveCleanEquityUsd,
+	                StartEquityUsd = wdReport.StartEquityUsd,
+	                StartCreditsUsd = wdReport.StartCreditsUsd,
+	                StartProtectedBonusesUsd = wdReport.StartProtectedBonusesUsd,
+	                StartCleanEquityUsd = startCleanEquityUsd,
+	                StartPositiveCleanEquityUsd = startPositiveCleanEquityUsd,
+	                NetDepositsUsd = netDepositsUsd,
+	                DailyPnlCashUsd = endPositiveCleanEquityUsd - startPositiveCleanEquityUsd - netDepositsUsd,
+	                CalculationSummary = BuildCalculationSummary(),
+	                MissingCurrencyRates = NormalizeStrings(missingCurrencyRates),
+	                Assumptions = NormalizeStrings(assumptions)
+	            };
+	        }
+
+	        private static string BuildCalculationSummary()
+	        {
+	            return "Clean Equity = Equity - Credits - Protected Bonuses; Daily PnL Cash = max(End Clean Equity, 0) - max(Start Clean Equity, 0) - Net Deposits. This matches the four-case rule for positive/negative start and end clean equity.";
+	        }
+
+	        private static List<string> NormalizeStrings(IEnumerable<string> values)
+	        {
+	            return values == null
+	                ? new List<string>()
+	                : values
+	                    .Where(value => !string.IsNullOrWhiteSpace(value))
+	                    .Distinct(StringComparer.OrdinalIgnoreCase)
+	                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+	                    .ToList();
+	        }
+	    }
+
+	    public static class Mt5DailyReportGenerator
+	    {
         public static Mt5DailyReportSnapshot Generate(Mt5MonitorSettings settings, DateTime reportDate, Action<string> statusWriter)
         {
             return Generate(settings, reportDate, reportDate, statusWriter);
@@ -2337,17 +2570,214 @@ namespace Mt5Monitor.Api
                 statusWriter);
         }
 
-        public static Mt5WdEquityZReport Generate(
-            Mt5MonitorSettings settings,
-            DateTime reportDate,
-            DateTime bonusHistoryFrom)
-        {
-            return Generate(settings, reportDate, bonusHistoryFrom, null);
-        }
-    }
+	        public static Mt5WdEquityZReport Generate(
+	            Mt5MonitorSettings settings,
+	            DateTime reportDate,
+	            DateTime bonusHistoryFrom)
+	        {
+	            return Generate(settings, reportDate, bonusHistoryFrom, null);
+	        }
+	    }
 
-    public static class Mt5PositionHistoryGenerator
-    {
+	    public static class Mt5DailyPnlCashGenerator
+	    {
+	        public static Mt5DailyPnlCashReport Generate(
+	            Mt5MonitorSettings settings,
+	            Mt5DailyPnlCashRequest request,
+	            Action<string> statusWriter)
+	        {
+	            if (settings == null)
+	                throw new ArgumentNullException("settings");
+	            if (request == null)
+	                throw new ArgumentNullException("request");
+
+	            DateTime reportDate = request.ReportDate.Date;
+	            DateTime bonusHistoryFrom = request.BonusHistoryFrom.Date;
+	            if (reportDate == default(DateTime))
+	                throw new InvalidOperationException("ReportDate is required.");
+	            if (bonusHistoryFrom == default(DateTime))
+	                throw new InvalidOperationException("BonusHistoryFrom is required to reconstruct protected bonus balances.");
+	            if (bonusHistoryFrom > reportDate)
+	                throw new InvalidOperationException("BonusHistoryFrom must be on or before ReportDate.");
+	            if (string.IsNullOrWhiteSpace(request.BonusCommentContains))
+	                throw new InvalidOperationException("Bonus comment filter is required.");
+
+	            List<string> excludedCommentContains = NormalizeCommentFilters(request.NetDepositExcludedCommentContains);
+	            settings.Validate();
+
+	            Action<string> writer = statusWriter ?? (_ => { });
+	            writer(string.Format(
+	                CultureInfo.InvariantCulture,
+	                "Generating Daily PnL Cash for {0:yyyy-MM-dd} using bonus history from {1:yyyy-MM-dd}.",
+	                reportDate,
+	                bonusHistoryFrom));
+
+	            MTRetCode initializeResult = SMTManagerAPIFactory.Initialize(settings.SdkLibsPath);
+	            if (initializeResult != MTRetCode.MT_RET_OK)
+	                throw new InvalidOperationException("Initialize failed: " + initializeResult);
+
+	            CIMTManagerAPI manager = Mt5MonitorCollector.Connect(settings.Server, settings.Login, settings.Password, writer);
+	            if (manager == null)
+	            {
+	                SMTManagerAPIFactory.Shutdown();
+	                throw new InvalidOperationException("Failed to connect to MT5 Manager API.");
+	            }
+
+	            try
+	            {
+	                Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
+	                Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+	                IDictionary<string, Mt5UsdConversionRate> usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+
+	                Mt5DailyReportSnapshot dailySnapshot = Mt5MonitorCollector.CollectDailyReport(
+	                    manager,
+	                    groupCurrencies,
+	                    settings.GroupMask,
+	                    reportDate,
+	                    reportDate,
+	                    writer);
+
+	                Mt5MonitorCollector.WdEquityZProtectedBonusCollection bonusCollection =
+	                    Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
+	                        manager,
+	                        groupCurrencies,
+	                        loginContexts,
+	                        settings.GroupMask,
+	                        bonusHistoryFrom,
+	                        reportDate,
+	                        request.BonusCommentContains,
+	                        request.IncludeBonusDealRows,
+	                        writer);
+
+	                Mt5MonitorCollector.DailyPnlCashNetDepositCollection netDepositCollection =
+	                    Mt5MonitorCollector.CollectDailyPnlCashNetDeposits(
+	                        manager,
+	                        groupCurrencies,
+	                        loginContexts,
+	                        settings.GroupMask,
+	                        reportDate,
+	                        excludedCommentContains,
+	                        request.IncludeNetDepositDealRows,
+	                        writer);
+
+	                var calculator = new Mt5DailyPnlCashCalculator();
+	                Mt5DailyPnlCashReport report = calculator.Calculate(
+	                    reportDate,
+	                    dailySnapshot.Rows ?? new List<Mt5DailyReportRow>(),
+	                    usdRates,
+	                    bonusCollection.StartProtectedBonusesUsd,
+	                    bonusCollection.EndProtectedBonusesUsd,
+	                    netDepositCollection.NetDepositsUsd);
+
+	                report.GeneratedAt = DateTime.Now;
+	                report.ReportDate = reportDate;
+	                report.BonusHistoryFrom = bonusHistoryFrom;
+	                report.BonusCommentContains = request.BonusCommentContains;
+	                report.NetDepositExcludedCommentContains = excludedCommentContains;
+	                report.DailyRows = dailySnapshot.Rows != null
+	                    ? new List<Mt5DailyReportRow>(dailySnapshot.Rows)
+	                    : new List<Mt5DailyReportRow>();
+	                report.DailyRowCount = report.DailyRows.Count;
+	                report.ProtectedBonusDealCount = bonusCollection.DealCount;
+	                report.ProtectedBonusDeals = request.IncludeBonusDealRows
+	                    ? bonusCollection.Deals
+	                    : new List<Mt5WdEquityZProtectedBonusDeal>();
+	                report.NetDepositDealCount = netDepositCollection.DealCount;
+	                report.NetDepositDeals = request.IncludeNetDepositDealRows
+	                    ? netDepositCollection.Deals
+	                    : new List<Mt5DailyPnlCashNetDepositDeal>();
+	                report.MissingCurrencyRates = report.MissingCurrencyRates
+	                    .Concat(bonusCollection.MissingCurrencyRates)
+	                    .Concat(netDepositCollection.MissingCurrencyRates)
+	                    .Distinct(StringComparer.OrdinalIgnoreCase)
+	                    .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+	                    .ToList();
+	                report.Assumptions = report.Assumptions
+	                    .Concat(
+	                        new[]
+	                        {
+	                            string.Format(
+	                                CultureInfo.InvariantCulture,
+	                                "Protected bonuses are reconstructed from ActionBalance deals whose comment contains '{0}'.",
+	                                request.BonusCommentContains),
+	                            string.Format(
+	                                CultureInfo.InvariantCulture,
+	                                "BonusHistoryFrom ({0:yyyy-MM-dd}) must be early enough to capture the full protected-bonus balance you want to subtract.",
+	                                bonusHistoryFrom),
+	                            "Net deposits are sourced from MT5 deposit/withdrawal balance deals (DEAL_BALANCE) only; DEAL_CREDIT and DEAL_BONUS are excluded by action.",
+	                            string.Format(
+	                                CultureInfo.InvariantCulture,
+	                                "Net deposit comment exclusions: {0}.",
+	                                excludedCommentContains.Count > 0
+	                                    ? string.Join(", ", excludedCommentContains)
+	                                    : "(none)")
+	                        })
+	                    .Distinct(StringComparer.OrdinalIgnoreCase)
+	                    .ToList();
+
+	                writer(string.Format(
+	                    CultureInfo.InvariantCulture,
+	                    "Daily PnL Cash ready. Daily rows: {0}, protected bonus deals: {1}, net deposit deals: {2}, value: {3:N2}.",
+	                    report.DailyRowCount,
+	                    report.ProtectedBonusDealCount,
+	                    report.NetDepositDealCount,
+	                    report.DailyPnlCashUsd));
+
+	                return report;
+	            }
+	            finally
+	            {
+	                Mt5MonitorCollector.Disconnect(manager);
+	                SMTManagerAPIFactory.Shutdown();
+	            }
+	        }
+
+	        public static Mt5DailyPnlCashReport Generate(
+	            Mt5MonitorSettings settings,
+	            Mt5DailyPnlCashRequest request)
+	        {
+	            return Generate(settings, request, null);
+	        }
+
+	        public static Mt5DailyPnlCashReport Generate(
+	            Mt5MonitorSettings settings,
+	            DateTime reportDate,
+	            DateTime bonusHistoryFrom,
+	            Action<string> statusWriter)
+	        {
+	            return Generate(
+	                settings,
+	                new Mt5DailyPnlCashRequest
+	                {
+	                    ReportDate = reportDate,
+	                    BonusHistoryFrom = bonusHistoryFrom
+	                },
+	                statusWriter);
+	        }
+
+	        public static Mt5DailyPnlCashReport Generate(
+	            Mt5MonitorSettings settings,
+	            DateTime reportDate,
+	            DateTime bonusHistoryFrom)
+	        {
+	            return Generate(settings, reportDate, bonusHistoryFrom, null);
+	        }
+
+	        private static List<string> NormalizeCommentFilters(IEnumerable<string> values)
+	        {
+	            return values == null
+	                ? new List<string>()
+	                : values
+	                    .Where(value => !string.IsNullOrWhiteSpace(value))
+	                    .Select(value => value.Trim())
+	                    .Distinct(StringComparer.OrdinalIgnoreCase)
+	                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+	                    .ToList();
+	        }
+	    }
+
+	    public static class Mt5PositionHistoryGenerator
+	    {
         public static Mt5PositionHistorySnapshot Generate(
             Mt5MonitorSettings settings,
             DateTime fromDate,
@@ -2815,23 +3245,37 @@ namespace Mt5Monitor.Api
             public int CurrencyDigits;
         }
 
-        internal sealed class WdEquityZProtectedBonusCollection
-        {
-            public WdEquityZProtectedBonusCollection()
-            {
-                Deals = new List<Mt5WdEquityZProtectedBonusDeal>();
+	        internal sealed class WdEquityZProtectedBonusCollection
+	        {
+	            public WdEquityZProtectedBonusCollection()
+	            {
+	                Deals = new List<Mt5WdEquityZProtectedBonusDeal>();
                 MissingCurrencyRates = new List<string>();
             }
 
             public double StartProtectedBonusesUsd { get; set; }
             public double EndProtectedBonusesUsd { get; set; }
             public int DealCount { get; set; }
-            public IList<Mt5WdEquityZProtectedBonusDeal> Deals { get; set; }
-            public IList<string> MissingCurrencyRates { get; set; }
-        }
+	            public IList<Mt5WdEquityZProtectedBonusDeal> Deals { get; set; }
+	            public IList<string> MissingCurrencyRates { get; set; }
+	        }
 
-        private static readonly CurrencyEntry[] CurrencyTable =
-        {
+	        internal sealed class DailyPnlCashNetDepositCollection
+	        {
+	            public DailyPnlCashNetDepositCollection()
+	            {
+	                Deals = new List<Mt5DailyPnlCashNetDepositDeal>();
+	                MissingCurrencyRates = new List<string>();
+	            }
+
+	            public double NetDepositsUsd { get; set; }
+	            public int DealCount { get; set; }
+	            public IList<Mt5DailyPnlCashNetDepositDeal> Deals { get; set; }
+	            public IList<string> MissingCurrencyRates { get; set; }
+	        }
+
+	        private static readonly CurrencyEntry[] CurrencyTable =
+	        {
             new CurrencyEntry { Symbol = "EURUSD", Currency = "EUR", UsdBase = false },
             new CurrencyEntry { Symbol = "GBPUSD", Currency = "GBP", UsdBase = false },
             new CurrencyEntry { Symbol = "AUDUSD", Currency = "AUD", UsdBase = false },
@@ -3339,10 +3783,10 @@ namespace Mt5Monitor.Api
             }
         }
 
-        public static WdEquityZProtectedBonusCollection CollectWdEquityZProtectedBonuses(
-            CIMTManagerAPI manager,
-            Dictionary<string, string> groupCurrencies,
-            Dictionary<ulong, Mt5LoginContext> loginContexts,
+	        public static WdEquityZProtectedBonusCollection CollectWdEquityZProtectedBonuses(
+	            CIMTManagerAPI manager,
+	            Dictionary<string, string> groupCurrencies,
+	            Dictionary<ulong, Mt5LoginContext> loginContexts,
             string groupMask,
             DateTime bonusHistoryFrom,
             DateTime reportDate,
@@ -3449,11 +3893,144 @@ namespace Mt5Monitor.Api
                     fallbackConversionCount));
             }
 
-            return collection;
-        }
+	            return collection;
+	        }
 
-        public static Mt5PositionHistorySnapshot CollectPositionHistory(
-            CIMTManagerAPI manager,
+	        private static bool ShouldExcludeDailyPnlCashNetDepositComment(
+	            string comment,
+	            IEnumerable<string> excludedCommentContains)
+	        {
+	            string value = comment ?? string.Empty;
+	            if (excludedCommentContains == null)
+	                return false;
+
+	            foreach (string token in excludedCommentContains)
+	            {
+	                if (string.IsNullOrWhiteSpace(token))
+	                    continue;
+
+	                if (value.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
+	                    return true;
+	            }
+
+	            return false;
+	        }
+
+	        public static DailyPnlCashNetDepositCollection CollectDailyPnlCashNetDeposits(
+	            CIMTManagerAPI manager,
+	            Dictionary<string, string> groupCurrencies,
+	            Dictionary<ulong, Mt5LoginContext> loginContexts,
+	            string groupMask,
+	            DateTime reportDate,
+	            IEnumerable<string> excludedCommentContains,
+	            bool includeDealRows,
+	            Action<string> statusWriter)
+	        {
+	            if (manager == null)
+	                throw new ArgumentNullException("manager");
+	            if (string.IsNullOrWhiteSpace(groupMask))
+	                throw new InvalidOperationException("Group mask is required.");
+
+	            DateTime normalizedReportDate = reportDate.Date;
+	            if (normalizedReportDate == default(DateTime))
+	                throw new InvalidOperationException("ReportDate is required.");
+
+	            List<string> excludedComments = excludedCommentContains == null
+	                ? new List<string>()
+	                : excludedCommentContains
+	                    .Where(value => !string.IsNullOrWhiteSpace(value))
+	                    .Select(value => value.Trim())
+	                    .Distinct(StringComparer.OrdinalIgnoreCase)
+	                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+	                    .ToList();
+
+	            Dictionary<string, CurrencyRate> currencyRates = BuildCurrencyRates(manager);
+	            var missingCurrencies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+	            int fallbackConversionCount = 0;
+	            var collection = new DailyPnlCashNetDepositCollection();
+
+	            DateTime reportStartUtc = CreateUtcBoundary(normalizedReportDate, false);
+	            DateTime reportEndUtc = CreateUtcBoundary(normalizedReportDate, true);
+	            Action<string> writer = statusWriter ?? (_ => { });
+	            writer(string.Format(
+	                CultureInfo.InvariantCulture,
+	                "Requesting Daily PnL Cash net deposit deals for {0:yyyy-MM-dd}.",
+	                normalizedReportDate));
+
+	            var deals = manager.DealCreateArray();
+	            try
+	            {
+	                MTRetCode result = manager.DealRequestByGroup(
+	                    groupMask,
+	                    SMTTime.FromDateTime(reportStartUtc),
+	                    SMTTime.FromDateTime(reportEndUtc),
+	                    deals);
+
+	                if (result != MTRetCode.MT_RET_OK)
+	                    throw new InvalidOperationException("DealRequestByGroup failed: " + result + " (" + (uint)result + ")");
+
+	                for (uint i = 0; i < deals.Total(); i++)
+	                {
+	                    CIMTDeal deal = deals.Next(i);
+	                    if (deal == null || deal.Action() != ActionBalance)
+	                        continue;
+
+	                    string comment = deal.Comment() ?? string.Empty;
+	                    if (ShouldExcludeDailyPnlCashNetDepositComment(comment, excludedComments))
+	                        continue;
+
+	                    DateTime dealTime = SMTTime.ToDateTime(deal.Time());
+	                    Mt5LoginContext loginContext = ResolveLoginContext(deal.Login(), loginContexts);
+	                    string currency = ResolveLoginCurrency(loginContext, groupCurrencies);
+	                    double amountUsd = ConvertComponentsToUsd(
+	                        currency,
+	                        deal.RateProfit(),
+	                        currencyRates,
+	                        missingCurrencies,
+	                        ref fallbackConversionCount,
+	                        deal.Profit());
+
+	                    collection.NetDepositsUsd += amountUsd;
+	                    collection.DealCount++;
+	                    if (includeDealRows)
+	                    {
+	                        collection.Deals.Add(new Mt5DailyPnlCashNetDepositDeal
+	                        {
+	                            Deal = deal.Deal(),
+	                            Login = deal.Login(),
+	                            Name = loginContext.Name ?? string.Empty,
+	                            Group = loginContext.Group ?? string.Empty,
+	                            Time = dealTime,
+	                            Currency = currency,
+	                            CurrencyDigits = NormalizeCurrencyDigits((int)deal.DigitsCurrency()),
+	                            Comment = comment,
+	                            Amount = deal.Profit(),
+	                            AmountUsd = amountUsd
+	                        });
+	                    }
+	                }
+	            }
+	            finally
+	            {
+	                deals.Dispose();
+	            }
+
+	            collection.MissingCurrencyRates = missingCurrencies
+	                .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+	                .ToList();
+	            if (fallbackConversionCount > 0)
+	            {
+	                writer(string.Format(
+	                    CultureInfo.InvariantCulture,
+	                    "Daily PnL Cash net deposit conversion used {0} fallback conversions.",
+	                    fallbackConversionCount));
+	            }
+
+	            return collection;
+	        }
+
+	        public static Mt5PositionHistorySnapshot CollectPositionHistory(
+	            CIMTManagerAPI manager,
             Dictionary<string, string> groupCurrencies,
             Dictionary<ulong, Mt5LoginContext> loginContexts,
             string groupMask,
