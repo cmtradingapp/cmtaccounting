@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading;
@@ -154,16 +155,16 @@ public sealed class MT5LivePusher
         public double wd_equity_start_equity { get; set; }
         public double wd_equity_start_credits { get; set; }
         public double wd_equity_start_bonuses { get; set; }
-	        public int wd_equity_daily_rows { get; set; }
-	        public int wd_equity_bonus_deals { get; set; }
-	        public string wd_equity_mode { get; set; }
-	        public string wd_equity_source { get; set; }
-	        public string wd_equity_bonus_comment { get; set; }
-	        public string wd_equity_bonus_history_from { get; set; }
-	        public string wd_equity_refreshed_at { get; set; }
-	        public int wd_equity_refresh_seconds { get; set; }
-	        public int wd_equity_account_count { get; set; }
-	        public string wd_equity_summary { get; set; }
+	        [DataMember] public int wd_equity_daily_rows { get; set; }
+	        [DataMember] public int wd_equity_bonus_deals { get; set; }
+	        [DataMember] public string wd_equity_mode { get; set; }
+	        [DataMember] public string wd_equity_source { get; set; }
+	        [DataMember] public string wd_equity_bonus_comment { get; set; }
+	        [DataMember] public string wd_equity_bonus_history_from { get; set; }
+	        [DataMember] public string wd_equity_refreshed_at { get; set; }
+	        [DataMember] public int wd_equity_refresh_seconds { get; set; }
+	        [DataMember] public int wd_equity_account_count { get; set; }
+	        [DataMember] public string wd_equity_summary { get; set; }
         [DataMember] public double daily_pnl_cash_usd { get; set; }
         [DataMember] public double daily_pnl_cash_net_deposits_usd { get; set; }
         [DataMember] public double daily_pnl_cash_end_equity_usd { get; set; }
