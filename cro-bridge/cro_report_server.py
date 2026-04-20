@@ -70,6 +70,7 @@ class ReportHandler(BaseHTTPRequestHandler):
 
         cmd = ["wine", EXE_PATH, report_type] + cmd_args
         env = os.environ.copy()
+        print(f"[report-server] running: {' '.join(cmd)}", file=sys.stderr, flush=True)
         try:
             result = subprocess.run(
                 cmd, env=env,
@@ -77,16 +78,27 @@ class ReportHandler(BaseHTTPRequestHandler):
                 timeout=600, text=True,
             )
         except subprocess.TimeoutExpired:
+            print("[report-server] subprocess timed out", file=sys.stderr, flush=True)
             self._reply(504, "text/plain", b"Report generation timed out (600s)")
             return
         except Exception as e:
+            import traceback
+            print(f"[report-server] subprocess exception: {e}", file=sys.stderr, flush=True)
+            traceback.print_exc(file=sys.stderr)
             self._reply(500, "text/plain", str(e).encode())
             return
 
+        print(f"[report-server] rc={result.returncode} stdout_len={len(result.stdout)} stderr_tail={result.stderr.strip()[-300:]!r}", file=sys.stderr, flush=True)
+
         if result.returncode != 0:
             err = result.stderr.strip()[-1000:]
-            print(f"[report-server] exe error: {err}", file=sys.stderr, flush=True)
             self._reply(500, "text/plain", f"Reporter failed: {err}".encode())
+            return
+
+        if not result.stdout.strip():
+            err = result.stderr.strip()[-500:] or "exe produced no output"
+            print(f"[report-server] empty output: {err!r}", file=sys.stderr, flush=True)
+            self._reply(500, "text/plain", f"Reporter produced no output: {err}".encode())
             return
 
         data = result.stdout.encode("utf-8")

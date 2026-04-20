@@ -2683,7 +2683,8 @@ def cro_report():
         with _urllib_req.urlopen(req, timeout=630) as resp:
             data = resp.read()
     except _urllib_err.HTTPError as e:
-        msg = e.read().decode("utf-8", errors="replace")[:500]
+        body = e.read().decode("utf-8", errors="replace").strip()[:500]
+        msg = body or f"Report server returned HTTP {e.code}"
         return jsonify({"ok": False, "error": msg}), 502
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 502
