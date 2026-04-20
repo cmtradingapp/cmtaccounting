@@ -402,9 +402,16 @@ public sealed class MT5LivePusher
 	                            fast.DepositorLogins,
 	                            todayKey,
 	                            ci);
-	                        slow.DailyPnlCash = CollectDailyPnlCash(
-	                            manager, settings, groupCurrencies,
-	                            loginContexts, usdRates, wdEquityConfig, nowUtc, ci);
+	                        try
+	                        {
+	                            slow.DailyPnlCash = CollectDailyPnlCash(
+	                                manager, settings, groupCurrencies,
+	                                loginContexts, usdRates, wdEquityConfig, nowUtc, ci);
+	                        }
+	                        catch (Exception pnlEx)
+	                        {
+	                            Console.Error.WriteLine("[pusher] daily_pnl_cash skipped: " + pnlEx.Message);
+	                        }
 
                         Console.Error.WriteLine(
                             string.Format(
