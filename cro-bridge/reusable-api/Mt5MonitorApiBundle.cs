@@ -430,6 +430,72 @@ namespace Mt5Monitor.Api
         public IList<Mt5PositionHistoryCurrencyTotal> CurrencyTotals { get; set; }
     }
 
+    public sealed class Mt5TradingAccountRow
+    {
+        public ulong Login { get; set; }
+        public string Name { get; set; }
+        public string Group { get; set; }
+        public string Currency { get; set; }
+        public int CurrencyDigits { get; set; }
+        public double Balance { get; set; }
+        public double Credit { get; set; }
+        public double Profit { get; set; }
+        public double Equity { get; set; }
+        public double Margin { get; set; }
+        public double FreeMargin { get; set; }
+        public double MarginLevel { get; set; }
+        public uint MarginLeverage { get; set; }
+    }
+
+    public sealed class Mt5TradingAccountsSnapshot
+    {
+        public Mt5TradingAccountsSnapshot()
+        {
+            Rows = new List<Mt5TradingAccountRow>();
+        }
+
+        public DateTime GeneratedAt { get; set; }
+        public IList<Mt5TradingAccountRow> Rows { get; set; }
+    }
+
+    public sealed class Mt5DepositWithdrawalRow
+    {
+        public ulong Deal { get; set; }
+        public ulong Login { get; set; }
+        public string Name { get; set; }
+        public string Group { get; set; }
+        public DateTime Time { get; set; }
+        public string Comment { get; set; }
+        public double Amount { get; set; }
+        public string Currency { get; set; }
+        public int CurrencyDigits { get; set; }
+    }
+
+    public sealed class Mt5DepositWithdrawalCurrencyTotal
+    {
+        public string Currency { get; set; }
+        public int CurrencyDigits { get; set; }
+        public int DealCount { get; set; }
+        public double Deposits { get; set; }
+        public double Withdrawals { get; set; }
+        public double NetAmount { get; set; }
+    }
+
+    public sealed class Mt5DepositWithdrawalSnapshot
+    {
+        public Mt5DepositWithdrawalSnapshot()
+        {
+            Rows = new List<Mt5DepositWithdrawalRow>();
+            CurrencyTotals = new List<Mt5DepositWithdrawalCurrencyTotal>();
+        }
+
+        public DateTime GeneratedAt { get; set; }
+        public DateTime RangeFrom { get; set; }
+        public DateTime RangeTo { get; set; }
+        public IList<Mt5DepositWithdrawalRow> Rows { get; set; }
+        public IList<Mt5DepositWithdrawalCurrencyTotal> CurrencyTotals { get; set; }
+    }
+
     public sealed class Mt5UsdConversionRate
     {
         public string Currency { get; set; }
@@ -820,6 +886,83 @@ namespace Mt5Monitor.Api
         public IList<Mt5PositionHistoryJsonCurrencyTotal> CurrencyTotals { get; set; }
     }
 
+    public sealed class Mt5TradingAccountJsonRow
+    {
+        public ulong Login { get; set; }
+        public string Name { get; set; }
+        public string Group { get; set; }
+        public string Currency { get; set; }
+        public int CurrencyDigits { get; set; }
+        public double Balance { get; set; }
+        public double Credit { get; set; }
+        public double Profit { get; set; }
+        public double Equity { get; set; }
+        public double Margin { get; set; }
+        public double FreeMargin { get; set; }
+        public double MarginLevel { get; set; }
+        public uint MarginLeverage { get; set; }
+    }
+
+    public sealed class Mt5TradingAccountsJsonDocument
+    {
+        public Mt5TradingAccountsJsonDocument()
+        {
+            Rows = new List<Mt5TradingAccountJsonRow>();
+        }
+
+        public string ReportType { get; set; }
+        public string Server { get; set; }
+        public ulong Login { get; set; }
+        public string GroupMask { get; set; }
+        public string GeneratedAt { get; set; }
+        public int RowCount { get; set; }
+        public IList<Mt5TradingAccountJsonRow> Rows { get; set; }
+    }
+
+    public sealed class Mt5DepositWithdrawalJsonRow
+    {
+        public ulong Deal { get; set; }
+        public ulong Login { get; set; }
+        public string Name { get; set; }
+        public string Group { get; set; }
+        public string Time { get; set; }
+        public string Comment { get; set; }
+        public double Amount { get; set; }
+        public string Currency { get; set; }
+        public int CurrencyDigits { get; set; }
+    }
+
+    public sealed class Mt5DepositWithdrawalJsonCurrencyTotal
+    {
+        public string Currency { get; set; }
+        public int CurrencyDigits { get; set; }
+        public int DealCount { get; set; }
+        public double Deposits { get; set; }
+        public double Withdrawals { get; set; }
+        public double NetAmount { get; set; }
+    }
+
+    public sealed class Mt5DepositWithdrawalJsonDocument
+    {
+        public Mt5DepositWithdrawalJsonDocument()
+        {
+            Rows = new List<Mt5DepositWithdrawalJsonRow>();
+            CurrencyTotals = new List<Mt5DepositWithdrawalJsonCurrencyTotal>();
+        }
+
+        public string ReportType { get; set; }
+        public string Server { get; set; }
+        public ulong Login { get; set; }
+        public string GroupMask { get; set; }
+        public string GeneratedAt { get; set; }
+        public string RangeFrom { get; set; }
+        public string RangeTo { get; set; }
+        public int RowCount { get; set; }
+        public int CurrencyTotalCount { get; set; }
+        public IList<Mt5DepositWithdrawalJsonRow> Rows { get; set; }
+        public IList<Mt5DepositWithdrawalJsonCurrencyTotal> CurrencyTotals { get; set; }
+    }
+
     public sealed class Mt5MonitorSnapshotEventArgs : EventArgs
     {
         public Mt5MonitorSnapshotEventArgs(Mt5MonitorSnapshot snapshot)
@@ -900,6 +1043,34 @@ namespace Mt5Monitor.Api
                 Directory.CreateDirectory(directory);
 
             File.WriteAllText(path, BuildPositionHistoryCsv(snapshot, settings), new UTF8Encoding(true));
+        }
+
+        public static void ExportTradingAccountsSnapshot(string path, Mt5TradingAccountsSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                throw new ArgumentException("Export path is required.", "path");
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            string directory = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(path, BuildTradingAccountsCsv(snapshot, settings), new UTF8Encoding(true));
+        }
+
+        public static void ExportDepositWithdrawalSnapshot(string path, Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                throw new ArgumentException("Export path is required.", "path");
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            string directory = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(path, BuildDepositWithdrawalCsv(snapshot, settings), new UTF8Encoding(true));
         }
 
         public static string BuildSummarySnapshotCsv(Mt5MonitorSnapshot snapshot, Mt5MonitorSettings settings)
@@ -1234,6 +1405,120 @@ namespace Mt5Monitor.Api
             return builder.ToString();
         }
 
+        public static string BuildTradingAccountsCsv(Mt5TradingAccountsSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            var builder = new StringBuilder(8192);
+            AppendExcelTabSeparatorDefinition(builder);
+
+            AppendTabDelimitedRow(
+                builder,
+                "Login",
+                "Name",
+                "Group",
+                "Balance",
+                "Credit",
+                "Profit",
+                "Equity",
+                "Margin",
+                "Free Margin",
+                "Margin Level",
+                "Leverage",
+                "Currency");
+
+            if (snapshot.Rows != null)
+            {
+                for (int i = 0; i < snapshot.Rows.Count; i++)
+                {
+                    Mt5TradingAccountRow row = snapshot.Rows[i];
+                    AppendTabDelimitedRow(
+                        builder,
+                        row.Login.ToString(CultureInfo.InvariantCulture),
+                        SanitizeTabField(row.Name),
+                        row.Group,
+                        FormatDailyMoney(row.Balance, row.CurrencyDigits),
+                        FormatDailyMoney(row.Credit, row.CurrencyDigits),
+                        FormatDailyMoney(row.Profit, row.CurrencyDigits),
+                        FormatDailyMoney(row.Equity, row.CurrencyDigits),
+                        FormatDailyMoney(row.Margin, row.CurrencyDigits),
+                        FormatDailyMoney(row.FreeMargin, row.CurrencyDigits),
+                        FormatAccountRatio(row.MarginLevel),
+                        row.MarginLeverage.ToString(CultureInfo.InvariantCulture),
+                        row.Currency);
+                }
+            }
+
+            return builder.ToString();
+        }
+
+        public static string BuildDepositWithdrawalCsv(Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            var builder = new StringBuilder(8192);
+            AppendExcelTabSeparatorDefinition(builder);
+
+            AppendTabDelimitedRow(
+                builder,
+                "Deal",
+                "Login",
+                "Name",
+                "Group",
+                "Time",
+                "Comment",
+                "Amount",
+                "Currency");
+
+            if (snapshot.Rows != null)
+            {
+                for (int i = 0; i < snapshot.Rows.Count; i++)
+                {
+                    Mt5DepositWithdrawalRow row = snapshot.Rows[i];
+                    AppendTabDelimitedRow(
+                        builder,
+                        row.Deal.ToString(CultureInfo.InvariantCulture),
+                        row.Login.ToString(CultureInfo.InvariantCulture),
+                        SanitizeTabField(row.Name),
+                        row.Group,
+                        row.Time == default(DateTime)
+                            ? string.Empty
+                            : row.Time.ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture),
+                        SanitizeTabField(row.Comment),
+                        FormatDailyMoney(row.Amount, row.CurrencyDigits),
+                        row.Currency);
+                }
+            }
+
+            if (snapshot.CurrencyTotals != null && snapshot.CurrencyTotals.Count > 0)
+            {
+                builder.AppendLine();
+                AppendTabDelimitedRow(
+                    builder,
+                    "Currency",
+                    "Deal Count",
+                    "Deposits",
+                    "Withdrawals",
+                    "Net Amount");
+
+                for (int i = 0; i < snapshot.CurrencyTotals.Count; i++)
+                {
+                    Mt5DepositWithdrawalCurrencyTotal total = snapshot.CurrencyTotals[i];
+                    AppendTabDelimitedRow(
+                        builder,
+                        total.Currency,
+                        total.DealCount.ToString(CultureInfo.InvariantCulture),
+                        FormatDailyMoney(total.Deposits, total.CurrencyDigits),
+                        FormatDailyMoney(total.Withdrawals, total.CurrencyDigits),
+                        FormatDailyMoney(total.NetAmount, total.CurrencyDigits));
+                }
+            }
+
+            return builder.ToString();
+        }
+
         private static void AppendMetadata(StringBuilder builder, string key, string value)
         {
             AppendRow(builder, key, value);
@@ -1372,6 +1657,11 @@ namespace Mt5Monitor.Api
 
             return value.ToString("F" + safeDigits.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
         }
+
+        private static string FormatAccountRatio(double value)
+        {
+            return value.ToString("0.##", CultureInfo.InvariantCulture);
+        }
     }
 
     public static class Mt5MonitorJsonExporter
@@ -1412,6 +1702,44 @@ namespace Mt5Monitor.Api
         public static void ExportPositionHistorySnapshotJson(string path, Mt5PositionHistorySnapshot snapshot, Mt5MonitorSettings settings)
         {
             ExportPositionHistorySnapshotJson(path, snapshot, settings, true);
+        }
+
+        public static void ExportTradingAccountsSnapshotJson(string path, Mt5TradingAccountsSnapshot snapshot, Mt5MonitorSettings settings, bool indented)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                throw new ArgumentException("Export path is required.", "path");
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            string directory = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(path, BuildTradingAccountsJson(snapshot, settings, indented), new UTF8Encoding(true));
+        }
+
+        public static void ExportTradingAccountsSnapshotJson(string path, Mt5TradingAccountsSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            ExportTradingAccountsSnapshotJson(path, snapshot, settings, true);
+        }
+
+        public static void ExportDepositWithdrawalSnapshotJson(string path, Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings, bool indented)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                throw new ArgumentException("Export path is required.", "path");
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            string directory = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(path, BuildDepositWithdrawalJson(snapshot, settings, indented), new UTF8Encoding(true));
+        }
+
+        public static void ExportDepositWithdrawalSnapshotJson(string path, Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            ExportDepositWithdrawalSnapshotJson(path, snapshot, settings, true);
         }
 
         public static Mt5DailyReportJsonDocument CreateDailyReportDocument(Mt5DailyReportSnapshot snapshot, Mt5MonitorSettings settings)
@@ -1520,6 +1848,93 @@ namespace Mt5Monitor.Api
             };
         }
 
+        public static Mt5TradingAccountsJsonDocument CreateTradingAccountsDocument(Mt5TradingAccountsSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            IList<Mt5TradingAccountJsonRow> rows = snapshot.Rows != null
+                ? snapshot.Rows.Select(
+                    row => new Mt5TradingAccountJsonRow
+                    {
+                        Login = row.Login,
+                        Name = row.Name,
+                        Group = row.Group,
+                        Currency = row.Currency,
+                        CurrencyDigits = row.CurrencyDigits,
+                        Balance = row.Balance,
+                        Credit = row.Credit,
+                        Profit = row.Profit,
+                        Equity = row.Equity,
+                        Margin = row.Margin,
+                        FreeMargin = row.FreeMargin,
+                        MarginLevel = row.MarginLevel,
+                        MarginLeverage = row.MarginLeverage
+                    }).ToList()
+                : new List<Mt5TradingAccountJsonRow>();
+
+            return new Mt5TradingAccountsJsonDocument
+            {
+                ReportType = "TradingAccounts",
+                Server = settings != null ? settings.Server : string.Empty,
+                Login = settings != null ? settings.Login : 0,
+                GroupMask = settings != null ? settings.GroupMask : string.Empty,
+                GeneratedAt = FormatJsonDateTime(snapshot.GeneratedAt),
+                RowCount = rows.Count,
+                Rows = rows
+            };
+        }
+
+        public static Mt5DepositWithdrawalJsonDocument CreateDepositWithdrawalDocument(Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            IList<Mt5DepositWithdrawalJsonRow> rows = snapshot.Rows != null
+                ? snapshot.Rows.Select(
+                    row => new Mt5DepositWithdrawalJsonRow
+                    {
+                        Deal = row.Deal,
+                        Login = row.Login,
+                        Name = row.Name,
+                        Group = row.Group,
+                        Time = FormatJsonDateTime(row.Time),
+                        Comment = row.Comment,
+                        Amount = row.Amount,
+                        Currency = row.Currency,
+                        CurrencyDigits = row.CurrencyDigits
+                    }).ToList()
+                : new List<Mt5DepositWithdrawalJsonRow>();
+
+            IList<Mt5DepositWithdrawalJsonCurrencyTotal> totals = snapshot.CurrencyTotals != null
+                ? snapshot.CurrencyTotals.Select(
+                    total => new Mt5DepositWithdrawalJsonCurrencyTotal
+                    {
+                        Currency = total.Currency,
+                        CurrencyDigits = total.CurrencyDigits,
+                        DealCount = total.DealCount,
+                        Deposits = total.Deposits,
+                        Withdrawals = total.Withdrawals,
+                        NetAmount = total.NetAmount
+                    }).ToList()
+                : new List<Mt5DepositWithdrawalJsonCurrencyTotal>();
+
+            return new Mt5DepositWithdrawalJsonDocument
+            {
+                ReportType = "DepositWithdrawal",
+                Server = settings != null ? settings.Server : string.Empty,
+                Login = settings != null ? settings.Login : 0,
+                GroupMask = settings != null ? settings.GroupMask : string.Empty,
+                GeneratedAt = FormatJsonDateTime(snapshot.GeneratedAt),
+                RangeFrom = FormatJsonDateTime(snapshot.RangeFrom),
+                RangeTo = FormatJsonDateTime(snapshot.RangeTo),
+                RowCount = rows.Count,
+                CurrencyTotalCount = totals.Count,
+                Rows = rows,
+                CurrencyTotals = totals
+            };
+        }
+
         public static string BuildDailyReportJson(Mt5DailyReportSnapshot snapshot, Mt5MonitorSettings settings, bool indented)
         {
             return SerializeJson(CreateDailyReportDocument(snapshot, settings), indented);
@@ -1538,6 +1953,26 @@ namespace Mt5Monitor.Api
         public static string BuildPositionHistoryJson(Mt5PositionHistorySnapshot snapshot, Mt5MonitorSettings settings)
         {
             return BuildPositionHistoryJson(snapshot, settings, true);
+        }
+
+        public static string BuildTradingAccountsJson(Mt5TradingAccountsSnapshot snapshot, Mt5MonitorSettings settings, bool indented)
+        {
+            return SerializeJson(CreateTradingAccountsDocument(snapshot, settings), indented);
+        }
+
+        public static string BuildTradingAccountsJson(Mt5TradingAccountsSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            return BuildTradingAccountsJson(snapshot, settings, true);
+        }
+
+        public static string BuildDepositWithdrawalJson(Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings, bool indented)
+        {
+            return SerializeJson(CreateDepositWithdrawalDocument(snapshot, settings), indented);
+        }
+
+        public static string BuildDepositWithdrawalJson(Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings)
+        {
+            return BuildDepositWithdrawalJson(snapshot, settings, true);
         }
 
         private static string SerializeJson<T>(T value, bool indented)
@@ -2429,6 +2864,32 @@ namespace Mt5Monitor.Api
         {
             return GenerateJson(settings, reportDate, reportDate, null, true);
         }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate,
+            Action<string> statusWriter)
+        {
+            return Mt5MonitorCsvExporter.BuildDailyReportCsv(
+                Generate(settings, fromDate, toDate, statusWriter),
+                settings);
+        }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate)
+        {
+            return GenerateCsv(settings, fromDate, toDate, null);
+        }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            DateTime reportDate)
+        {
+            return GenerateCsv(settings, reportDate, reportDate, null);
+        }
     }
 
     internal static class Mt5DailyReportAvailabilityResolver
@@ -3007,6 +3468,287 @@ namespace Mt5Monitor.Api
             DateTime toDate)
         {
             return GenerateJson(settings, fromDate, toDate, null, true);
+        }
+    }
+
+    public static class Mt5TradingAccountsGenerator
+    {
+        public static Mt5TradingAccountsSnapshot Generate(
+            Mt5MonitorSettings settings,
+            Action<string> statusWriter)
+        {
+            if (settings == null)
+                throw new ArgumentNullException("settings");
+
+            settings.Validate();
+
+            Action<string> writer = statusWriter ?? (_ => { });
+            writer("Generating current trading accounts snapshot.");
+
+            MTRetCode initializeResult = SMTManagerAPIFactory.Initialize(settings.SdkLibsPath);
+            if (initializeResult != MTRetCode.MT_RET_OK)
+                throw new InvalidOperationException("Initialize failed: " + initializeResult);
+
+            CIMTManagerAPI manager = Mt5MonitorCollector.Connect(settings.Server, settings.Login, settings.Password, writer);
+            if (manager == null)
+            {
+                SMTManagerAPIFactory.Shutdown();
+                throw new InvalidOperationException("Failed to connect to MT5 Manager API.");
+            }
+
+            try
+            {
+                Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
+                Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+                Mt5TradingAccountsSnapshot snapshot = Mt5MonitorCollector.CollectTradingAccounts(
+                    manager,
+                    groupCurrencies,
+                    loginContexts,
+                    settings.GroupMask,
+                    writer);
+
+                writer(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Trading accounts snapshot ready with {0} rows.",
+                    snapshot.Rows != null ? snapshot.Rows.Count : 0));
+
+                return snapshot;
+            }
+            finally
+            {
+                Mt5MonitorCollector.Disconnect(manager);
+                SMTManagerAPIFactory.Shutdown();
+            }
+        }
+
+        public static Mt5TradingAccountsSnapshot Generate(Mt5MonitorSettings settings)
+        {
+            return Generate(settings, null);
+        }
+
+        public static Mt5TradingAccountsJsonDocument GenerateJsonDocument(
+            Mt5MonitorSettings settings,
+            Action<string> statusWriter)
+        {
+            return Mt5MonitorJsonExporter.CreateTradingAccountsDocument(
+                Generate(settings, statusWriter),
+                settings);
+        }
+
+        public static Mt5TradingAccountsJsonDocument GenerateJsonDocument(Mt5MonitorSettings settings)
+        {
+            return GenerateJsonDocument(settings, null);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            Action<string> statusWriter,
+            bool indented)
+        {
+            return Mt5MonitorJsonExporter.BuildTradingAccountsJson(
+                Generate(settings, statusWriter),
+                settings,
+                indented);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            Action<string> statusWriter)
+        {
+            return GenerateJson(settings, statusWriter, true);
+        }
+
+        public static string GenerateJson(Mt5MonitorSettings settings)
+        {
+            return GenerateJson(settings, null, true);
+        }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            Action<string> statusWriter)
+        {
+            return Mt5MonitorCsvExporter.BuildTradingAccountsCsv(
+                Generate(settings, statusWriter),
+                settings);
+        }
+
+        public static string GenerateCsv(Mt5MonitorSettings settings)
+        {
+            return GenerateCsv(settings, null);
+        }
+    }
+
+    public static class Mt5DepositWithdrawalGenerator
+    {
+        public static Mt5DepositWithdrawalSnapshot Generate(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate,
+            Action<string> statusWriter)
+        {
+            if (settings == null)
+                throw new ArgumentNullException("settings");
+
+            DateTime normalizedFrom = fromDate.Date;
+            DateTime normalizedTo = toDate.Date;
+            if (normalizedTo < normalizedFrom)
+                throw new InvalidOperationException("Deposit and withdrawal report end date must be on or after the start date.");
+
+            settings.Validate();
+
+            Action<string> writer = statusWriter ?? (_ => { });
+            writer(string.Format(
+                CultureInfo.InvariantCulture,
+                "Generating deposit and withdrawal report for {0:yyyy-MM-dd} to {1:yyyy-MM-dd}.",
+                normalizedFrom,
+                normalizedTo));
+
+            MTRetCode initializeResult = SMTManagerAPIFactory.Initialize(settings.SdkLibsPath);
+            if (initializeResult != MTRetCode.MT_RET_OK)
+                throw new InvalidOperationException("Initialize failed: " + initializeResult);
+
+            CIMTManagerAPI manager = Mt5MonitorCollector.Connect(settings.Server, settings.Login, settings.Password, writer);
+            if (manager == null)
+            {
+                SMTManagerAPIFactory.Shutdown();
+                throw new InvalidOperationException("Failed to connect to MT5 Manager API.");
+            }
+
+            try
+            {
+                Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
+                Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+                Mt5DepositWithdrawalSnapshot snapshot = Mt5MonitorCollector.CollectDepositWithdrawals(
+                    manager,
+                    groupCurrencies,
+                    loginContexts,
+                    settings.GroupMask,
+                    normalizedFrom,
+                    normalizedTo,
+                    writer);
+
+                writer(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Deposit and withdrawal report ready with {0} rows.",
+                    snapshot.Rows != null ? snapshot.Rows.Count : 0));
+
+                return snapshot;
+            }
+            finally
+            {
+                Mt5MonitorCollector.Disconnect(manager);
+                SMTManagerAPIFactory.Shutdown();
+            }
+        }
+
+        public static Mt5DepositWithdrawalSnapshot Generate(
+            Mt5MonitorSettings settings,
+            DateTime reportDate,
+            Action<string> statusWriter)
+        {
+            return Generate(settings, reportDate, reportDate, statusWriter);
+        }
+
+        public static Mt5DepositWithdrawalSnapshot Generate(Mt5MonitorSettings settings, DateTime reportDate)
+        {
+            return Generate(settings, reportDate, reportDate, null);
+        }
+
+        public static Mt5DepositWithdrawalSnapshot Generate(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate)
+        {
+            return Generate(settings, fromDate, toDate, null);
+        }
+
+        public static Mt5DepositWithdrawalJsonDocument GenerateJsonDocument(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate,
+            Action<string> statusWriter)
+        {
+            return Mt5MonitorJsonExporter.CreateDepositWithdrawalDocument(
+                Generate(settings, fromDate, toDate, statusWriter),
+                settings);
+        }
+
+        public static Mt5DepositWithdrawalJsonDocument GenerateJsonDocument(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate)
+        {
+            return GenerateJsonDocument(settings, fromDate, toDate, null);
+        }
+
+        public static Mt5DepositWithdrawalJsonDocument GenerateJsonDocument(
+            Mt5MonitorSettings settings,
+            DateTime reportDate)
+        {
+            return GenerateJsonDocument(settings, reportDate, reportDate, null);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate,
+            Action<string> statusWriter,
+            bool indented)
+        {
+            return Mt5MonitorJsonExporter.BuildDepositWithdrawalJson(
+                Generate(settings, fromDate, toDate, statusWriter),
+                settings,
+                indented);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate,
+            Action<string> statusWriter)
+        {
+            return GenerateJson(settings, fromDate, toDate, statusWriter, true);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate)
+        {
+            return GenerateJson(settings, fromDate, toDate, null, true);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            DateTime reportDate)
+        {
+            return GenerateJson(settings, reportDate, reportDate, null, true);
+        }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate,
+            Action<string> statusWriter)
+        {
+            return Mt5MonitorCsvExporter.BuildDepositWithdrawalCsv(
+                Generate(settings, fromDate, toDate, statusWriter),
+                settings);
+        }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            DateTime fromDate,
+            DateTime toDate)
+        {
+            return GenerateCsv(settings, fromDate, toDate, null);
+        }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            DateTime reportDate)
+        {
+            return GenerateCsv(settings, reportDate, reportDate, null);
         }
     }
 
@@ -3899,6 +4641,71 @@ namespace Mt5Monitor.Api
             }
         }
 
+        public static Mt5TradingAccountsSnapshot CollectTradingAccounts(
+            CIMTManagerAPI manager,
+            Dictionary<string, string> groupCurrencies,
+            Dictionary<ulong, Mt5LoginContext> loginContexts,
+            string groupMask,
+            Action<string> statusWriter)
+        {
+            if (manager == null)
+                throw new ArgumentNullException("manager");
+            if (string.IsNullOrWhiteSpace(groupMask))
+                throw new InvalidOperationException("Group mask is required.");
+
+            Action<string> writer = statusWriter ?? (_ => { });
+            writer("Requesting MT5 trading account rows for current snapshot.");
+
+            var accounts = manager.UserCreateAccountArray();
+            try
+            {
+                MTRetCode result = manager.UserAccountRequestArray(groupMask, accounts);
+                if (result != MTRetCode.MT_RET_OK)
+                    throw new InvalidOperationException("UserAccountRequestArray failed: " + result + " (" + (uint)result + ")");
+
+                var rows = new List<Mt5TradingAccountRow>((int)accounts.Total());
+                for (uint i = 0; i < accounts.Total(); i++)
+                {
+                    CIMTAccount account = accounts.Next(i);
+                    if (account == null)
+                        continue;
+
+                    Mt5LoginContext loginContext = ResolveLoginContext(account.Login(), loginContexts);
+                    string currency = ResolveLoginCurrency(loginContext, groupCurrencies);
+                    int currencyDigits = NormalizeCurrencyDigits((int)account.CurrencyDigits());
+
+                    rows.Add(new Mt5TradingAccountRow
+                    {
+                        Login = account.Login(),
+                        Name = loginContext.Name ?? string.Empty,
+                        Group = loginContext.Group ?? string.Empty,
+                        Currency = currency,
+                        CurrencyDigits = currencyDigits,
+                        Balance = account.Balance(),
+                        Credit = account.Credit(),
+                        Profit = account.Profit(),
+                        Equity = account.Equity(),
+                        Margin = account.Margin(),
+                        FreeMargin = account.MarginFree(),
+                        MarginLevel = account.MarginLevel(),
+                        MarginLeverage = account.MarginLeverage()
+                    });
+                }
+
+                rows.Sort(CompareTradingAccountRows);
+
+                return new Mt5TradingAccountsSnapshot
+                {
+                    GeneratedAt = DateTime.Now,
+                    Rows = rows
+                };
+            }
+            finally
+            {
+                accounts.Release();
+            }
+        }
+
 	        public static WdEquityZProtectedBonusCollection CollectWdEquityZProtectedBonuses(
 	            CIMTManagerAPI manager,
 	            Dictionary<string, string> groupCurrencies,
@@ -4144,6 +4951,115 @@ namespace Mt5Monitor.Api
 
 	            return collection;
 	        }
+
+        public static Mt5DepositWithdrawalSnapshot CollectDepositWithdrawals(
+            CIMTManagerAPI manager,
+            Dictionary<string, string> groupCurrencies,
+            Dictionary<ulong, Mt5LoginContext> loginContexts,
+            string groupMask,
+            DateTime fromDate,
+            DateTime toDate,
+            Action<string> statusWriter)
+        {
+            if (manager == null)
+                throw new ArgumentNullException("manager");
+            if (string.IsNullOrWhiteSpace(groupMask))
+                throw new InvalidOperationException("Group mask is required.");
+
+            DateTime normalizedFrom = fromDate.Date;
+            DateTime normalizedTo = toDate.Date;
+            if (normalizedTo < normalizedFrom)
+                throw new InvalidOperationException("Deposit and withdrawal report end date must be on or after the start date.");
+
+            DateTime rangeStartUtc = CreateUtcBoundary(normalizedFrom, false);
+            DateTime rangeEndUtc = CreateUtcBoundary(normalizedTo, true);
+            Action<string> writer = statusWriter ?? (_ => { });
+            writer(string.Format(
+                CultureInfo.InvariantCulture,
+                "Requesting MT5 deposit and withdrawal rows for {0:yyyy-MM-dd} to {1:yyyy-MM-dd}.",
+                normalizedFrom,
+                normalizedTo));
+
+            var deals = manager.DealCreateArray();
+            try
+            {
+                MTRetCode result = manager.DealRequestByGroup(
+                    groupMask,
+                    ToUnixSeconds(rangeStartUtc),
+                    ToUnixSeconds(rangeEndUtc),
+                    deals);
+
+                if (result != MTRetCode.MT_RET_OK)
+                    throw new InvalidOperationException("DealRequestByGroup failed: " + result + " (" + (uint)result + ")");
+
+                var rows = new List<Mt5DepositWithdrawalRow>();
+                var totalsByCurrency = new Dictionary<string, Mt5DepositWithdrawalCurrencyTotal>(StringComparer.OrdinalIgnoreCase);
+
+                for (uint i = 0; i < deals.Total(); i++)
+                {
+                    CIMTDeal deal = deals.Next(i);
+                    if (deal == null || deal.Action() != ActionBalance)
+                        continue;
+
+                    Mt5LoginContext loginContext = ResolveLoginContext(deal.Login(), loginContexts);
+                    string currency = ResolveLoginCurrency(loginContext, groupCurrencies);
+                    int currencyDigits = NormalizeCurrencyDigits((int)deal.DigitsCurrency());
+                    double amount = deal.Profit();
+
+                    rows.Add(new Mt5DepositWithdrawalRow
+                    {
+                        Deal = deal.Deal(),
+                        Login = deal.Login(),
+                        Name = loginContext.Name ?? string.Empty,
+                        Group = loginContext.Group ?? string.Empty,
+                        Time = SMTTime.ToDateTime(deal.Time()),
+                        Comment = deal.Comment() ?? string.Empty,
+                        Amount = amount,
+                        Currency = currency,
+                        CurrencyDigits = currencyDigits
+                    });
+
+                    Mt5DepositWithdrawalCurrencyTotal total;
+                    if (!totalsByCurrency.TryGetValue(currency, out total))
+                    {
+                        total = new Mt5DepositWithdrawalCurrencyTotal
+                        {
+                            Currency = currency,
+                            CurrencyDigits = currencyDigits
+                        };
+                        totalsByCurrency[currency] = total;
+                    }
+
+                    total.DealCount++;
+                    if (amount >= 0)
+                        total.Deposits = MoneyAdd(total.Deposits, amount, total.CurrencyDigits);
+                    else
+                        total.Withdrawals = MoneyAdd(total.Withdrawals, Math.Abs(amount), total.CurrencyDigits);
+
+                    total.NetAmount = Math.Round(
+                        total.Deposits - total.Withdrawals,
+                        NormalizeCurrencyDigits(total.CurrencyDigits),
+                        MidpointRounding.AwayFromZero);
+                }
+
+                rows.Sort(CompareDepositWithdrawalRows);
+                List<Mt5DepositWithdrawalCurrencyTotal> totals = totalsByCurrency.Values.ToList();
+                totals.Sort(CompareDepositWithdrawalCurrencyTotals);
+
+                return new Mt5DepositWithdrawalSnapshot
+                {
+                    GeneratedAt = DateTime.Now,
+                    RangeFrom = normalizedFrom,
+                    RangeTo = normalizedTo,
+                    Rows = rows,
+                    CurrencyTotals = totals
+                };
+            }
+            finally
+            {
+                deals.Dispose();
+            }
+        }
 
 	        public static Mt5PositionHistorySnapshot CollectPositionHistory(
 	            CIMTManagerAPI manager,
@@ -4890,6 +5806,31 @@ namespace Mt5Monitor.Api
                 return timeCompare;
 
             return left.Login.CompareTo(right.Login);
+        }
+
+        private static int CompareTradingAccountRows(Mt5TradingAccountRow left, Mt5TradingAccountRow right)
+        {
+            int groupCompare = string.Compare(left.Group, right.Group, StringComparison.OrdinalIgnoreCase);
+            if (groupCompare != 0)
+                return groupCompare;
+
+            return left.Login.CompareTo(right.Login);
+        }
+
+        private static int CompareDepositWithdrawalRows(Mt5DepositWithdrawalRow left, Mt5DepositWithdrawalRow right)
+        {
+            int timeCompare = DateTime.Compare(left.Time, right.Time);
+            if (timeCompare != 0)
+                return timeCompare;
+
+            return left.Deal.CompareTo(right.Deal);
+        }
+
+        private static int CompareDepositWithdrawalCurrencyTotals(
+            Mt5DepositWithdrawalCurrencyTotal left,
+            Mt5DepositWithdrawalCurrencyTotal right)
+        {
+            return string.Compare(left.Currency, right.Currency, StringComparison.OrdinalIgnoreCase);
         }
 
         private static int NormalizeCurrencyDigits(int digits)

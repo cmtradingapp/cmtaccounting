@@ -9,13 +9,15 @@ It currently includes:
 - live MT5 polling service
 - Manager-style symbol summary aggregation
 - Manager-style daily report generation via `DailyRequestByGroup`
+- current Trading Accounts snapshot generation via `UserAccountRequestArray`
+- Manager-style deposit and withdrawal report generation from `DEAL_BALANCE` rows
 - WD Equity Z generation from MT5 daily rows plus filtered protected-bonus balance deals
 - Daily PnL Cash generation from MT5 daily rows, protected-bonus balances, and filtered deposit/withdrawal deals
 - Manager-style positions history generation from closed deal legs
 - position-level audit capture
 - bid/ask FX conversion with login/group currency handling
-- summary, audit, daily report, and positions history export helpers
-- JSON document builders and pretty-printed JSON export helpers for daily and positions reports
+- summary, audit, daily report, trading-accounts, deposit/withdrawal, and positions history export helpers
+- JSON document builders and pretty-printed JSON export helpers for daily, trading-accounts, deposit/withdrawal, and positions reports
 - raw-data Daily Closed PnL calculator that converts positions-history currency totals into USD
 
 To reuse it in another project:
@@ -35,10 +37,20 @@ Useful entry points:
 - `Mt5DailyReportGenerator.Generate(...)` returns the typed in-memory daily snapshot
 - `Mt5DailyReportGenerator.GenerateJsonDocument(...)` returns a JSON-friendly daily document object
 - `Mt5DailyReportGenerator.GenerateJson(...)` returns a pretty JSON string
+- `Mt5DailyReportGenerator.GenerateCsv(...)` returns the tab-delimited daily report text
 - `Mt5PositionHistoryGenerator.Generate(...)` returns the typed in-memory positions snapshot
 - `Mt5PositionHistoryGenerator.GenerateJsonDocument(...)` returns a JSON-friendly positions document object
 - `Mt5PositionHistoryGenerator.GenerateJson(...)` returns a pretty JSON string
-- `Mt5MonitorJsonExporter.BuildDailyReportJson(...)` / `BuildPositionHistoryJson(...)` serialize existing snapshots without recollecting data
+- `Mt5TradingAccountsGenerator.Generate(...)` returns the typed in-memory current trading-accounts snapshot with balance, credit, profit, equity, and margin fields
+- `Mt5TradingAccountsGenerator.GenerateJsonDocument(...)` returns a JSON-friendly trading-accounts document object
+- `Mt5TradingAccountsGenerator.GenerateJson(...)` returns a pretty JSON string
+- `Mt5TradingAccountsGenerator.GenerateCsv(...)` returns the tab-delimited trading-accounts report text
+- `Mt5DepositWithdrawalGenerator.Generate(...)` returns the typed in-memory deposit/withdrawal snapshot for a specific day or arbitrary date range
+- `Mt5DepositWithdrawalGenerator.GenerateJsonDocument(...)` returns a JSON-friendly deposit/withdrawal document object
+- `Mt5DepositWithdrawalGenerator.GenerateJson(...)` returns a pretty JSON string with row data plus per-currency totals
+- `Mt5DepositWithdrawalGenerator.GenerateCsv(...)` returns the tab-delimited deposit/withdrawal report text with per-currency totals
+- `Mt5MonitorJsonExporter.BuildDailyReportJson(...)`, `BuildTradingAccountsJson(...)`, `BuildDepositWithdrawalJson(...)`, and `BuildPositionHistoryJson(...)` serialize existing snapshots without recollecting data
+- `Mt5MonitorCsvExporter.BuildDailyReportCsv(...)`, `BuildTradingAccountsCsv(...)`, `BuildDepositWithdrawalCsv(...)`, and `BuildPositionHistoryCsv(...)` serialize existing snapshots without recollecting data
 - `Mt5DailyClosedPnlCalculator.Calculate(snapshot, usdRates)` calculates Daily Closed PnL from raw positions-history footer totals
 - `Mt5DailyClosedPnlCalculator.Calculate(rows, usdRates)` recalculates the same value from raw positions rows in memory
 - `Mt5UsdRateLoader.LoadLiveRates(settings)` loads the live bid/ask USD conversion table from MT5
@@ -56,6 +68,30 @@ var usdRates = Mt5UsdRateLoader.LoadLiveRates(settings);
 
 var calculator = new Mt5DailyClosedPnlCalculator();
 Mt5DailyClosedPnlResult closedPnl = calculator.Calculate(positions, usdRates);
+```
+
+Trading accounts example:
+
+```csharp
+var settings = Mt5MonitorSettings.FromEnvironment();
+Mt5TradingAccountsSnapshot accounts = Mt5TradingAccountsGenerator.Generate(settings);
+string accountsJson = Mt5TradingAccountsGenerator.GenerateJson(settings);
+string accountsCsv = Mt5TradingAccountsGenerator.GenerateCsv(settings);
+```
+
+Deposit / withdrawal example:
+
+```csharp
+var settings = Mt5MonitorSettings.FromEnvironment();
+DateTime fromDate = new DateTime(2026, 4, 20);
+DateTime toDate = new DateTime(2026, 4, 20);
+
+Mt5DepositWithdrawalSnapshot cashMoves =
+    Mt5DepositWithdrawalGenerator.Generate(settings, fromDate, toDate);
+string cashMovesJson =
+    Mt5DepositWithdrawalGenerator.GenerateJson(settings, fromDate, toDate);
+string cashMovesCsv =
+    Mt5DepositWithdrawalGenerator.GenerateCsv(settings, fromDate, toDate);
 ```
 
 WD Equity Z example:
