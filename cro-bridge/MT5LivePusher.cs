@@ -116,6 +116,7 @@ public sealed class MT5LivePusher
 	    private sealed class WdEquityPollingState
 	    {
 	        public Mt5WdEquityZReport Report;
+	        public Mt5DailyPnlCashReport DailyPnlCash;
 	        public int AccountCount;
 	        public DateTime RefreshedAtUtc;
 	        public DateTime NextRefreshUtc;
@@ -165,6 +166,7 @@ public sealed class MT5LivePusher
         [DataMember] public int wd_equity_refresh_seconds { get; set; }
         [DataMember] public int wd_equity_account_count { get; set; }
         [DataMember] public string wd_equity_summary { get; set; }
+        [DataMember] public double daily_pnl_cash_usd { get; set; }
         [DataMember] public double monthly_closed_pnl { get; set; }
         [DataMember] public double monthly_net_deposits { get; set; }
         [DataMember] public double monthly_deposits { get; set; }
