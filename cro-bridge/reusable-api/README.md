@@ -1,98 +1,98 @@
-# cro-bridge — MT5 Manager -> /cro/feed push service
+# Reusable API Bundle
 
-Runs on the Linux server (213.199.45.213) as a Docker container. Computes
-live MT5 data (floating PnL, closed PnL, volumes, deposits, trader counts,
-by-symbol breakdown) every 30s and POSTs it to the recon-app `/cro/feed`
-endpoint. The dashboard at `recon.cmtrading.com/cro` reads entirely from
-these live pushes — **Dealio is no longer used** for the CRO panel.
+`Mt5MonitorApiBundle.cs` is the single-file source of truth for the reusable
+MT5 monitor API.
 
-The live pusher now computes `WD Equity Z` from live MT5 Trading Accounts:
-sum all live account `Equity`, subtract all live account `Credit`, convert both
-to USD first, then subtract protected-bonus balance deals. Because the Trading
-Accounts pull is heavy on large books, the bridge caches that result and
-refreshes it every 15 minutes by default instead of recomputing it on each
-2-second live push. For backward compatibility the payload still includes
-`wd_equity`, but it now carries the cached live `WD Equity Z` value; the old
-bridge formula is also emitted as `wd_equity_legacy`.
+It currently includes:
 
-## Architecture
+- settings and local env loading
+- live MT5 polling service
+- Manager-style symbol summary aggregation
+- Manager-style daily report generation via `DailyRequestByGroup`
+- WD Equity Z generation from MT5 daily rows plus filtered protected-bonus balance deals
+- Daily PnL Cash generation from MT5 daily rows, protected-bonus balances, and filtered deposit/withdrawal deals
+- Manager-style positions history generation from closed deal legs
+- position-level audit capture
+- bid/ask FX conversion with login/group currency handling
+- summary, audit, daily report, and positions history export helpers
+- JSON document builders and pretty-printed JSON export helpers for daily and positions reports
+- raw-data Daily Closed PnL calculator that converts positions-history currency totals into USD
 
+To reuse it in another project:
+
+1. Copy `Mt5MonitorApiBundle.cs`
+2. Reference `MetaQuotes.MT5CommonAPI64.dll`
+3. Reference `MetaQuotes.MT5ManagerAPI64.dll`
+4. Reference `System.Runtime.Serialization`
+5. Reference `System.Xml`
+6. Target `.NET Framework 4.8 x64`
+
+The existing `Mt5Monitor.Api` project compiles this file directly, so the GUI
+and the reusable bundle stay in sync.
+
+Useful entry points:
+
+- `Mt5DailyReportGenerator.Generate(...)` returns the typed in-memory daily snapshot
+- `Mt5DailyReportGenerator.GenerateJsonDocument(...)` returns a JSON-friendly daily document object
+- `Mt5DailyReportGenerator.GenerateJson(...)` returns a pretty JSON string
+- `Mt5PositionHistoryGenerator.Generate(...)` returns the typed in-memory positions snapshot
+- `Mt5PositionHistoryGenerator.GenerateJsonDocument(...)` returns a JSON-friendly positions document object
+- `Mt5PositionHistoryGenerator.GenerateJson(...)` returns a pretty JSON string
+- `Mt5MonitorJsonExporter.BuildDailyReportJson(...)` / `BuildPositionHistoryJson(...)` serialize existing snapshots without recollecting data
+- `Mt5DailyClosedPnlCalculator.Calculate(snapshot, usdRates)` calculates Daily Closed PnL from raw positions-history footer totals
+- `Mt5DailyClosedPnlCalculator.Calculate(rows, usdRates)` recalculates the same value from raw positions rows in memory
+- `Mt5UsdRateLoader.LoadLiveRates(settings)` loads the live bid/ask USD conversion table from MT5
+- `Mt5WdEquityZGenerator.Generate(settings, request)` calculates WD Equity Z for a report date using MT5 daily fields plus balance deals whose comment contains a protected-bonus marker
+- `Mt5WdEquityZCalculator.Calculate(...)` can also calculate the same metric from already-loaded daily rows and protected-bonus totals
+- `Mt5DailyPnlCashGenerator.Generate(settings, request)` calculates Daily PnL Cash for a report date using MT5 daily fields, protected-bonus balances, and filtered deposit/withdrawal balance deals
+- `Mt5DailyPnlCashCalculator.Calculate(...)` can also calculate the same metric from already-loaded daily rows, protected-bonus totals, and net deposits
+
+Example:
+
+```csharp
+var settings = Mt5MonitorSettings.FromEnvironment();
+var positions = Mt5PositionHistoryGenerator.Generate(settings, fromDate, toDate);
+var usdRates = Mt5UsdRateLoader.LoadLiveRates(settings);
+
+var calculator = new Mt5DailyClosedPnlCalculator();
+Mt5DailyClosedPnlResult closedPnl = calculator.Calculate(positions, usdRates);
 ```
-  Python 3 (native Linux) ── wine /app/MT5Bridge.exe (C# compiled with Mono)
-                                       │
-                                       │ loaded by Wine's Wine-Mono runtime
-                                       ▼
-                                  MT5APIManager64.dll (Windows PE, via Wine)
-                                       │ TCP 1950
-                                       ▼
-                                  MT5 Manager server
+
+WD Equity Z example:
+
+```csharp
+var settings = Mt5MonitorSettings.FromEnvironment();
+var request = new Mt5WdEquityZRequest
+{
+    ReportDate = new DateTime(2026, 4, 6),
+    BonusHistoryFrom = new DateTime(2026, 1, 1),
+    BonusCommentContains = "Bonus Protected Trad",
+    ComputationMode = Mt5WdEquityZComputationMode.DeltaFromStartWhenBothPositive
+};
+
+Mt5WdEquityZReport wdEquityZ = Mt5WdEquityZGenerator.Generate(settings, request);
 ```
 
-The C# helper is compiled at image-build time with `mcs` against the MT5
-SDK's .NET wrappers. It prints a single JSON line on stdout containing all
-the aggregates; the Python pusher POSTs that line to `/cro/feed` with the
-shared `X-Bridge-Secret` header.
+Daily PnL Cash example:
 
-## Deploy
+```csharp
+var settings = Mt5MonitorSettings.FromEnvironment();
+var request = new Mt5DailyPnlCashRequest
+{
+    ReportDate = new DateTime(2026, 4, 6),
+    BonusHistoryFrom = new DateTime(2026, 1, 1),
+    BonusCommentContains = "Bonus Protected Trad"
+};
 
-### First-time
-```bash
-cd /root/cro-bridge
-docker compose up -d --build          # ~3-5 min first build (Wine-Mono dl)
-docker compose logs -f                # watch pushes
+Mt5DailyPnlCashReport dailyPnlCash = Mt5DailyPnlCashGenerator.Generate(settings, request);
 ```
 
-### Code-only update
-```bash
-cd /root/cro-bridge
-docker compose up -d --build          # overlays the .cs/pusher change,
-                                      # reuses the Wine-Mono layer (~10s)
-```
+Notes:
 
-CI does this automatically when `cro-bridge/` changes under `main`.
-
-## Required env vars (in `/root/recon-app/.env`)
-
-| Var | Example |
-|---|---|
-| `MT5_PASSWORD`       | `***` (manager account password) |
-| `MT5_LOGIN`          | `1111` |
-| `MT5_SERVER`         | `176.126.66.18:1950` |
-| `CRO_BRIDGE_SECRET`  | shared secret for `/cro/feed` header |
-
-## Optional WD Equity Z env vars
-
-| Var | Default | Purpose |
-|---|---|---|
-| `CRO_WD_EQUITY_MODE` | `live_end_only` | live Trading Accounts WD mode; legacy values are accepted as aliases |
-| `CRO_WD_BONUS_COMMENT` | `Bonus Protected Trad` | substring used to identify protected-bonus balance deals |
-| `CRO_WD_BONUS_FROM` | current year start | `yyyy-MM-dd` history start used to reconstruct protected-bonus balances |
-| `CRO_WD_REFRESH_SECONDS` | `900` | refresh cadence for the heavy live Trading Accounts WD poll |
-
-The payload now also includes `wd_equity_z`, `wd_equity_legacy`, and a set of
-live-account breakdown/metadata fields such as `wd_equity_end_*`,
-`wd_equity_account_count`, `wd_equity_refreshed_at`, and
-`wd_equity_refresh_seconds` to make validation against MT5 Manager screens
-easier.
-
-## Zero-downtime guarantees
-
-1. `restart: always` — Docker restarts on any exit (crash, OOM, manual stop).
-2. Docker daemon is systemd-enabled — starts on server boot.
-3. Container `healthcheck` — if no successful push in 3 min, marked unhealthy.
-4. Pusher `while True` loop with exponential backoff — never exits on errors.
-5. `@reboot` crontab entry on the host — `docker compose up -d` 60s after boot.
-
-## Troubleshooting
-
-- **Container unhealthy but running**: the C# helper probably succeeded but
-  the POST to recon-app failed. Check `docker logs recon-app-recon-1` and
-  verify the `recon-app_recon_net` network still contains both containers.
-- **MT5 connect errors**: check creds in `/root/recon-app/.env`.
-- **`mscoree.dll` load failure**: verify `WINEDLLOVERRIDES=mscoree=n,b;fusion=n,b`
-  is still set in `docker-compose.yml` (environment block).
-
-## Image size
-
-~4.5 GB (Wine + Wine-Mono + Mono + Python3 + SDK DLLs). Built from
-`tobix/pywine:3.11`.
+- Start equity comes from MT5 `EquityPrevDay`.
+- Start credits are derived as `Credit - DailyCredit` because MT5 daily rows do not expose a `CreditPrevDay` field.
+- `BonusHistoryFrom` should reach far enough back to capture the protected-bonus balance you want to subtract; otherwise both start and end bonus totals will be understated.
+- Daily PnL Cash uses `Clean Equity = Equity - Credits - Protected Bonuses`.
+- Daily PnL Cash uses `max(End Clean Equity, 0) - max(Start Clean Equity, 0) - Net Deposits`, which matches the four-case positive/negative rule.
+- Daily PnL Cash net deposits are sourced from MT5 `DEAL_BALANCE` rows for the report date, with the default comment exclusions `bonus`, `cash on balance bonus`, `internal`, and `transfer`.
+- If MT5 has no daily rows yet for the requested `ReportDate`, the WD Equity Z and Daily PnL Cash generators fall back to the latest available closed day within the configured lookback window and record that in the report assumptions.

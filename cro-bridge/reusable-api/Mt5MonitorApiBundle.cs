@@ -454,6 +454,8 @@ namespace Mt5Monitor.Api
             BonusCommentContains = "Bonus Protected Trad";
             ComputationMode = Mt5WdEquityZComputationMode.EndOnly;
             IncludeBonusDealRows = true;
+            UseLatestAvailableDailyReportDateWhenMissing = true;
+            LatestAvailableDailyReportLookbackDays = 7;
         }
 
         public DateTime ReportDate { get; set; }
@@ -461,6 +463,8 @@ namespace Mt5Monitor.Api
         public string BonusCommentContains { get; set; }
         public Mt5WdEquityZComputationMode ComputationMode { get; set; }
         public bool IncludeBonusDealRows { get; set; }
+        public bool UseLatestAvailableDailyReportDateWhenMissing { get; set; }
+        public int LatestAvailableDailyReportLookbackDays { get; set; }
     }
 
     public sealed class Mt5WdEquityZProtectedBonusDeal
@@ -509,10 +513,12 @@ namespace Mt5Monitor.Api
         }
 
         public DateTime GeneratedAt { get; set; }
+        public DateTime RequestedReportDate { get; set; }
         public DateTime ReportDate { get; set; }
         public DateTime BonusHistoryFrom { get; set; }
         public string BonusCommentContains { get; set; }
         public Mt5WdEquityZComputationMode ComputationMode { get; set; }
+        public bool UsedLatestAvailableDailyReportDateFallback { get; set; }
         public int DailyRowCount { get; set; }
         public int ProtectedBonusDealCount { get; set; }
         public double EndEquityUsd { get; set; }
@@ -531,29 +537,33 @@ namespace Mt5Monitor.Api
 	        public IList<Mt5WdEquityZProtectedBonusDeal> ProtectedBonusDeals { get; set; }
 	    }
 
-	    public sealed class Mt5DailyPnlCashRequest
-	    {
-	        public Mt5DailyPnlCashRequest()
-	        {
-	            BonusCommentContains = "Bonus Protected Trad";
+    public sealed class Mt5DailyPnlCashRequest
+    {
+        public Mt5DailyPnlCashRequest()
+        {
+            BonusCommentContains = "Bonus Protected Trad";
 	            NetDepositExcludedCommentContains = new List<string>
 	            {
 	                "bonus",
 	                "cash on balance bonus",
 	                "internal",
 	                "transfer"
-	            };
-	            IncludeBonusDealRows = true;
-	            IncludeNetDepositDealRows = true;
-	        }
+            };
+            IncludeBonusDealRows = true;
+            IncludeNetDepositDealRows = true;
+            UseLatestAvailableDailyReportDateWhenMissing = true;
+            LatestAvailableDailyReportLookbackDays = 7;
+        }
 
 	        public DateTime ReportDate { get; set; }
 	        public DateTime BonusHistoryFrom { get; set; }
 	        public string BonusCommentContains { get; set; }
-	        public IList<string> NetDepositExcludedCommentContains { get; set; }
-	        public bool IncludeBonusDealRows { get; set; }
-	        public bool IncludeNetDepositDealRows { get; set; }
-	    }
+        public IList<string> NetDepositExcludedCommentContains { get; set; }
+        public bool IncludeBonusDealRows { get; set; }
+        public bool IncludeNetDepositDealRows { get; set; }
+        public bool UseLatestAvailableDailyReportDateWhenMissing { get; set; }
+        public int LatestAvailableDailyReportLookbackDays { get; set; }
+    }
 
 	    public sealed class Mt5DailyPnlCashNetDepositDeal
 	    {
@@ -601,12 +611,14 @@ namespace Mt5Monitor.Api
 	            NetDepositDeals = new List<Mt5DailyPnlCashNetDepositDeal>();
 	        }
 
-	        public DateTime GeneratedAt { get; set; }
-	        public DateTime ReportDate { get; set; }
-	        public DateTime BonusHistoryFrom { get; set; }
-	        public string BonusCommentContains { get; set; }
-	        public IList<string> NetDepositExcludedCommentContains { get; set; }
-	        public int DailyRowCount { get; set; }
+        public DateTime GeneratedAt { get; set; }
+        public DateTime RequestedReportDate { get; set; }
+        public DateTime ReportDate { get; set; }
+        public DateTime BonusHistoryFrom { get; set; }
+        public string BonusCommentContains { get; set; }
+        public IList<string> NetDepositExcludedCommentContains { get; set; }
+        public bool UsedLatestAvailableDailyReportDateFallback { get; set; }
+        public int DailyRowCount { get; set; }
 	        public int ProtectedBonusDealCount { get; set; }
 	        public int NetDepositDealCount { get; set; }
 	        public double EndEquityUsd { get; set; }
@@ -2279,8 +2291,8 @@ namespace Mt5Monitor.Api
 	        }
 	    }
 
-	    public static class Mt5DailyReportGenerator
-	    {
+    public static class Mt5DailyReportGenerator
+    {
         public static Mt5DailyReportSnapshot Generate(Mt5MonitorSettings settings, DateTime reportDate, Action<string> statusWriter)
         {
             return Generate(settings, reportDate, reportDate, statusWriter);
@@ -2419,6 +2431,76 @@ namespace Mt5Monitor.Api
         }
     }
 
+    internal static class Mt5DailyReportAvailabilityResolver
+    {
+        public static Mt5DailyReportSnapshot CollectResolvedDailyReport(
+            CIMTManagerAPI manager,
+            Dictionary<string, string> groupCurrencies,
+            string groupMask,
+            DateTime requestedReportDate,
+            bool useLatestAvailableWhenMissing,
+            int lookbackDays,
+            Action<string> statusWriter,
+            out DateTime resolvedReportDate,
+            out bool usedFallback)
+        {
+            if (manager == null)
+                throw new ArgumentNullException("manager");
+
+            DateTime requestedDate = requestedReportDate.Date;
+            int safeLookbackDays = Math.Max(0, lookbackDays);
+            Action<string> writer = statusWriter ?? (_ => { });
+            DateTime candidateDate = requestedDate;
+
+            for (int offset = 0; ; offset++)
+            {
+                try
+                {
+                    Mt5DailyReportSnapshot snapshot = Mt5MonitorCollector.CollectDailyReport(
+                        manager,
+                        groupCurrencies,
+                        groupMask,
+                        candidateDate,
+                        candidateDate,
+                        writer);
+
+                    resolvedReportDate = candidateDate;
+                    usedFallback = candidateDate != requestedDate;
+                    if (usedFallback)
+                    {
+                        writer(string.Format(
+                            CultureInfo.InvariantCulture,
+                            "No MT5 daily rows were available for {0:yyyy-MM-dd}; using latest available closed day {1:yyyy-MM-dd}.",
+                            requestedDate,
+                            candidateDate));
+                    }
+
+                    return snapshot;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    bool canFallback = useLatestAvailableWhenMissing &&
+                        offset < safeLookbackDays &&
+                        IsDailyReportNotFoundException(ex);
+
+                    if (!canFallback)
+                        throw;
+
+                    candidateDate = candidateDate.AddDays(-1);
+                }
+            }
+        }
+
+        private static bool IsDailyReportNotFoundException(InvalidOperationException exception)
+        {
+            if (exception == null)
+                return false;
+
+            return exception.Message != null &&
+                exception.Message.IndexOf("DailyRequestByGroup failed: MT_RET_ERR_NOTFOUND", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+    }
+
     public static class Mt5WdEquityZGenerator
     {
         public static Mt5WdEquityZReport Generate(
@@ -2467,14 +2549,18 @@ namespace Mt5Monitor.Api
                 Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
                 Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
                 IDictionary<string, Mt5UsdConversionRate> usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
-
-                Mt5DailyReportSnapshot dailySnapshot = Mt5MonitorCollector.CollectDailyReport(
+                DateTime resolvedReportDate;
+                bool usedDailyFallback;
+                Mt5DailyReportSnapshot dailySnapshot = Mt5DailyReportAvailabilityResolver.CollectResolvedDailyReport(
                     manager,
                     groupCurrencies,
                     settings.GroupMask,
                     reportDate,
-                    reportDate,
-                    writer);
+                    request.UseLatestAvailableDailyReportDateWhenMissing,
+                    request.LatestAvailableDailyReportLookbackDays,
+                    writer,
+                    out resolvedReportDate,
+                    out usedDailyFallback);
 
                 Mt5MonitorCollector.WdEquityZProtectedBonusCollection bonusCollection =
                     Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
@@ -2483,14 +2569,14 @@ namespace Mt5Monitor.Api
                         loginContexts,
                         settings.GroupMask,
                         bonusHistoryFrom,
-                        reportDate,
+                        resolvedReportDate,
                         request.BonusCommentContains,
                         request.IncludeBonusDealRows,
                         writer);
 
                 var calculator = new Mt5WdEquityZCalculator();
                 Mt5WdEquityZReport report = calculator.Calculate(
-                    reportDate,
+                    resolvedReportDate,
                     dailySnapshot.Rows ?? new List<Mt5DailyReportRow>(),
                     usdRates,
                     bonusCollection.StartProtectedBonusesUsd,
@@ -2498,10 +2584,12 @@ namespace Mt5Monitor.Api
                     request.ComputationMode);
 
                 report.GeneratedAt = DateTime.Now;
-                report.ReportDate = reportDate;
+                report.RequestedReportDate = reportDate;
+                report.ReportDate = resolvedReportDate;
                 report.BonusHistoryFrom = bonusHistoryFrom;
                 report.BonusCommentContains = request.BonusCommentContains;
                 report.ComputationMode = request.ComputationMode;
+                report.UsedLatestAvailableDailyReportDateFallback = usedDailyFallback;
                 report.DailyRows = dailySnapshot.Rows != null
                     ? new List<Mt5DailyReportRow>(dailySnapshot.Rows)
                     : new List<Mt5DailyReportRow>();
@@ -2527,7 +2615,18 @@ namespace Mt5Monitor.Api
                                 CultureInfo.InvariantCulture,
                                 "BonusHistoryFrom ({0:yyyy-MM-dd}) must be early enough to capture the full protected-bonus balance you want to subtract.",
                                 bonusHistoryFrom)
-                        })
+                        }
+                        .Concat(
+                            usedDailyFallback
+                                ? new[]
+                                {
+                                    string.Format(
+                                        CultureInfo.InvariantCulture,
+                                        "Requested ReportDate {0:yyyy-MM-dd} had no MT5 daily rows; used latest available closed day {1:yyyy-MM-dd}.",
+                                        reportDate,
+                                        resolvedReportDate)
+                                }
+                                : Enumerable.Empty<string>()))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
@@ -2623,60 +2722,66 @@ namespace Mt5Monitor.Api
 	                throw new InvalidOperationException("Failed to connect to MT5 Manager API.");
 	            }
 
-	            try
-	            {
-	                Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
-	                Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
-	                IDictionary<string, Mt5UsdConversionRate> usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+            try
+            {
+                Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
+                Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+                IDictionary<string, Mt5UsdConversionRate> usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+                DateTime resolvedReportDate;
+                bool usedDailyFallback;
+                Mt5DailyReportSnapshot dailySnapshot = Mt5DailyReportAvailabilityResolver.CollectResolvedDailyReport(
+                    manager,
+                    groupCurrencies,
+                    settings.GroupMask,
+                    reportDate,
+                    request.UseLatestAvailableDailyReportDateWhenMissing,
+                    request.LatestAvailableDailyReportLookbackDays,
+                    writer,
+                    out resolvedReportDate,
+                    out usedDailyFallback);
 
-	                Mt5DailyReportSnapshot dailySnapshot = Mt5MonitorCollector.CollectDailyReport(
-	                    manager,
-	                    groupCurrencies,
-	                    settings.GroupMask,
-	                    reportDate,
-	                    reportDate,
-	                    writer);
-
-	                Mt5MonitorCollector.WdEquityZProtectedBonusCollection bonusCollection =
-	                    Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
-	                        manager,
-	                        groupCurrencies,
-	                        loginContexts,
-	                        settings.GroupMask,
-	                        bonusHistoryFrom,
-	                        reportDate,
-	                        request.BonusCommentContains,
-	                        request.IncludeBonusDealRows,
-	                        writer);
+                Mt5MonitorCollector.WdEquityZProtectedBonusCollection bonusCollection =
+                    Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
+                        manager,
+                        groupCurrencies,
+                        loginContexts,
+                        settings.GroupMask,
+                        bonusHistoryFrom,
+                        resolvedReportDate,
+                        request.BonusCommentContains,
+                        request.IncludeBonusDealRows,
+                        writer);
 
 	                Mt5MonitorCollector.DailyPnlCashNetDepositCollection netDepositCollection =
 	                    Mt5MonitorCollector.CollectDailyPnlCashNetDeposits(
-	                        manager,
-	                        groupCurrencies,
-	                        loginContexts,
-	                        settings.GroupMask,
-	                        reportDate,
-	                        excludedCommentContains,
-	                        request.IncludeNetDepositDealRows,
-	                        writer);
+                        manager,
+                        groupCurrencies,
+                        loginContexts,
+                        settings.GroupMask,
+                        resolvedReportDate,
+                        excludedCommentContains,
+                        request.IncludeNetDepositDealRows,
+                        writer);
 
-	                var calculator = new Mt5DailyPnlCashCalculator();
-	                Mt5DailyPnlCashReport report = calculator.Calculate(
-	                    reportDate,
-	                    dailySnapshot.Rows ?? new List<Mt5DailyReportRow>(),
-	                    usdRates,
-	                    bonusCollection.StartProtectedBonusesUsd,
-	                    bonusCollection.EndProtectedBonusesUsd,
-	                    netDepositCollection.NetDepositsUsd);
+                var calculator = new Mt5DailyPnlCashCalculator();
+                Mt5DailyPnlCashReport report = calculator.Calculate(
+                    resolvedReportDate,
+                    dailySnapshot.Rows ?? new List<Mt5DailyReportRow>(),
+                    usdRates,
+                    bonusCollection.StartProtectedBonusesUsd,
+                    bonusCollection.EndProtectedBonusesUsd,
+                    netDepositCollection.NetDepositsUsd);
 
-	                report.GeneratedAt = DateTime.Now;
-	                report.ReportDate = reportDate;
-	                report.BonusHistoryFrom = bonusHistoryFrom;
-	                report.BonusCommentContains = request.BonusCommentContains;
-	                report.NetDepositExcludedCommentContains = excludedCommentContains;
-	                report.DailyRows = dailySnapshot.Rows != null
-	                    ? new List<Mt5DailyReportRow>(dailySnapshot.Rows)
-	                    : new List<Mt5DailyReportRow>();
+                report.GeneratedAt = DateTime.Now;
+                report.RequestedReportDate = reportDate;
+                report.ReportDate = resolvedReportDate;
+                report.BonusHistoryFrom = bonusHistoryFrom;
+                report.BonusCommentContains = request.BonusCommentContains;
+                report.NetDepositExcludedCommentContains = excludedCommentContains;
+                report.UsedLatestAvailableDailyReportDateFallback = usedDailyFallback;
+                report.DailyRows = dailySnapshot.Rows != null
+                    ? new List<Mt5DailyReportRow>(dailySnapshot.Rows)
+                    : new List<Mt5DailyReportRow>();
 	                report.DailyRowCount = report.DailyRows.Count;
 	                report.ProtectedBonusDealCount = bonusCollection.DealCount;
 	                report.ProtectedBonusDeals = request.IncludeBonusDealRows
@@ -2704,16 +2809,27 @@ namespace Mt5Monitor.Api
 	                                CultureInfo.InvariantCulture,
 	                                "BonusHistoryFrom ({0:yyyy-MM-dd}) must be early enough to capture the full protected-bonus balance you want to subtract.",
 	                                bonusHistoryFrom),
-	                            "Net deposits are sourced from MT5 deposit/withdrawal balance deals (DEAL_BALANCE) only; DEAL_CREDIT and DEAL_BONUS are excluded by action.",
-	                            string.Format(
-	                                CultureInfo.InvariantCulture,
-	                                "Net deposit comment exclusions: {0}.",
-	                                excludedCommentContains.Count > 0
-	                                    ? string.Join(", ", excludedCommentContains)
-	                                    : "(none)")
-	                        })
-	                    .Distinct(StringComparer.OrdinalIgnoreCase)
-	                    .ToList();
+                            "Net deposits are sourced from MT5 deposit/withdrawal balance deals (DEAL_BALANCE) only; DEAL_CREDIT and DEAL_BONUS are excluded by action.",
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "Net deposit comment exclusions: {0}.",
+                                excludedCommentContains.Count > 0
+                                    ? string.Join(", ", excludedCommentContains)
+                                    : "(none)")
+                        }
+                        .Concat(
+                            usedDailyFallback
+                                ? new[]
+                                {
+                                    string.Format(
+                                        CultureInfo.InvariantCulture,
+                                        "Requested ReportDate {0:yyyy-MM-dd} had no MT5 daily rows; used latest available closed day {1:yyyy-MM-dd}.",
+                                        reportDate,
+                                        resolvedReportDate)
+                                }
+                                : Enumerable.Empty<string>()))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
 	                writer(string.Format(
 	                    CultureInfo.InvariantCulture,
