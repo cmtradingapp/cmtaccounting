@@ -28,6 +28,12 @@ CONTENT_TYPES = {
 REPORT_TYPES = {"deposit-withdrawal", "positions-history", "trading-accounts"}
 
 
+def _decode_log_bytes(raw: bytes) -> str:
+    if not raw:
+        return ""
+    return raw.decode("utf-8", errors="replace")
+
+
 class ReportHandler(BaseHTTPRequestHandler):
     timeout = 660  # override default 30s — must outlive the subprocess timeout (600s)
     def log_message(self, fmt, *args):
@@ -75,7 +81,7 @@ class ReportHandler(BaseHTTPRequestHandler):
             result = subprocess.run(
                 cmd, env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=600, text=True,
+                timeout=600,
             )
         except subprocess.TimeoutExpired:
             print("[report-server] subprocess timed out", file=sys.stderr, flush=True)
@@ -88,21 +94,25 @@ class ReportHandler(BaseHTTPRequestHandler):
             self._reply(500, "text/plain", str(e).encode())
             return
 
-        print(f"[report-server] rc={result.returncode} stdout_len={len(result.stdout)} stderr_tail={result.stderr.strip()[-300:]!r}", file=sys.stderr, flush=True)
+        stderr_text = _decode_log_bytes(result.stderr).strip()
+        print(
+            f"[report-server] rc={result.returncode} stdout_len={len(result.stdout)} stderr_tail={stderr_text[-300:]!r}",
+            file=sys.stderr,
+            flush=True,
+        )
 
         if result.returncode != 0:
-            err = result.stderr.strip()[-1000:]
+            err = stderr_text[-1000:]
             self._reply(500, "text/plain", f"Reporter failed: {err}".encode())
             return
 
         if not result.stdout.strip():
-            err = result.stderr.strip()[-500:] or "exe produced no output"
+            err = stderr_text[-500:] or "exe produced no output"
             print(f"[report-server] empty output: {err!r}", file=sys.stderr, flush=True)
             self._reply(500, "text/plain", f"Reporter produced no output: {err}".encode())
             return
 
-        data = result.stdout.encode("utf-8")
-        self._reply(200, CONTENT_TYPES[fmt], data)
+        self._reply(200, CONTENT_TYPES[fmt], result.stdout)
 
     def _reply(self, code: int, content_type: str, body: bytes):
         self.send_response(code)

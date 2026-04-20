@@ -1,11 +1,15 @@
 using System;
 using System.Globalization;
+using System.Text;
 using Mt5Monitor.Api;
 
 public static class MT5Reporter
 {
     static int Main(string[] args)
     {
+        Console.OutputEncoding = Encoding.UTF8;
+        Console.InputEncoding = Encoding.UTF8;
+
         if (args.Length < 2)
         {
             Console.Error.WriteLine("Usage: MT5Reporter.exe <report_type> [<from_date> <to_date>] <format>");
