@@ -36,7 +36,7 @@ RUN wget -qO /tmp/wine-mono.msi \
 # Compile the C# helpers against the MT5 .NET wrappers
 WORKDIR /app
 COPY sdk-libs /sdk-libs
-COPY MT5Bridge.cs MT5LivePusher.cs /app/
+COPY MT5Bridge.cs MT5LivePusher.cs MT5Reporter.cs /app/
 COPY reusable-api/Mt5MonitorApiBundle.cs /app/
 RUN mcs -out:/app/MT5Bridge.exe \
         -reference:/sdk-libs/MetaQuotes.MT5CommonAPI64.dll \
@@ -48,10 +48,20 @@ RUN mcs -out:/app/MT5Bridge.exe \
         -r:System.Runtime.Serialization \
         -r:System.Xml \
         /app/Mt5MonitorApiBundle.cs /app/MT5LivePusher.cs \
+ && mcs -out:/app/MT5Reporter.exe \
+        -reference:/sdk-libs/MetaQuotes.MT5CommonAPI64.dll \
+        -reference:/sdk-libs/MetaQuotes.MT5ManagerAPI64.dll \
+        -r:System.Runtime.Serialization \
+        -r:System.Xml \
+        /app/Mt5MonitorApiBundle.cs /app/MT5Reporter.cs \
  && cp /sdk-libs/*.dll /app/
 
-COPY cro_bridge_pusher.py cro_live_pusher.py /app/
+COPY cro_bridge_pusher.py cro_live_pusher.py cro_report_server.py /app/
+
+# Startup script: run report server in background, then start live pusher
+RUN printf '#!/bin/sh\npython3 /app/cro_report_server.py &\nexec python3 /app/cro_live_pusher.py\n' \
+    > /app/start.sh && chmod +x /app/start.sh
 
 ENV MT5_SDK_LIBS=Z:/app
 
-CMD ["python3", "/app/cro_live_pusher.py"]
+CMD ["/app/start.sh"]

@@ -1232,6 +1232,30 @@ public sealed class MT5LivePusher
 	            accounts.Release();
 	        }
 
+	        Mt5MonitorCollector.DailyPnlCashNetDepositCollection netDepositCollection =
+	            Mt5MonitorCollector.CollectDailyPnlCashNetDeposits(
+	                manager,
+	                groupCurrencies,
+	                loginContexts,
+	                settings.GroupMask,
+	                reportDate,
+	                null,
+	                false,
+	                silentWriter);
+
+	        var dailyPnlCashInputs = new Mt5DailyPnlCashInputs
+	        {
+	            ReportDate = reportDate,
+	            EndEquityUsd = endEquityUsd,
+	            EndCreditsUsd = endCreditsUsd,
+	            EndProtectedBonusesUsd = bonusCollection.EndProtectedBonusesUsd,
+	            StartEquityUsd = 0.0,
+	            StartCreditsUsd = 0.0,
+	            StartProtectedBonusesUsd = 0.0,
+	            NetDepositsUsd = netDepositCollection.NetDepositsUsd
+	        };
+	        Mt5DailyPnlCashReport dailyPnlCash = new Mt5DailyPnlCashCalculator().Calculate(dailyPnlCashInputs);
+
 	        double endWdEquityUsd = Math.Max(0.0, endEquityUsd - endCreditsUsd - bonusCollection.EndProtectedBonusesUsd);
 	        List<string> reportMissingCurrencies = missingCurrencies
 	            .Concat(bonusCollection.MissingCurrencyRates)
@@ -1291,6 +1315,7 @@ public sealed class MT5LivePusher
 	        return new WdEquityPollingState
 	        {
 	            Report = report,
+	            DailyPnlCash = dailyPnlCash,
 	            AccountCount = includedAccountCount,
 	            RefreshedAtUtc = nowUtc,
 	            NextRefreshUtc = nowUtc.AddSeconds(wdEquityConfig.RefreshSeconds),

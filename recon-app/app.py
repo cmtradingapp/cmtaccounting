@@ -2522,7 +2522,8 @@ def cro_data():
         "equity":         equity,
         "balance":        balance,
         "credit":         credit,
-        "wd_equity":      wd_equity,
+        "wd_equity":          wd_equity,
+        "daily_pnl_cash_usd": flt("daily_pnl_cash_usd"),
         # counts
         "n_accounts":              i("n_traders"),
         "n_positions":             i("n_positions"),
@@ -2647,6 +2648,55 @@ def cro_data():
         "live_age_s": age if has_data else None,
         "waiting":    not has_data,
     })
+
+
+@app.route("/cro/report", methods=["POST"])
+@require_cro_auth
+def cro_report():
+    """Proxy an on-demand MT5 report request to the cro-bridge report server."""
+    import urllib.request as _urllib_req
+    import urllib.error as _urllib_err
+
+    REPORT_SERVER = os.environ.get("CRO_REPORT_URL", "http://cro-bridge:5051/report")
+    VALID_TYPES   = {"deposit-withdrawal", "positions-history", "trading-accounts"}
+    VALID_FORMATS = {"json", "csv"}
+
+    body = request.get_json(force=True, silent=True) or {}
+    rtype  = (body.get("type")      or "").strip().lower()
+    fmt    = (body.get("format")    or "json").strip().lower()
+    fdate  = (body.get("from_date") or "").strip()
+    tdate  = (body.get("to_date")   or "").strip()
+
+    if rtype not in VALID_TYPES:
+        return jsonify({"ok": False, "error": f"Invalid type: {rtype}"}), 400
+    if fmt not in VALID_FORMATS:
+        return jsonify({"ok": False, "error": "format must be json or csv"}), 400
+
+    payload = {"type": rtype, "format": fmt, "from_date": fdate, "to_date": tdate}
+    req = _urllib_req.Request(
+        REPORT_SERVER,
+        data=__import__("json").dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with _urllib_req.urlopen(req, timeout=630) as resp:
+            data = resp.read()
+    except _urllib_err.HTTPError as e:
+        msg = e.read().decode("utf-8", errors="replace")[:500]
+        return jsonify({"ok": False, "error": msg}), 502
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
+
+    ext     = fmt
+    ctype   = "application/json" if fmt == "json" else "text/csv"
+    fname   = f"{rtype}-{fdate or 'now'}.{ext}"
+    return send_file(
+        __import__("io").BytesIO(data),
+        mimetype=ctype,
+        as_attachment=True,
+        download_name=fname,
+    )
 
 
 # ── Operators Dashboard ──────────────────────────────────────────────────────

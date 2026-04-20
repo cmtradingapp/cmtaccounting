@@ -137,6 +137,51 @@
 <div class="cro-primary" id="croPrimary"></div>
 <div class="cro-secondary" id="croSecondary"></div>
 
+<div class="section-title" style="display:flex;align-items:center;gap:10px;margin-top:18px;">
+  MT5 Reports
+  <span style="font-size:11px;font-weight:400;color:var(--text-2);">Download live data directly from MT5</span>
+</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;">
+  <button class="btn" onclick="openReportModal('deposit-withdrawal')">Deposit / Withdrawal</button>
+  <button class="btn" onclick="openReportModal('positions-history')">Positions History</button>
+  <button class="btn" onclick="openReportModal('trading-accounts')">Trading Accounts</button>
+</div>
+
+<!-- Report Modal -->
+<div id="reportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px 32px;min-width:340px;max-width:480px;width:90%;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:18px;" id="reportModalTitle">Generate Report</div>
+    <div id="reportDateFields">
+      <div style="display:flex;gap:12px;margin-bottom:14px;">
+        <label style="flex:1;display:flex;flex-direction:column;gap:5px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);">
+          From
+          <input type="date" id="reportFrom" style="height:34px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0 10px;color-scheme:dark;">
+        </label>
+        <label style="flex:1;display:flex;flex-direction:column;gap:5px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);">
+          To
+          <input type="date" id="reportTo" style="height:34px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0 10px;color-scheme:dark;">
+        </label>
+      </div>
+    </div>
+    <div style="margin-bottom:18px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);margin-bottom:5px;">Format</div>
+      <div style="display:flex;gap:8px;" id="reportFormatRow">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="radio" name="reportFormat" value="json" checked> JSON
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="radio" name="reportFormat" value="csv" id="reportFormatCsv"> CSV
+        </label>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--red);margin-bottom:12px;min-height:18px;" id="reportModalError"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="closeReportModal()">Cancel</button>
+      <button class="btn btn-primary" id="reportDownloadBtn" onclick="downloadReport()">Download</button>
+    </div>
+  </div>
+</div>
+
 <div class="section-title" style="display:flex;align-items:center;gap:12px;">
   Closed PnL by Currency
   <span style="font-size:11px;font-weight:400;display:flex;gap:4px;">
@@ -579,5 +624,100 @@
     scheduleFullRefresh();
   });
 })();
+
+// ── MT5 Report modal ──────────────────────────────────────────────────────────
+var _reportType = '';
+var _noDateTypes = ['trading-accounts'];
+var _jsonOnlyTypes = ['positions-history'];
+
+function openReportModal(type) {
+  _reportType = type;
+  var titles = {
+    'deposit-withdrawal': 'Deposit / Withdrawal Report',
+    'positions-history':  'Positions History Report',
+    'trading-accounts':   'Trading Accounts Snapshot'
+  };
+  document.getElementById('reportModalTitle').textContent = titles[type] || 'Generate Report';
+  document.getElementById('reportModalError').textContent = '';
+
+  var today = new Date().toISOString().slice(0, 10);
+  document.getElementById('reportFrom').value = today;
+  document.getElementById('reportTo').value   = today;
+
+  // Hide date fields for snapshot reports
+  document.getElementById('reportDateFields').style.display =
+    _noDateTypes.indexOf(type) >= 0 ? 'none' : '';
+
+  // Disable CSV for JSON-only report types
+  var csvRadio = document.getElementById('reportFormatCsv');
+  csvRadio.disabled = _jsonOnlyTypes.indexOf(type) >= 0;
+  if (csvRadio.disabled) {
+    document.querySelector('input[name="reportFormat"][value="json"]').checked = true;
+  }
+
+  var modal = document.getElementById('reportModal');
+  modal.style.display = 'flex';
+}
+
+function closeReportModal() {
+  document.getElementById('reportModal').style.display = 'none';
+}
+
+function downloadReport() {
+  var fmt = document.querySelector('input[name="reportFormat"]:checked').value;
+  var from = document.getElementById('reportFrom').value;
+  var to   = document.getElementById('reportTo').value;
+  var errEl = document.getElementById('reportModalError');
+  errEl.textContent = '';
+
+  if (_noDateTypes.indexOf(_reportType) < 0 && (!from || !to)) {
+    errEl.textContent = 'Please select both dates.';
+    return;
+  }
+
+  var btn = document.getElementById('reportDownloadBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+
+  var body = {type: _reportType, format: fmt, from_date: from, to_date: to};
+  fetch('/cro/report', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  })
+  .then(function(r) {
+    if (!r.ok) {
+      return r.text().then(function(text) {
+        var msg = null;
+        try { msg = JSON.parse(text).error; } catch(e) {}
+        throw new Error(msg || ('HTTP ' + r.status));
+      });
+    }
+    return r.blob().then(function(blob) {
+      var cd = r.headers.get('Content-Disposition') || '';
+      var m  = cd.match(/filename="?([^"]+)"?/);
+      var fname = m ? m[1] : (_reportType + '-' + (from || 'now') + '.' + fmt);
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      closeReportModal();
+    });
+  })
+  .catch(function(e) {
+    errEl.textContent = 'Error: ' + e.message;
+  })
+  .finally(function() {
+    btn.disabled = false;
+    btn.textContent = 'Download';
+  });
+}
+
+// Close modal on backdrop click
+document.getElementById('reportModal').addEventListener('click', function(e) {
+  if (e.target === this) closeReportModal();
+});
 </script>
 {% endblock %}
