@@ -29,6 +29,7 @@ REPORT_TYPES = {"deposit-withdrawal", "positions-history", "trading-accounts"}
 
 
 class ReportHandler(BaseHTTPRequestHandler):
+    timeout = 660  # override default 30s — must outlive the subprocess timeout (600s)
     def log_message(self, fmt, *args):
         print(f"[report-server] {fmt % args}", file=sys.stderr, flush=True)
 
