@@ -629,6 +629,34 @@
 var _reportType = '';
 var _noDateTypes = ['trading-accounts'];
 var _jsonOnlyTypes = ['positions-history'];
+var _reportJobId = null;
+var _reportJobPollTimer = null;
+
+function setReportModalMessage(text, isError) {
+  var errEl = document.getElementById('reportModalError');
+  errEl.textContent = text || '';
+  errEl.style.color = isError ? 'var(--red)' : 'var(--text-2)';
+}
+
+function resetReportModalButton() {
+  var btn = document.getElementById('reportDownloadBtn');
+  btn.disabled = false;
+  btn.textContent = 'Download';
+}
+
+function clearReportJobPoll() {
+  if (_reportJobPollTimer) {
+    clearTimeout(_reportJobPollTimer);
+    _reportJobPollTimer = null;
+  }
+}
+
+function getReportJobStatusText(job) {
+  if (job.status === 'queued') return 'Queued. Waiting for report worker...';
+  if (job.status === 'running') return 'Generating report in the background...';
+  if (job.status === 'ready') return 'Report ready. Starting download...';
+  return '';
+}
 
 function openReportModal(type) {
   _reportType = type;
@@ -638,7 +666,10 @@ function openReportModal(type) {
     'trading-accounts':   'Trading Accounts Snapshot'
   };
   document.getElementById('reportModalTitle').textContent = titles[type] || 'Generate Report';
-  document.getElementById('reportModalError').textContent = '';
+  setReportModalMessage('', false);
+  resetReportModalButton();
+  clearReportJobPoll();
+  _reportJobId = null;
 
   var today = new Date().toISOString().slice(0, 10);
   document.getElementById('reportFrom').value = today;
@@ -660,10 +691,99 @@ function openReportModal(type) {
 }
 
 function closeReportModal() {
+  clearReportJobPoll();
+  _reportJobId = null;
+  setReportModalMessage('', false);
+  resetReportModalButton();
   document.getElementById('reportModal').style.display = 'none';
 }
 
+function pollReportJob(jobId) {
+  clearReportJobPoll();
+  fetch('/cro/report/jobs/' + encodeURIComponent(jobId), {cache: 'no-store'})
+    .then(function(r) {
+      if (!r.ok) {
+        return r.text().then(function(text) {
+          var msg = null;
+          try { msg = JSON.parse(text).error; } catch (e) {}
+          throw new Error(msg || ('HTTP ' + r.status));
+        });
+      }
+      return r.json();
+    })
+    .then(function(job) {
+      if (_reportJobId !== job.job_id) return;
+      if (job.status === 'ready') {
+        setReportModalMessage(getReportJobStatusText(job), false);
+        var a = document.createElement('a');
+        a.href = '/cro/report/jobs/' + encodeURIComponent(job.job_id) + '/download';
+        a.download = job.file_name || '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        closeReportModal();
+        return;
+      }
+      if (job.status === 'error') {
+        throw new Error(job.error || 'Report generation failed.');
+      }
+      setReportModalMessage(getReportJobStatusText(job), false);
+      _reportJobPollTimer = setTimeout(function() { pollReportJob(job.job_id); }, 1500);
+    })
+    .catch(function(e) {
+      if (_reportJobId !== jobId) return;
+      setReportModalMessage('Error: ' + e.message, true);
+      resetReportModalButton();
+      clearReportJobPoll();
+    });
+}
+
+function downloadReportAsync() {
+  var fmt = document.querySelector('input[name="reportFormat"]:checked').value;
+  var from = document.getElementById('reportFrom').value;
+  var to   = document.getElementById('reportTo').value;
+
+  if (_noDateTypes.indexOf(_reportType) < 0 && (!from || !to)) {
+    setReportModalMessage('Please select both dates.', true);
+    return;
+  }
+
+  var btn = document.getElementById('reportDownloadBtn');
+  btn.disabled = true;
+  btn.textContent = 'Preparing...';
+  setReportModalMessage('Starting report job...', false);
+  clearReportJobPoll();
+  _reportJobId = null;
+
+  var body = {type: _reportType, format: fmt, from_date: from, to_date: to};
+  fetch('/cro/report/jobs', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  })
+  .then(function(r) {
+    if (!r.ok) {
+      return r.text().then(function(text) {
+        var msg = null;
+        try { msg = JSON.parse(text).error; } catch(e) {}
+        throw new Error(msg || ('HTTP ' + r.status));
+      });
+    }
+    return r.json();
+  })
+  .then(function(job) {
+    _reportJobId = job.job_id;
+    setReportModalMessage(getReportJobStatusText(job), false);
+    pollReportJob(job.job_id);
+  })
+  .catch(function(e) {
+    setReportModalMessage('Error: ' + e.message, true);
+    resetReportModalButton();
+  });
+}
+
 function downloadReport() {
+  return downloadReportAsync();
   var fmt = document.querySelector('input[name="reportFormat"]:checked').value;
   var from = document.getElementById('reportFrom').value;
   var to   = document.getElementById('reportTo').value;

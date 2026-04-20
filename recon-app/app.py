@@ -1,9 +1,12 @@
+import functools
 import hmac
 import io
+import json
 import os
+import tempfile
 import threading
+import time
 import uuid
-import functools
 from datetime import date, datetime
 from flask import Flask, render_template, request, jsonify, send_file, abort, Response, redirect, url_for
 from dotenv import load_dotenv
@@ -14,6 +17,12 @@ load_dotenv()
 _CRO_LIVE: dict = {}
 _CRO_LIVE_LOCK = threading.Lock()
 _CRO_LIVE_MAX_AGE_S = 90  # after 90s without a push, fall back to Dealio snapshot
+_CRO_REPORT_JOBS: dict = {}
+_CRO_REPORT_JOBS_LOCK = threading.Lock()
+_CRO_REPORT_JOB_TTL_S = max(300, int(os.environ.get("CRO_REPORT_JOB_TTL_S", "3600")))
+_CRO_REPORT_TIMEOUT_S = max(30, int(os.environ.get("CRO_REPORT_TIMEOUT_S", "630")))
+_CRO_REPORT_VALID_TYPES = {"deposit-withdrawal", "positions-history", "trading-accounts"}
+_CRO_REPORT_VALID_FORMATS = {"json", "csv"}
 
 import queries
 import ai_parse
@@ -2650,53 +2659,225 @@ def cro_data():
     })
 
 
-@app.route("/cro/report", methods=["POST"])
-@require_cro_auth
-def cro_report():
-    """Proxy an on-demand MT5 report request to the cro-bridge report server."""
-    import urllib.request as _urllib_req
+def _cro_report_cleanup_jobs():
+    stale_jobs = []
+    now = time.time()
+    with _CRO_REPORT_JOBS_LOCK:
+        for job_id, job in list(_CRO_REPORT_JOBS.items()):
+            updated_at = job.get("updated_at", job.get("created_at", now))
+            if now - updated_at <= _CRO_REPORT_JOB_TTL_S:
+                continue
+            stale_jobs.append(_CRO_REPORT_JOBS.pop(job_id))
+
+    for job in stale_jobs:
+        path = job.get("file_path")
+        if not path:
+            continue
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            print(f"[cro] report cleanup failed for {path}: {exc}", flush=True)
+
+
+def _cro_report_validate_payload(body):
+    rtype = (body.get("type") or "").strip().lower()
+    fmt = (body.get("format") or "json").strip().lower()
+    fdate = (body.get("from_date") or "").strip()
+    tdate = (body.get("to_date") or "").strip()
+
+    if rtype not in _CRO_REPORT_VALID_TYPES:
+        raise ValueError(f"Invalid type: {rtype}")
+    if fmt not in _CRO_REPORT_VALID_FORMATS:
+        raise ValueError("format must be json or csv")
+    if rtype != "trading-accounts" and (not fdate or not tdate):
+        raise ValueError("from_date and to_date are required for this report")
+
+    return {
+        "type": rtype,
+        "format": fmt,
+        "from_date": fdate,
+        "to_date": tdate,
+    }
+
+
+def _cro_report_filename(payload):
+    ext = payload["format"]
+    suffix = payload["from_date"] or "now"
+    return f"{payload['type']}-{suffix}.{ext}"
+
+
+def _cro_report_fetch(payload):
     import urllib.error as _urllib_err
+    import urllib.request as _urllib_req
 
-    REPORT_SERVER = os.environ.get("CRO_REPORT_URL", "http://cro-bridge:5051/report")
-    VALID_TYPES   = {"deposit-withdrawal", "positions-history", "trading-accounts"}
-    VALID_FORMATS = {"json", "csv"}
-
-    body = request.get_json(force=True, silent=True) or {}
-    rtype  = (body.get("type")      or "").strip().lower()
-    fmt    = (body.get("format")    or "json").strip().lower()
-    fdate  = (body.get("from_date") or "").strip()
-    tdate  = (body.get("to_date")   or "").strip()
-
-    if rtype not in VALID_TYPES:
-        return jsonify({"ok": False, "error": f"Invalid type: {rtype}"}), 400
-    if fmt not in VALID_FORMATS:
-        return jsonify({"ok": False, "error": "format must be json or csv"}), 400
-
-    payload = {"type": rtype, "format": fmt, "from_date": fdate, "to_date": tdate}
+    report_server = os.environ.get("CRO_REPORT_URL", "http://cro-bridge:5051/report")
     req = _urllib_req.Request(
-        REPORT_SERVER,
-        data=__import__("json").dumps(payload).encode(),
+        report_server,
+        data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with _urllib_req.urlopen(req, timeout=630) as resp:
-            data = resp.read()
-    except _urllib_err.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace").strip()[:500]
-        msg = body or f"Report server returned HTTP {e.code}"
-        return jsonify({"ok": False, "error": msg}), 502
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 502
+        with _urllib_req.urlopen(req, timeout=_CRO_REPORT_TIMEOUT_S) as resp:
+            return resp.read()
+    except _urllib_err.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace").strip()[:500]
+        raise RuntimeError(body or f"Report server returned HTTP {exc.code}")
+    except Exception as exc:
+        raise RuntimeError(str(exc))
 
-    ext     = fmt
-    ctype   = "application/json" if fmt == "json" else "text/csv"
-    fname   = f"{rtype}-{fdate or 'now'}.{ext}"
+
+def _cro_report_start_job(payload):
+    _cro_report_cleanup_jobs()
+
+    job_id = uuid.uuid4().hex
+    now = time.time()
+    file_name = _cro_report_filename(payload)
+    content_type = "application/json" if payload["format"] == "json" else "text/csv"
+    job = {
+        "job_id": job_id,
+        "status": "queued",
+        "type": payload["type"],
+        "format": payload["format"],
+        "from_date": payload["from_date"],
+        "to_date": payload["to_date"],
+        "file_name": file_name,
+        "content_type": content_type,
+        "file_path": None,
+        "size_bytes": None,
+        "error": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    with _CRO_REPORT_JOBS_LOCK:
+        _CRO_REPORT_JOBS[job_id] = job
+
+    def _worker():
+        with _CRO_REPORT_JOBS_LOCK:
+            current = _CRO_REPORT_JOBS.get(job_id)
+            if not current:
+                return
+            current["status"] = "running"
+            current["updated_at"] = time.time()
+
+        temp_path = None
+        try:
+            data = _cro_report_fetch(payload)
+            suffix = ".json" if payload["format"] == "json" else ".csv"
+            fd, temp_path = tempfile.mkstemp(prefix="cro-report-", suffix=suffix)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+
+            with _CRO_REPORT_JOBS_LOCK:
+                current = _CRO_REPORT_JOBS.get(job_id)
+                if not current:
+                    raise RuntimeError("Report job disappeared before completion")
+                current["status"] = "ready"
+                current["file_path"] = temp_path
+                current["size_bytes"] = len(data)
+                current["updated_at"] = time.time()
+        except Exception as exc:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except FileNotFoundError:
+                    pass
+            with _CRO_REPORT_JOBS_LOCK:
+                current = _CRO_REPORT_JOBS.get(job_id)
+                if current:
+                    current["status"] = "error"
+                    current["error"] = str(exc)
+                    current["updated_at"] = time.time()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return dict(job)
+
+
+def _cro_report_status_payload(job):
+    if not job:
+        return None
+    return {
+        "ok": True,
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "type": job["type"],
+        "format": job["format"],
+        "from_date": job["from_date"],
+        "to_date": job["to_date"],
+        "file_name": job["file_name"],
+        "size_bytes": job["size_bytes"],
+        "error": job["error"],
+    }
+
+
+@app.route("/cro/report", methods=["POST"])
+@require_cro_auth
+def cro_report():
+    """Proxy an on-demand MT5 report request to the cro-bridge report server."""
+    try:
+        payload = _cro_report_validate_payload(request.get_json(force=True, silent=True) or {})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    try:
+        data = _cro_report_fetch(payload)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
     return send_file(
-        __import__("io").BytesIO(data),
-        mimetype=ctype,
+        io.BytesIO(data),
+        mimetype="application/json" if payload["format"] == "json" else "text/csv",
         as_attachment=True,
-        download_name=fname,
+        download_name=_cro_report_filename(payload),
+    )
+
+
+@app.route("/cro/report/jobs", methods=["POST"])
+@require_cro_auth
+def cro_report_start_job():
+    try:
+        payload = _cro_report_validate_payload(request.get_json(force=True, silent=True) or {})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    job = _cro_report_start_job(payload)
+    return jsonify(_cro_report_status_payload(job)), 202
+
+
+@app.route("/cro/report/jobs/<job_id>", methods=["GET"])
+@require_cro_auth
+def cro_report_job_status(job_id):
+    _cro_report_cleanup_jobs()
+    with _CRO_REPORT_JOBS_LOCK:
+        job = _CRO_REPORT_JOBS.get(job_id)
+
+    if not job:
+        return jsonify({"ok": False, "error": "Report job not found"}), 404
+    return jsonify(_cro_report_status_payload(job))
+
+
+@app.route("/cro/report/jobs/<job_id>/download", methods=["GET"])
+@require_cro_auth
+def cro_report_job_download(job_id):
+    _cro_report_cleanup_jobs()
+    with _CRO_REPORT_JOBS_LOCK:
+        job = _CRO_REPORT_JOBS.get(job_id)
+
+    if not job:
+        return jsonify({"ok": False, "error": "Report job not found"}), 404
+    if job["status"] == "error":
+        return jsonify({"ok": False, "error": job["error"] or "Report generation failed"}), 502
+    if job["status"] != "ready" or not job.get("file_path"):
+        return jsonify({"ok": False, "error": "Report is not ready yet"}), 409
+
+    return send_file(
+        job["file_path"],
+        mimetype=job["content_type"],
+        as_attachment=True,
+        download_name=job["file_name"],
     )
 
 
