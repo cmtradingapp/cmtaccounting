@@ -2506,6 +2506,86 @@ def cro_refresh():
         return jsonify({"ok": True, "last_push": _CRO_LIVE.get("pushed_at")})
 
 
+def _cro_build_legacy_cards_from_live(live, today_iso=None):
+    """Build lightweight legacy daily/monthly cards from the current live payload."""
+    today_iso = (today_iso or date.today().isoformat()).strip()
+    today_ym = today_iso[:7]
+    flt = lambda key: float(live.get(key, 0) or 0)
+    i = lambda key: int(live.get(key, 0) or 0)
+
+    n_ftd = i("n_ftd")
+    n_dep_day = i("n_depositors")
+    n_dep_mth = i("monthly_n_depositors")
+    floating = flt("floating_pnl_usd")
+    equity = flt("equity")
+    balance = flt("balance")
+    credit = flt("credit")
+    wd_equity = flt("wd_equity")
+
+    daily = {
+        "label": today_iso,
+        "start": today_iso,
+        "end": today_iso,
+        "source": live.get("source", "AN100"),
+        "group_mask": live.get("group_mask", "CMV*"),
+        "pnl": floating + flt("closed_pnl_usd"),
+        "floating_pnl": floating,
+        "closed_pnl": flt("closed_pnl_usd"),
+        "delta_floating": 0.0,
+        "net_deposits": flt("net_deposits"),
+        "deposits": flt("deposits"),
+        "withdrawals": flt("withdrawals"),
+        "volume_usd": flt("volume_usd"),
+        "swap": flt("swap"),
+        "commission": flt("commission"),
+        "equity": equity,
+        "balance": balance,
+        "credit": credit,
+        "wd_equity": wd_equity,
+        "daily_pnl_cash_usd": flt("daily_pnl_cash_usd"),
+        "n_accounts": i("n_traders"),
+        "n_positions": i("n_positions"),
+        "n_traders": i("n_traders"),
+        "n_active_traders": i("n_active_traders"),
+        "n_depositors": n_dep_day,
+        "n_ftd": n_ftd,
+        "n_retention_depositors": max(n_dep_day - n_ftd, 0),
+        "n_deals": i("n_closing_deals"),
+    }
+
+    monthly = {
+        "label": today_ym,
+        "start": today_ym + "-01",
+        "end": today_iso,
+        "source": live.get("source", "AN100"),
+        "group_mask": live.get("group_mask", "CMV*"),
+        "pnl": flt("monthly_closed_pnl") + floating,
+        "floating_pnl": floating,
+        "closed_pnl": flt("monthly_closed_pnl"),
+        "delta_floating": 0.0,
+        "net_deposits": flt("monthly_net_deposits"),
+        "deposits": flt("monthly_deposits"),
+        "withdrawals": flt("monthly_withdrawals"),
+        "volume_usd": flt("monthly_volume_usd"),
+        "swap": flt("monthly_swap"),
+        "commission": flt("monthly_commission"),
+        "equity": equity,
+        "balance": balance,
+        "credit": credit,
+        "wd_equity": wd_equity,
+        "n_accounts": i("monthly_n_traders"),
+        "n_positions": i("n_positions"),
+        "n_traders": i("monthly_n_traders"),
+        "n_active_traders": i("monthly_n_active_traders"),
+        "n_depositors": n_dep_mth,
+        "n_ftd": n_ftd,
+        "n_retention_depositors": max(n_dep_mth - n_ftd, 0),
+        "n_deals": i("n_closing_deals"),
+    }
+
+    return daily, monthly
+
+
 @app.route("/cro/data")
 @require_cro_auth
 def cro_data():
@@ -2591,6 +2671,14 @@ def cro_data():
         waiting_status.setdefault("phase", "snapshot_pending")
         waiting_status["message"] = waiting_message
 
+        waiting_daily = None
+        waiting_monthly = None
+        if is_requested_live_scope and has_data:
+            try:
+                waiting_daily, waiting_monthly = _cro_build_legacy_cards_from_live(live, today_iso)
+            except Exception as exc:
+                print(f"[cro] waiting legacy card build failed: {exc}", flush=True)
+
         return jsonify({
             "date": requested_date,
             "requested": requested_date,
@@ -2598,6 +2686,8 @@ def cro_data():
             "source": requested_source,
             "group_mask": requested_group,
             "cro_cards": None,
+            "daily": waiting_daily,
+            "monthly": waiting_monthly,
             "by_group": [],
             "by_symbol": [],
             "closed_pnl_by_ccy": [],
@@ -2628,72 +2718,7 @@ def cro_data():
     credit      = flt("credit")
     wd_equity   = flt("wd_equity")
 
-    daily = {
-        "label":         today,
-        "start":         today,
-        "end":           today,
-        "source":        live.get("source", "AN100"),
-        "group_mask":    live.get("group_mask", "CMV*"),
-        # PnL: daily PnL = closed_pnl + floating (delta_floating tracked server-side below)
-        "pnl":            floating + flt("closed_pnl_usd"),
-        "floating_pnl":   floating,
-        "closed_pnl":     flt("closed_pnl_usd"),
-        "delta_floating":  0.0,   # requires yesterday EOD snapshot; added when available
-        "net_deposits":   flt("net_deposits"),
-        "deposits":       flt("deposits"),
-        "withdrawals":    flt("withdrawals"),
-        "volume_usd":     flt("volume_usd"),
-        "swap":           flt("swap"),
-        "commission":     flt("commission"),
-        # equity (from UserRequestArray slow loop)
-        "equity":         equity,
-        "balance":        balance,
-        "credit":         credit,
-        "wd_equity":          wd_equity,
-        "daily_pnl_cash_usd": flt("daily_pnl_cash_usd"),
-        # counts
-        "n_accounts":              i("n_traders"),
-        "n_positions":             i("n_positions"),
-        "n_traders":               i("n_traders"),
-        "n_active_traders":        i("n_active_traders"),
-        "n_depositors":            n_dep_day,
-        "n_ftd":                   n_ftd,
-        "n_retention_depositors":  max(n_dep_day - n_ftd, 0),
-        "n_deals":                 i("n_closing_deals"),
-    }
-
-    monthly = {
-        "label":         today_ym,
-        "start":         today_ym + "-01",
-        "end":           today,
-        "source":        live.get("source", "AN100"),
-        "group_mask":    live.get("group_mask", "CMV*"),
-        # MTD totals from slow loop DealRequestByGroup(month_start, now)
-        "pnl":            flt("monthly_closed_pnl") + floating,  # MTD closed + live float
-        "floating_pnl":   floating,
-        "closed_pnl":     flt("monthly_closed_pnl"),
-        "delta_floating":  0.0,
-        "net_deposits":   flt("monthly_net_deposits"),
-        "deposits":       flt("monthly_deposits"),
-        "withdrawals":    flt("monthly_withdrawals"),
-        "volume_usd":     flt("monthly_volume_usd"),
-        "swap":           flt("monthly_swap"),
-        "commission":     flt("monthly_commission"),
-        # equity same as daily (point-in-time)
-        "equity":         equity,
-        "balance":        balance,
-        "credit":         credit,
-        "wd_equity":      wd_equity,
-        # counts
-        "n_accounts":              i("monthly_n_traders"),
-        "n_positions":             i("n_positions"),
-        "n_traders":               i("monthly_n_traders"),
-        "n_active_traders":        i("monthly_n_active_traders"),
-        "n_depositors":            n_dep_mth,
-        "n_ftd":                   n_ftd,
-        "n_retention_depositors":  max(n_dep_mth - n_ftd, 0),
-        "n_deals":                 i("n_closing_deals"),
-    }
+    daily, monthly = _cro_build_legacy_cards_from_live(live, today)
 
     # ── Build trend from monthly_by_day (C# slow loop) + EOD snapshots ──────
     trend = []

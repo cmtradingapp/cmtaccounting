@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %} — CRO All in One{% endblock %}
+{% block title %} - CRO All in One{% endblock %}
 {% block content %}
 <style>
 .cro-primary {
@@ -148,7 +148,7 @@
 <div class="page-header">
   <div>
     <div class="page-title">CRO All in One</div>
-    <div class="page-sub" id="croSub">Loading…</div>
+    <div class="page-sub" id="croSub">Loading...</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <label class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;display:flex;flex-direction:column;gap:4px;">
@@ -234,7 +234,7 @@
         <th data-col="4" class="num">USD Equiv</th>
       </tr>
     </thead>
-    <tbody id="ccyTbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    <tbody id="ccyTbody"><tr><td colspan="5" class="empty">Loading...</td></tr></tbody>
     <tfoot id="ccyTfoot"></tfoot>
   </table>
 </div>
@@ -248,18 +248,18 @@
         <th data-col="1" class="num"># Accounts</th>
         <th data-col="2" class="num"># Depositors</th>
         <th data-col="3" class="num">Closed PnL</th>
-        <th data-col="4" class="num">Δ Floating</th>
+        <th data-col="4" class="num">Delta Floating</th>
         <th data-col="5" class="num">Net Deposits</th>
         <th data-col="6" class="num">Equity (EOD)</th>
         <th data-col="7" class="num">Balance</th>
       </tr>
     </thead>
-    <tbody id="groupTbody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+    <tbody id="groupTbody"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
     <tfoot id="groupTfoot"></tfoot>
   </table>
 </div>
 
-<div class="section-title">Closed PnL by Group (all, today) — use to identify groups inflating USD</div>
+<div class="section-title">Closed PnL by Group (all, today) - use to identify groups inflating USD</div>
 <div class="table-wrap">
   <table>
     <thead>
@@ -268,7 +268,7 @@
         <th class="num">Closed PnL (USD)</th>
       </tr>
     </thead>
-    <tbody id="grpClosedTbody"><tr><td colspan="2" class="empty">Loading…</td></tr></tbody>
+    <tbody id="grpClosedTbody"><tr><td colspan="2" class="empty">Loading...</td></tr></tbody>
     <tfoot id="grpClosedTfoot"></tfoot>
   </table>
 </div>
@@ -289,7 +289,7 @@
         <th data-col="8" class="num">PnL</th>
       </tr>
     </thead>
-    <tbody id="symbolTbody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+    <tbody id="symbolTbody"><tr><td colspan="9" class="empty">Loading...</td></tr></tbody>
     <tfoot id="symbolTfoot"></tfoot>
   </table>
 </div>
@@ -304,12 +304,12 @@
         <th data-col="2" class="num"># Depositors</th>
         <th data-col="3" class="num">PnL</th>
         <th data-col="4" class="num">Closed PnL</th>
-        <th data-col="5" class="num">Δ Floating</th>
+        <th data-col="5" class="num">Delta Floating</th>
         <th data-col="6" class="num">Net Deposits</th>
         <th data-col="7" class="num">Equity</th>
       </tr>
     </thead>
-    <tbody id="trendTbody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+    <tbody id="trendTbody"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
   </table>
 </div>
 
@@ -621,6 +621,9 @@
         try {
           data = trimmed ? JSON.parse(trimmed) : {};
         } catch (e) {
+          if (trimmed.charAt(0) === '<') {
+            throw new Error('Server returned an HTML error page. Check recon-app logs.');
+          }
           throw new Error(trimmed.slice(0, 180) || ('HTTP ' + response.status));
         }
         if (!response.ok) {
@@ -640,11 +643,18 @@
             '&group=' + encodeURIComponent(g) +
             '&source=' + encodeURIComponent(s);
     fetchJson('/cro/data' + q).then(function (data) {
-      if (data.error) { setSub('Error: ' + data.error, true); return; }
-      if (data.waiting && !data.cro_cards) {
-        var wu = data.warmup_status;
-        var msg = (wu && wu.message)
-          ? 'Bridge warming up - ' + wu.message
+        if (data.error) { setSub('Error: ' + data.error, true); return; }
+        if (data.waiting && !data.cro_cards) {
+          if (data.daily || data.monthly) {
+            renderCroCards(data.cro_cards, data.daily, data.monthly, data);
+            if (data.tables_live_scope_only) {
+              renderLiveScopeOnlyTables();
+            }
+            if (data.daily && !looksEmpty(data.daily)) _hasGoodData = true;
+          }
+          var wu = data.warmup_status;
+          var msg = (wu && wu.message)
+            ? 'Bridge warming up - ' + wu.message
           : 'Bridge warming up - waiting for MT5 connection...';
         window._croLiveMode = data.cards_auto_refresh !== false;
         setSub(msg, false);
@@ -699,6 +709,13 @@
         }
         if (data.waiting) {
           window._croLiveMode = data.cards_auto_refresh !== false;
+          if (data.daily || data.monthly) {
+            renderCroCards(data.cro_cards, data.daily, data.monthly, data);
+            if (data.tables_live_scope_only) {
+              renderLiveScopeOnlyTables();
+            }
+            if (data.daily && !looksEmpty(data.daily)) _hasGoodData = true;
+          }
           var wu = data.warmup_status;
           if (wu && wu.message) setSub('Bridge warming up - ' + wu.message, false);
           return;
@@ -947,7 +964,7 @@ function downloadReport() {
 
   var btn = document.getElementById('reportDownloadBtn');
   btn.disabled = true;
-  btn.textContent = 'Generating…';
+  btn.textContent = 'Generating...';
 
   var body = {type: _reportType, format: fmt, from_date: from, to_date: to};
   fetch('/cro/report', {
