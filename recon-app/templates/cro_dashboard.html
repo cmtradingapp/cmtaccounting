@@ -635,7 +635,7 @@
     var d = document.getElementById('croDate').value;
     var g = document.getElementById('croGroup').value;
     var s = document.getElementById('croSource').value;
-    setSub('Loading…', false);
+    setSub('Loading...', false);
     var q = '?date=' + encodeURIComponent(d) +
             '&group=' + encodeURIComponent(g) +
             '&source=' + encodeURIComponent(s);
@@ -644,15 +644,15 @@
       if (data.waiting && !data.cro_cards) {
         var wu = data.warmup_status;
         var msg = (wu && wu.message)
-          ? 'Bridge warming up — ' + wu.message
-          : 'Bridge warming up — waiting for MT5 connection…';
+          ? 'Bridge warming up - ' + wu.message
+          : 'Bridge warming up - waiting for MT5 connection...';
         window._croLiveMode = data.cards_auto_refresh !== false;
         setSub(msg, false);
         return;
       }
       // Zero-flash guard: don't overwrite good values with transient zeros.
       if (data.daily && _hasGoodData && looksEmpty(data.daily)) {
-        setSub('Bridge reconnecting — holding last values…', false);
+        setSub('Bridge reconnecting - holding last values...', false);
         return;
       }
       if (data.daily && !looksEmpty(data.daily)) _hasGoodData = true;
@@ -669,8 +669,8 @@
         renderSymbolTable(data.by_symbol);
         renderTrendTable(data.trend);
       }
-      var fb = data.fellback ? ' · latest data: ' + data.date + ' (requested ' + data.requested + ')' : '';
-      var baseText = 'Source ' + data.source + ' · group ' + data.group_mask + ' · ' + data.requested + fb;
+      var fb = data.fellback ? ' - latest data: ' + data.date + ' (requested ' + data.requested + ')' : '';
+      var baseText = 'Source ' + data.source + ' - group ' + data.group_mask + ' - ' + data.requested + fb;
       setSub(baseText, false);
       window._croLiveMode = !!data.cards_auto_refresh;
     }).catch(function (e) { setSub('Fetch failed: ' + e.message, true); });
@@ -700,7 +700,7 @@
         if (data.waiting) {
           window._croLiveMode = data.cards_auto_refresh !== false;
           var wu = data.warmup_status;
-          if (wu && wu.message) setSub('Bridge warming up â€” ' + wu.message, false);
+          if (wu && wu.message) setSub('Bridge warming up - ' + wu.message, false);
           return;
         }
         if (!data.daily && !data.cro_cards) return;
@@ -723,8 +723,8 @@
 
     function updateSub(data) {
       var ts = _lastUpdated ? _lastUpdated.toLocaleTimeString() : '';
-      var fb = data.fellback ? ' · latest: ' + data.date : '';
-      var base = 'Source ' + data.source + ' · ' + data.requested + fb + (ts ? ' · updated ' + ts : '');
+      var fb = data.fellback ? ' - latest: ' + data.date : '';
+      var base = 'Source ' + data.source + ' - ' + data.requested + fb + (ts ? ' - updated ' + ts : '');
       setSub(base, false);
     }
 
@@ -738,7 +738,7 @@
         sub.textContent = base;
         return;
       }
-      sub.textContent = base + '  ·  next in ' + remaining + 's';
+      sub.textContent = base + ' - next in ' + remaining + 's';
     }, 500);
 
     function scheduleCards() {

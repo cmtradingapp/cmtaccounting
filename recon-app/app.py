@@ -2923,8 +2923,10 @@ def _cro_cards_get_snapshot_state(payload):
     return {"status": "running"}
 
 
-def _cro_cards_fetch_cached(payload):
-    """Fetch cro-cards with a short TTL cache + per-scope dedupe.
+def _cro_cards_fetch_cached_legacy(payload):
+    """Legacy blocking helper left only for reference; do not use."""
+    raise RuntimeError("Legacy cro-cards cache helper is disabled.")
+    """
 
     Multiple concurrent callers for the same scope share one MT5 call, and a
     fresh result is reused for `_CRO_CARDS_TTL_S` seconds so the dashboard's

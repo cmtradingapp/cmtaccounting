@@ -299,6 +299,7 @@ public sealed class MT5LivePusher
 	        WdEquityPollingState wdPolling = null;
 	        int slowCycle = slowEvery;
 	        int refreshCycle = 60;
+            bool fastSeedPushed = false;
 
         try
         {
@@ -316,6 +317,7 @@ public sealed class MT5LivePusher
 	                        wdPolling = null;
 	                        slowCycle = slowEvery;
 	                        refreshCycle = 60;
+                            fastSeedPushed = false;
                         Console.Error.WriteLine(
                             string.Format(
                                 ci,
@@ -350,12 +352,22 @@ public sealed class MT5LivePusher
                         closedPnlCalculator,
                         ci);
 
-                    if (fast.PositionCount == 0 && fast.TraderLogins.Count == 0)
-                    {
+	                    if (fast.PositionCount == 0 && fast.TraderLogins.Count == 0)
+	                    {
                         Console.Error.WriteLine("[pusher] sanity: 0 positions + 0 traders -- skipping");
 	                        Thread.Sleep(intervalSeconds * 1000);
 	                        continue;
 	                    }
+
+                        if (!fastSeedPushed)
+                        {
+                            var seedPayload = BuildPayload(settings, loginContexts, fast, slow, wdPolling, wdEquityConfig, nowUtc, ci);
+                            seedPayload.cro_cards = null;
+                            Console.Error.WriteLine("[pusher] first fast payload ready; pushing partial cards while WD/slow stats warm up.");
+                            Console.WriteLine(SerializeJson(seedPayload));
+                            Console.Out.Flush();
+                            fastSeedPushed = true;
+                        }
 
 	                    if (IsWdRefreshDue(wdPolling, nowUtc))
 	                    {
