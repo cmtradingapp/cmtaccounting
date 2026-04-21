@@ -11,6 +11,7 @@ It currently includes:
 - Manager-style daily report generation via `DailyRequestByGroup`
 - current Trading Accounts snapshot generation via `UserAccountRequestArray`
 - Manager-style deposit and withdrawal report generation from `DEAL_BALANCE` rows
+- live WD Equity Z generation from Trading Accounts balances/profit plus CRM cumulative bonuses
 - WD Equity Z generation from MT5 daily rows plus filtered protected-bonus balance deals
 - Daily PnL Cash generation from MT5 daily rows, protected-bonus balances, and filtered deposit/withdrawal deals
 - Manager-style positions history generation from closed deal legs
@@ -25,9 +26,10 @@ To reuse it in another project:
 1. Copy `Mt5MonitorApiBundle.cs`
 2. Reference `MetaQuotes.MT5CommonAPI64.dll`
 3. Reference `MetaQuotes.MT5ManagerAPI64.dll`
-4. Reference `System.Runtime.Serialization`
-5. Reference `System.Xml`
-6. Target `.NET Framework 4.8 x64`
+4. Reference `System.Data`
+5. Reference `System.Runtime.Serialization`
+6. Reference `System.Xml`
+7. Target `.NET Framework 4.8 x64`
 
 The existing `Mt5Monitor.Api` project compiles this file directly, so the GUI
 and the reusable bundle stay in sync.
@@ -54,6 +56,8 @@ Useful entry points:
 - `Mt5DailyClosedPnlCalculator.Calculate(snapshot, usdRates)` calculates Daily Closed PnL from raw positions-history footer totals
 - `Mt5DailyClosedPnlCalculator.Calculate(rows, usdRates)` recalculates the same value from raw positions rows in memory
 - `Mt5UsdRateLoader.LoadLiveRates(settings)` loads the live bid/ask USD conversion table from MT5
+- `Mt5LiveWdEquityZGenerator.Generate(settings, request)` calculates live WD Equity Z from current Trading Accounts balances/profit plus CRM cumulative bonus totals
+- `Mt5LiveWdEquityZCalculator.Calculate(...)` can also calculate the same live metric from already-loaded trading account rows, USD rates, and CRM bonus totals
 - `Mt5WdEquityZGenerator.Generate(settings, request)` calculates WD Equity Z for a report date using MT5 daily fields plus balance deals whose comment contains a protected-bonus marker
 - `Mt5WdEquityZCalculator.Calculate(...)` can also calculate the same metric from already-loaded daily rows and protected-bonus totals
 - `Mt5DailyPnlCashGenerator.Generate(settings, request)` calculates Daily PnL Cash for a report date using MT5 daily fields, protected-bonus balances, and filtered deposit/withdrawal balance deals
@@ -98,6 +102,16 @@ WD Equity Z example:
 
 ```csharp
 var settings = Mt5MonitorSettings.FromEnvironment();
+var liveRequest = new Mt5LiveWdEquityZRequest
+{
+    AsOfUtc = DateTime.UtcNow,
+    FilterZeroEquityAndBalance = true,
+    BonusScopePositiveBalanceOnly = true
+};
+
+Mt5LiveWdEquityZReport liveWdEquityZ =
+    Mt5LiveWdEquityZGenerator.Generate(settings, liveRequest);
+
 var request = new Mt5WdEquityZRequest
 {
     ReportDate = new DateTime(2026, 4, 6),
@@ -125,6 +139,9 @@ Mt5DailyPnlCashReport dailyPnlCash = Mt5DailyPnlCashGenerator.Generate(settings,
 
 Notes:
 
+- Live WD Equity Z uses `max(0, sum(Balance USD) + sum(Floating PNL USD) - Cumulative Bonus USD)`.
+- Live cumulative bonuses are read from CRM `report.vtiger_mttransactions` using approved `Deposit/Bonus` and `Deposit/FRF Commission` rows as positive amounts, net of approved `Withdrawal/BonusCancelled` and `Withdrawal/FRF Commission Cancelled` rows.
+- The live WD request filters out zero-equity and zero-balance accounts by default and only queries CRM bonuses for included positive-balance logins by default.
 - Start equity comes from MT5 `EquityPrevDay`.
 - Start credits are derived as `Credit - DailyCredit` because MT5 daily rows do not expose a `CreditPrevDay` field.
 - `BonusHistoryFrom` should reach far enough back to capture the protected-bonus balance you want to subtract; otherwise both start and end bonus totals will be understated.

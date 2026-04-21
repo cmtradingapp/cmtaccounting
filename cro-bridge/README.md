@@ -6,9 +6,14 @@ by-symbol breakdown) every 30s and POSTs it to the recon-app `/cro/feed`
 endpoint. The dashboard at `recon.cmtrading.com/cro` reads entirely from
 these live pushes — **Dealio is no longer used** for the CRO panel.
 
-The live pusher now computes `WD Equity Z` from live MT5 Trading Accounts:
-sum all live account `Equity`, subtract all live account `Credit`, convert both
-to USD first, then subtract protected-bonus balance deals. Because the Trading
+The live pusher now computes `WD Equity Z` from live MT5 Trading Accounts plus
+CRM cumulative bonus data:
+
+`max(0, sum(Balance USD) + sum(Floating PNL USD) - Cumulative Bonus USD)`
+
+The MT5 side comes from current Trading Accounts rows. The cumulative bonus
+side is read live from CRM `report.vtiger_mttransactions`, using approved
+bonus / FRF commission rows net of approved cancellations. Because the Trading
 Accounts pull is heavy on large books, the bridge caches that result and
 refreshes it every 15 minutes by default instead of recomputing it on each
 2-second live push. For backward compatibility the payload still includes
@@ -59,21 +64,35 @@ CI does this automatically when `cro-bridge/` changes under `main`.
 | `MT5_LOGIN`          | `1111` |
 | `MT5_SERVER`         | `176.126.66.18:1950` |
 | `CRO_BRIDGE_SECRET`  | shared secret for `/cro/feed` header |
+| `CRM_HOST`           | CRM SQL Server host |
+| `CRM_PORT`           | CRM SQL Server port, usually `1433` |
+| `CRM_DB`             | CRM database name |
+| `CRM_USER`           | CRM SQL user |
+| `CRM_PASS`           | CRM SQL password |
 
 ## Optional WD Equity Z env vars
 
 | Var | Default | Purpose |
 |---|---|---|
-| `CRO_WD_EQUITY_MODE` | `live_end_only` | live Trading Accounts WD mode; legacy values are accepted as aliases |
-| `CRO_WD_BONUS_COMMENT` | `Bonus Protected Trad` | substring used to identify protected-bonus balance deals |
-| `CRO_WD_BONUS_FROM` | current year start | `yyyy-MM-dd` history start used to reconstruct protected-bonus balances |
 | `CRO_WD_REFRESH_SECONDS` | `900` | refresh cadence for the heavy live Trading Accounts WD poll |
 
 The payload now also includes `wd_equity_z`, `wd_equity_legacy`, and a set of
-live-account breakdown/metadata fields such as `wd_equity_end_*`,
-`wd_equity_account_count`, `wd_equity_refreshed_at`, and
-`wd_equity_refresh_seconds` to make validation against MT5 Manager screens
-easier.
+live-account breakdown/metadata fields such as:
+
+- `wd_equity_balance_usd`
+- `wd_equity_floating_usd`
+- `wd_equity_cumulative_bonus_usd`
+- `wd_equity_pre_clamp_usd`
+- `wd_equity_raw_account_count`
+- `wd_equity_account_count`
+- `wd_equity_bonus_scope_login_count`
+- `wd_equity_crm_matched_login_count`
+- `wd_equity_crm_transaction_count`
+- `wd_equity_refreshed_at`
+- `wd_equity_refresh_seconds`
+
+This makes it easier to validate the live raw formula against MT5 Manager and
+CRM source data.
 
 ## Zero-downtime guarantees
 
