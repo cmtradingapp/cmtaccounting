@@ -2506,7 +2506,7 @@ def cro_data():
     is_requested_live_scope = requested_date == today_iso and requested_group == live_group and requested_source == live_source
     is_default_live_scope = has_data and is_requested_live_scope
 
-    if not is_default_live_scope and not (not has_data and is_requested_live_scope):
+    if not is_default_live_scope:
         try:
             raw = _cro_report_fetch({
                 "type": "cro-cards",
@@ -2536,6 +2536,7 @@ def cro_data():
                 "live_age_s": None,
                 "waiting": False,
                 "tables_live_scope_only": True,
+                "cards_auto_refresh": is_requested_live_scope,
             })
         except Exception as exc:
             return jsonify({"error": str(exc)}), 502
@@ -2702,6 +2703,7 @@ def cro_data():
         "live_age_s": age if has_data else None,
         "waiting":    not has_data,
         "tables_live_scope_only": False,
+        "cards_auto_refresh": True,
     })
 
 
