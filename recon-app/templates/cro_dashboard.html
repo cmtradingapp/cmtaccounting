@@ -68,14 +68,12 @@
   margin-bottom: 10px;
 }
 .ck-val {
-  font-size: clamp(17px, 1.7vw, 26px);
+  font-size: clamp(13px, 1.15vw, 19px);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -.02em;
-  line-height: 1;
+  line-height: 1.08;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .ck.neg .ck-val { color: var(--red); }
 .ck.pos .ck-val { color: var(--green); }
@@ -324,11 +322,16 @@
   var cls    = function (n) { return Number(n) > 0 ? 'pos' : Number(n) < 0 ? 'neg' : ''; };
 
   // Zero-flash guard: once we have real data, refuse to overwrite with all-zeros.
-  // Both n_accounts and n_traders being 0 means the bridge is mid-reconnect, not
-  // that the market is actually empty.
+  // "Truly empty" means every fast-data signal is zero — no positions, no floating
+  // PnL, no traders. If any of those are non-zero we have real data even if the
+  // closed-deal count hasn't populated yet (fast seed before first closed deal).
   var _hasGoodData = false;
   function looksEmpty(s) {
-    return Number(s.n_accounts || 0) === 0 && Number(s.n_traders || 0) === 0;
+    return Number(s.n_accounts || 0) === 0
+        && Number(s.n_traders || 0) === 0
+        && Number(s.n_positions || 0) === 0
+        && Number(s.floating_pnl || 0) === 0
+        && Number(s.equity || 0) === 0;
   }
 
   function renderLegacyCards(daily, monthly, bundle) {
