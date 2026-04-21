@@ -19,10 +19,15 @@ _CRO_LIVE_LOCK = threading.Lock()
 _CRO_LIVE_MAX_AGE_S = 90  # after 90s without a push, fall back to Dealio snapshot
 _CRO_STATUS: dict = {}     # last warmup/status message posted by the bridge
 _CRO_STATUS_LOCK = threading.Lock()
+_CRO_CARDS_CACHE: dict = {}   # scope_key -> async snapshot state/result
+_CRO_CARDS_META_LOCK = threading.Lock()  # guards the cards cache
+_CRO_CARDS_TTL_S = max(3, int(os.environ.get("CRO_CARDS_TTL_S", "10")))
+_CRO_CARDS_ERROR_TTL_S = max(3, int(os.environ.get("CRO_CARDS_ERROR_TTL_S", "10")))
 _CRO_REPORT_JOBS: dict = {}
 _CRO_REPORT_JOBS_LOCK = threading.Lock()
 _CRO_REPORT_JOB_TTL_S = max(300, int(os.environ.get("CRO_REPORT_JOB_TTL_S", "3600")))
 _CRO_REPORT_TIMEOUT_S = max(30, int(os.environ.get("CRO_REPORT_TIMEOUT_S", "630")))
+_CRO_CARDS_PENDING_TTL_S = max(_CRO_REPORT_TIMEOUT_S + 30, int(os.environ.get("CRO_CARDS_PENDING_TTL_S", "660")))
 _CRO_REPORT_VALID_TYPES = {"deposit-withdrawal", "positions-history", "trading-accounts"}
 _CRO_REPORT_VALID_FORMATS = {"json", "csv"}
 
@@ -2530,31 +2535,31 @@ def cro_data():
     live_source = (live.get("source") or "AN100").strip() or "AN100"
     today_iso = date.today().isoformat()
     is_requested_live_scope = requested_date == today_iso and requested_group == live_group and requested_source == live_source
-    is_default_live_scope = has_data and is_requested_live_scope
+    live_is_fresh = has_data and age < _CRO_LIVE_MAX_AGE_S
+    is_default_live_scope = live_is_fresh and is_requested_live_scope
 
-    # Only fetch on-demand cro-cards from the bridge when the user has explicitly
-    # requested a non-live scope (different date/group/source). When live scope is
-    # requested but the live pusher hasn't pushed yet, let the caller show the
-    # "waiting" state instead of opening a competing MT5 Manager connection —
-    # the report server's own connection would conflict with the live pusher's.
-    if not is_default_live_scope and not is_requested_live_scope:
+    if not is_default_live_scope:
+        payload = {
+            "type": "cro-cards",
+            "format": "json",
+            "from_date": requested_date,
+            "to_date": requested_date,
+            "group_mask": requested_group,
+            "source": requested_source,
+        }
         try:
-            raw = _cro_report_fetch({
-                "type": "cro-cards",
-                "format": "json",
-                "from_date": requested_date,
-                "to_date": requested_date,
-                "group_mask": requested_group,
-                "source": requested_source,
-            })
-            bundle = json.loads(raw.decode("utf-8", errors="replace"))
+            snapshot = _cro_cards_get_snapshot_state(payload)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 502
+
+        if snapshot["status"] == "ready":
             return jsonify({
                 "date": requested_date,
                 "requested": requested_date,
                 "fellback": False,
                 "source": requested_source,
                 "group_mask": requested_group,
-                "cro_cards": bundle,
+                "cro_cards": snapshot["bundle"],
                 "by_group": [],
                 "by_symbol": [],
                 "closed_pnl_by_ccy": [],
@@ -2563,15 +2568,51 @@ def cro_data():
                 "snap_login_count": 0,
                 "trend": [],
                 "live_pushed_at": None,
-                "live_stale": False,
-                "live_age_s": None,
+                "live_stale": not live_is_fresh,
+                "live_age_s": age if has_data else None,
                 "waiting": False,
                 "warmup_status": warmup_status,
                 "tables_live_scope_only": True,
                 "cards_auto_refresh": is_requested_live_scope,
             })
-        except Exception as exc:
-            return jsonify({"error": str(exc)}), 502
+
+        if snapshot["status"] == "error":
+            return jsonify({"error": snapshot["error"]}), 502
+
+        waiting_message = None
+        if warmup_status and warmup_status.get("message"):
+            waiting_message = warmup_status.get("message")
+        elif is_requested_live_scope:
+            waiting_message = "Preparing CRO cards while live MT5 data warms up..."
+        else:
+            waiting_message = "Preparing workbook cards for the selected scope..."
+
+        waiting_status = dict(warmup_status or {})
+        waiting_status.setdefault("phase", "snapshot_pending")
+        waiting_status["message"] = waiting_message
+
+        return jsonify({
+            "date": requested_date,
+            "requested": requested_date,
+            "fellback": False,
+            "source": requested_source,
+            "group_mask": requested_group,
+            "cro_cards": None,
+            "by_group": [],
+            "by_symbol": [],
+            "closed_pnl_by_ccy": [],
+            "monthly_closed_pnl_by_ccy": [],
+            "closed_pnl_by_group": [],
+            "snap_login_count": 0,
+            "trend": [],
+            "live_pushed_at": live.get("pushed_at"),
+            "live_stale": not live_is_fresh,
+            "live_age_s": age if has_data else None,
+            "waiting": True,
+            "warmup_status": waiting_status,
+            "tables_live_scope_only": True,
+            "cards_auto_refresh": True,
+        })
 
     today     = date.today().isoformat()
     today_ym  = today[:7]   # "2026-04"
@@ -2808,6 +2849,121 @@ def _cro_report_fetch(payload):
         raise RuntimeError(body or f"Report server returned HTTP {exc.code}")
     except Exception as exc:
         raise RuntimeError(str(exc))
+
+
+def _cro_cards_get_snapshot_state(payload):
+    """Return cro-cards snapshot state without blocking the request thread."""
+    key = (
+        payload["from_date"],
+        payload["to_date"],
+        payload["group_mask"],
+        payload["source"],
+    )
+    now = time.monotonic()
+
+    with _CRO_CARDS_META_LOCK:
+        expired = []
+        for existing_key, entry in list(_CRO_CARDS_CACHE.items()):
+            status = entry.get("status")
+            expires_at = float(entry.get("expires_at", 0) or 0)
+            started_at = float(entry.get("started_at", 0) or 0)
+            if status == "running":
+                if started_at and (now - started_at) > _CRO_CARDS_PENDING_TTL_S:
+                    expired.append(existing_key)
+                continue
+            if expires_at and expires_at <= now:
+                expired.append(existing_key)
+        for expired_key in expired:
+            _CRO_CARDS_CACHE.pop(expired_key, None)
+
+        entry = _CRO_CARDS_CACHE.get(key)
+        if entry:
+            status = entry.get("status")
+            if status == "ready":
+                return {"status": "ready", "bundle": entry.get("bundle")}
+            if status == "running":
+                return {"status": "running"}
+            if status == "error":
+                return {"status": "error", "error": entry.get("error") or "Failed to generate CRO cards."}
+
+        _CRO_CARDS_CACHE[key] = {
+            "status": "running",
+            "bundle": None,
+            "error": None,
+            "started_at": now,
+            "updated_at": now,
+            "expires_at": now + _CRO_CARDS_PENDING_TTL_S,
+        }
+
+    def _worker():
+        try:
+            raw = _cro_report_fetch(payload)
+            bundle = json.loads(raw.decode("utf-8", errors="replace"))
+            with _CRO_CARDS_META_LOCK:
+                _CRO_CARDS_CACHE[key] = {
+                    "status": "ready",
+                    "bundle": bundle,
+                    "error": None,
+                    "started_at": 0,
+                    "updated_at": time.monotonic(),
+                    "expires_at": time.monotonic() + _CRO_CARDS_TTL_S,
+                }
+        except Exception as exc:
+            with _CRO_CARDS_META_LOCK:
+                _CRO_CARDS_CACHE[key] = {
+                    "status": "error",
+                    "bundle": None,
+                    "error": str(exc),
+                    "started_at": 0,
+                    "updated_at": time.monotonic(),
+                    "expires_at": time.monotonic() + _CRO_CARDS_ERROR_TTL_S,
+                }
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return {"status": "running"}
+
+
+def _cro_cards_fetch_cached(payload):
+    """Fetch cro-cards with a short TTL cache + per-scope dedupe.
+
+    Multiple concurrent callers for the same scope share one MT5 call, and a
+    fresh result is reused for `_CRO_CARDS_TTL_S` seconds so the dashboard's
+    frequent auto-refresh doesn't thrash the bridge's MT5 connection (which
+    would conflict with the live pusher's own Manager API connection).
+    """
+    key = (payload["from_date"], payload["to_date"], payload["group_mask"], payload["source"])
+    now = time.monotonic()
+    with _CRO_CARDS_META_LOCK:
+        entry = _CRO_CARDS_CACHE.get(key)
+        if entry and entry[0] > now:
+            return entry[1]
+        lock = _CRO_CARDS_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _CRO_CARDS_LOCKS[key] = lock
+
+    with lock:
+        # Re-check cache — another thread may have just populated it.
+        now = time.monotonic()
+        with _CRO_CARDS_META_LOCK:
+            entry = _CRO_CARDS_CACHE.get(key)
+            if entry and entry[0] > now:
+                return entry[1]
+        raw = _cro_report_fetch(payload)
+        bundle = json.loads(raw.decode("utf-8", errors="replace"))
+        with _CRO_CARDS_META_LOCK:
+            _CRO_CARDS_CACHE[key] = (time.monotonic() + _CRO_CARDS_TTL_S, bundle)
+        return bundle
+
+
+def _cro_cards_fetch_cached(payload):
+    """Backward-compatible synchronous wrapper around the async snapshot state."""
+    snapshot = _cro_cards_get_snapshot_state(payload)
+    if snapshot["status"] == "ready":
+        return snapshot["bundle"]
+    if snapshot["status"] == "error":
+        raise RuntimeError(snapshot["error"])
+    raise RuntimeError("CRO cards snapshot is still pending.")
 
 
 def _cro_report_start_job(payload):
