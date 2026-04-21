@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -27,6 +28,7 @@ import urllib.request
 import urllib.error
 
 FEED_URL    = os.environ.get("CRO_FEED_URL", "http://recon:5050/cro/feed")
+STATUS_URL  = os.environ.get("CRO_STATUS_URL", "http://recon:5050/cro/status")
 SECRET      = os.environ.get("CRO_BRIDGE_SECRET", "")
 EXE_PATH    = os.environ.get("CRO_LIVE_EXE", "/app/MT5LivePusher.exe")
 HEALTH_FILE = "/tmp/last_push"
@@ -50,6 +52,47 @@ def push(payload: dict) -> int:
         return 0
 
 
+def _status_post(phase: str, message: str) -> None:
+    """Fire-and-forget status update to Flask so the dashboard can show warmup state."""
+    try:
+        data = json.dumps({"phase": phase, "message": message}).encode()
+        req = urllib.request.Request(
+            STATUS_URL, data=data,
+            headers={"Content-Type": "application/json", "X-Bridge-Secret": SECRET},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=3).read()
+    except Exception:
+        pass  # status is best-effort; never block the pusher
+
+
+def _derive_status(line: str) -> tuple[str, str] | None:
+    """Map a [pusher] stderr line to a (phase, human-readable message) pair."""
+    if "Waiting for position pump" in line:
+        return "connecting", "Connecting to MT5 Manager API…"
+    if line.startswith("[pusher] Connected.") or " Connected." in line:
+        return "connected", "Connected to MT5. Loading metadata…"
+    m = re.search(r"connected\. groups=(\S+) logins=(\S+) fx_rates=(\S+)", line)
+    if m:
+        return ("loaded",
+                f"Loaded {m.group(1)} groups, {m.group(2)} accounts, {m.group(3)} FX rates. Polling account balances…")
+    if "wd refresh: polling live Trading Accounts" in line:
+        return "wd_refresh_start", "Polling live Trading Accounts for WD Equity Z (~45s)…"
+    m = re.search(r"wd refresh: raw=(\S+) included=(\S+) .* took=(\S+)", line)
+    if m:
+        return ("wd_refresh_done",
+                f"WD Equity Z computed over {m.group(1)} accounts ({m.group(2)} included) in {m.group(3)}.")
+    if "seeding FTD known-depositors" in line:
+        return "ftd_seed", "Seeding first-time-depositor registry from YTD deals…"
+    if "FTD seed done" in line:
+        m2 = re.search(r"FTD seed done: (\S+) known depositors YTD", line)
+        if m2:
+            return "ftd_done", f"FTD registry seeded: {m2.group(1)} known depositors. Finalizing first push…"
+    if "Connect failed" in line or "retrying connection" in line:
+        return "reconnecting", "MT5 connection dropped — reconnecting…"
+    return None
+
+
 def run_exe_session() -> None:
     """Start the exe, forward stderr, read JSON lines until exit."""
     print(f"[live-pusher] starting {EXE_PATH}", flush=True)
@@ -64,9 +107,16 @@ def run_exe_session() -> None:
     )
 
     # Forward exe stderr (includes Wine fixme lines and [pusher] logs) to our stderr.
+    # Also parse [pusher] lines for warmup status and forward them to Flask.
     def fwd_stderr() -> None:
         for line in proc.stderr:
-            print(f"[exe] {line.rstrip()}", file=sys.stderr, flush=True)
+            clean = line.rstrip()
+            print(f"[exe] {clean}", file=sys.stderr, flush=True)
+            if "[pusher]" in clean:
+                status = _derive_status(clean)
+                if status is not None:
+                    phase, message = status
+                    _status_post(phase, message)
 
     t = threading.Thread(target=fwd_stderr, daemon=True)
     t.start()

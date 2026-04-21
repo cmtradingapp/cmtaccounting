@@ -17,6 +17,8 @@ load_dotenv()
 _CRO_LIVE: dict = {}
 _CRO_LIVE_LOCK = threading.Lock()
 _CRO_LIVE_MAX_AGE_S = 90  # after 90s without a push, fall back to Dealio snapshot
+_CRO_STATUS: dict = {}     # last warmup/status message posted by the bridge
+_CRO_STATUS_LOCK = threading.Lock()
 _CRO_REPORT_JOBS: dict = {}
 _CRO_REPORT_JOBS_LOCK = threading.Lock()
 _CRO_REPORT_JOB_TTL_S = max(300, int(os.environ.get("CRO_REPORT_JOB_TTL_S", "3600")))
@@ -2465,6 +2467,28 @@ def cro_feed():
         _CRO_LIVE.clear()
         _CRO_LIVE.update(data)
         _CRO_LIVE["received_at"] = datetime.utcnow().isoformat()
+    # First successful push — clear warmup status so the UI stops showing it.
+    with _CRO_STATUS_LOCK:
+        _CRO_STATUS.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/cro/status", methods=["POST"])
+def cro_status():
+    """Receive warmup/status updates from the bridge during slow init phases."""
+    bridge_secret = os.environ.get("CRO_BRIDGE_SECRET", "")
+    incoming = request.headers.get("X-Bridge-Secret", "")
+    if not bridge_secret or not hmac.compare_digest(incoming, bridge_secret):
+        return jsonify({"ok": False}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    phase = (data.get("phase") or "").strip()
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"ok": False}), 400
+    with _CRO_STATUS_LOCK:
+        _CRO_STATUS["phase"] = phase
+        _CRO_STATUS["message"] = message
+        _CRO_STATUS["at"] = datetime.utcnow().isoformat()
     return jsonify({"ok": True})
 
 
@@ -2495,6 +2519,8 @@ def cro_data():
         age = (datetime.utcnow() - datetime.fromisoformat(live["received_at"])).total_seconds() if has_data else 9e9
     except Exception:
         age = 9e9
+    with _CRO_STATUS_LOCK:
+        warmup_status = dict(_CRO_STATUS) if _CRO_STATUS else None
 
     normalize_group = lambda value: ((value or "").strip() or "CMV*").replace("%", "*")
     requested_date = (request.args.get("date") or date.today().isoformat()).strip()
@@ -2506,7 +2532,12 @@ def cro_data():
     is_requested_live_scope = requested_date == today_iso and requested_group == live_group and requested_source == live_source
     is_default_live_scope = has_data and is_requested_live_scope
 
-    if not is_default_live_scope:
+    # Only fetch on-demand cro-cards from the bridge when the user has explicitly
+    # requested a non-live scope (different date/group/source). When live scope is
+    # requested but the live pusher hasn't pushed yet, let the caller show the
+    # "waiting" state instead of opening a competing MT5 Manager connection —
+    # the report server's own connection would conflict with the live pusher's.
+    if not is_default_live_scope and not is_requested_live_scope:
         try:
             raw = _cro_report_fetch({
                 "type": "cro-cards",
@@ -2535,6 +2566,7 @@ def cro_data():
                 "live_stale": False,
                 "live_age_s": None,
                 "waiting": False,
+                "warmup_status": warmup_status,
                 "tables_live_scope_only": True,
                 "cards_auto_refresh": is_requested_live_scope,
             })
@@ -2702,6 +2734,7 @@ def cro_data():
         "live_stale":  (not has_data) or age >= _CRO_LIVE_MAX_AGE_S,
         "live_age_s": age if has_data else None,
         "waiting":    not has_data,
+        "warmup_status": warmup_status,
         "tables_live_scope_only": False,
         "cards_auto_refresh": True,
     })
