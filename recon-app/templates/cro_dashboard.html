@@ -610,6 +610,7 @@
     var el = document.getElementById('croSub');
     el.textContent = text;
     el.style.color = isError ? 'var(--red)' : 'var(--text-2)';
+    el.setAttribute('data-base', text);
   }
 
   function load() {
@@ -648,8 +649,7 @@
       var fb = data.fellback ? ' · latest data: ' + data.date + ' (requested ' + data.requested + ')' : '';
       var baseText = 'Source ' + data.source + ' · group ' + data.group_mask + ' · ' + data.requested + fb;
       setSub(baseText, false);
-      document.getElementById('croSub').setAttribute('data-base', baseText);
-      window._croLiveMode = !!(data.cro_cards && ((data.cro_cards.meta && data.cro_cards.meta.live) || (data.cro_cards.Meta && data.cro_cards.Meta.Live)));
+      window._croLiveMode = !!data.cards_auto_refresh;
     }).catch(function (e) { setSub('Fetch failed: ' + e.message, true); });
   }
 
@@ -693,7 +693,6 @@
       var fb = data.fellback ? ' · latest: ' + data.date : '';
       var base = 'Source ' + data.source + ' · ' + data.requested + fb + (ts ? ' · updated ' + ts : '');
       setSub(base, false);
-      document.getElementById('croSub').setAttribute('data-base', base);
     }
 
     // ── Countdown ticker ──────────────────────────────────────────────────────
@@ -702,6 +701,10 @@
       var remaining = Math.max(0, Math.ceil((_nextRefreshAt - Date.now()) / 1000));
       var sub = document.getElementById('croSub');
       var base = sub.getAttribute('data-base') || sub.textContent;
+      if (window._croLiveMode === false) {
+        sub.textContent = base;
+        return;
+      }
       sub.textContent = base + '  ·  next in ' + remaining + 's';
     }, 500);
 
