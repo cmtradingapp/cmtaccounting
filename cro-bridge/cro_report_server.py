@@ -1,9 +1,11 @@
 """cro-report-server — HTTP server that runs on-demand MT5 reports.
 
 Listens on :5051; accepts POST /report with JSON body:
-  {"type": "deposit-withdrawal"|"positions-history"|"trading-accounts"|"wd-equity-audit",
+  {"type": "deposit-withdrawal"|"positions-history"|"trading-accounts"|"wd-equity-audit"|"cro-cards",
    "from_date": "YYYY-MM-DD",  (omit for trading-accounts)
    "to_date":   "YYYY-MM-DD",  (omit for trading-accounts)
+   "group_mask": "CMV*",
+   "source": "AN100",
    "format":    "json"|"csv"}
 
 Invokes wine /app/MT5Reporter.exe with the appropriate args and streams
@@ -25,7 +27,7 @@ CONTENT_TYPES = {
     "csv":  "text/csv",
 }
 
-REPORT_TYPES = {"deposit-withdrawal", "positions-history", "trading-accounts", "wd-equity-audit"}
+REPORT_TYPES = {"deposit-withdrawal", "positions-history", "trading-accounts", "wd-equity-audit", "cro-cards"}
 
 
 def _decode_log_bytes(raw: bytes) -> str:
@@ -56,6 +58,8 @@ class ReportHandler(BaseHTTPRequestHandler):
         fmt         = (req.get("format") or "json").strip().lower()
         from_date   = (req.get("from_date") or "").strip()
         to_date     = (req.get("to_date") or "").strip()
+        group_mask  = (req.get("group_mask") or "").strip()
+        source      = (req.get("source") or "").strip()
 
         if report_type not in REPORT_TYPES:
             self._reply(400, "text/plain",
@@ -64,6 +68,10 @@ class ReportHandler(BaseHTTPRequestHandler):
 
         if fmt not in CONTENT_TYPES:
             self._reply(400, "text/plain", b"format must be json or csv")
+            return
+
+        if report_type == "cro-cards" and fmt != "json":
+            self._reply(400, "text/plain", b"cro-cards supports json only")
             return
 
         if report_type in {"trading-accounts", "wd-equity-audit"}:
@@ -76,6 +84,10 @@ class ReportHandler(BaseHTTPRequestHandler):
 
         cmd = ["wine", EXE_PATH, report_type] + cmd_args
         env = os.environ.copy()
+        if group_mask:
+            env["CRO_GROUP"] = group_mask
+        if source:
+            env["CRO_SOURCE"] = source
         print(f"[report-server] running: {' '.join(cmd)}", file=sys.stderr, flush=True)
         try:
             result = subprocess.run(

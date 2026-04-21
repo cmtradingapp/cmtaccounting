@@ -13,8 +13,8 @@ public static class MT5Reporter
         if (args.Length < 2)
         {
             Console.Error.WriteLine("Usage: MT5Reporter.exe <report_type> [<from_date> <to_date>] <format>");
-            Console.Error.WriteLine("  report_type: deposit-withdrawal | positions-history | trading-accounts | wd-equity-audit");
-            Console.Error.WriteLine("  format: json | csv  (positions-history: json only)");
+            Console.Error.WriteLine("  report_type: deposit-withdrawal | positions-history | trading-accounts | wd-equity-audit | cro-cards");
+            Console.Error.WriteLine("  format: json | csv  (positions-history/cro-cards: json only)");
             return 1;
         }
 
@@ -73,6 +73,22 @@ public static class MT5Reporter
             if (reportType == "positions-history")
             {
                 string output = Mt5PositionHistoryGenerator.GenerateJson(settings, fromDate, toDate);
+                Console.Write(output);
+                return 0;
+            }
+
+            if (reportType == "cro-cards")
+            {
+                var request = new Mt5CroCardsRequest
+                {
+                    ReportDate = fromDate,
+                    AsOfUtc = DateTime.UtcNow,
+                    GroupMask = settings.GroupMask,
+                    Source = Environment.GetEnvironmentVariable("CRO_SOURCE") ?? "AN100",
+                    IncludeSpecs = true
+                };
+
+                string output = Mt5CroCardsGenerator.GenerateJson(settings, request, null, true);
                 Console.Write(output);
                 return 0;
             }

@@ -62,6 +62,7 @@ public sealed class MT5LivePusher
         }
 
         public double FloatingPnlUsd;
+        public double AbsExposureUsd;
         public int PositionCount;
         public int ClosingDealCount;
         public double VolumeUsd;
@@ -103,6 +104,7 @@ public sealed class MT5LivePusher
 	        public Dictionary<string, Dictionary<string, Mt5PositionHistoryCurrencyTotal>> ClosedTotalsByDay;
 	        public Mt5DailyClosedPnlResult ClosedPnl;
 	        public List<MonthlyByDayPayload> MonthlyByDay;
+            public Mt5CroCardsBundle CroCards;
 	    }
 
 	    private sealed class WdEquityBridgeConfig
@@ -199,6 +201,7 @@ public sealed class MT5LivePusher
         [DataMember] public List<ClosedPnlByGroupPayload> closed_pnl_by_group { get; set; }
         [DataMember] public string daily_closed_pnl_conversion_summary { get; set; }
         [DataMember] public string monthly_closed_pnl_conversion_summary { get; set; }
+        [DataMember] public Mt5CroCardsBundle cro_cards { get; set; }
     }
 
     [DataContract]
@@ -410,6 +413,22 @@ public sealed class MT5LivePusher
 	                            todayKey,
 	                            ci);
 
+                        slow.CroCards = Mt5CroCardsGenerator.Generate(
+                            manager,
+                            settings,
+                            new Mt5CroCardsRequest
+                            {
+                                ReportDate = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, ResolveCroTimeZone()).Date,
+                                AsOfUtc = nowUtc,
+                                GroupMask = settings.GroupMask,
+                                Source = "AN100",
+                                IncludeSpecs = true
+                            },
+                            groupCurrencies,
+                            loginContexts,
+                            usdRates,
+                            _ => { });
+
                         Console.Error.WriteLine(
                             string.Format(
                                 ci,
@@ -496,7 +515,9 @@ public sealed class MT5LivePusher
                     var position = positions.Next(i);
                     string positionCurrency = ResolveLoginCurrency(position.Login(), loginContexts, groupCurrencies, group.Key);
                     double native = position.Profit() + position.Storage();
+                    double lots = ToDisplayLots(position.Volume());
                     groupFloatingUsd += ConvertNativeToUsd(native, positionCurrency, usdRates, position.RateProfit());
+                    stats.AbsExposureUsd += Math.Abs(lots * position.ContractSize() * position.PriceCurrent());
                 }
 
                 stats.FloatingPnlUsd += groupFloatingUsd;
@@ -904,6 +925,15 @@ public sealed class MT5LivePusher
 	        bool hasWdReport = wdPolling != null && wdPolling.Report != null && wdReport.GeneratedAt != default(DateTime);
 	        double wdEquity = hasWdReport ? wdReport.PreClampWdEquityUsd : 0.0;
 	        double wdEquityClamped = hasWdReport ? wdReport.WdEquityZUsd : 0.0;
+            Mt5CroCardsBundle croCards = BuildCroCardsBundle(
+                slow.CroCards,
+                fast,
+                slow,
+                wdEquity,
+                wdEquityClamped,
+                totalEquity,
+                nowUtc,
+                ci);
 
         var bySymbol = fast.Symbols.Values
             .OrderByDescending(item => Math.Abs(item.NotionalUsd))
@@ -1036,7 +1066,8 @@ public sealed class MT5LivePusher
             by_group = byGroup,
             closed_pnl_by_group = fast.ClosedPnlByGroup,
             daily_closed_pnl_conversion_summary = dailyClosed.ConversionSummary,
-            monthly_closed_pnl_conversion_summary = monthlyClosed.ConversionSummary
+            monthly_closed_pnl_conversion_summary = monthlyClosed.ConversionSummary,
+            cro_cards = croCards
         };
     }
 
@@ -1341,6 +1372,82 @@ public sealed class MT5LivePusher
             return Math.Abs(lots * contractSize * price);
 
         return Math.Abs(lots * contractSize * price);
+    }
+
+    private static Mt5CroCardsBundle BuildCroCardsBundle(
+        Mt5CroCardsBundle bundle,
+        FastStats fast,
+        SlowStats slow,
+        double wdEquity,
+        double wdEquityClamped,
+        double totalEquity,
+        DateTime nowUtc,
+        CultureInfo ci)
+    {
+        Mt5CroCardsBundle value = bundle ?? new Mt5CroCardsBundle
+        {
+            Specs = Mt5CroWorkbookCards.Specs.ToList(),
+            Meta = new Mt5CroCardsMeta()
+        };
+
+        if (value.Meta == null)
+            value.Meta = new Mt5CroCardsMeta();
+
+        value.Meta.Live = true;
+        value.Meta.Mode = "live_fast_slow_bundle";
+        value.Meta.GeneratedAt = nowUtc.ToString("O", ci);
+        value.Meta.FastRefreshedAt = nowUtc.ToString("O", ci);
+        value.Meta.LivePushedAt = nowUtc.ToString("O", ci);
+
+        SetCardValue(value.Daily, "daily_net_deposits", fast.DepositsUsd + fast.WithdrawalsUsd, "fast");
+        SetCardValue(value.Daily, "daily_traders", fast.TraderLogins.Count, "fast");
+        SetCardValue(value.Daily, "daily_active_traders", fast.ActiveTraderLogins.Count, "fast");
+        SetCardValue(value.Daily, "daily_depositors", fast.DepositorLogins.Count, "fast");
+        SetCardValue(value.Daily, "daily_deposits", fast.DepositsUsd, "fast");
+        SetCardValue(value.Daily, "daily_volume", fast.VolumeUsd, "fast");
+        SetCardValue(value.Daily, "open_pnl", fast.FloatingPnlUsd, "fast");
+        SetCardValue(value.Daily, "end_equity", totalEquity, "fast");
+
+        SetCardValue(value.LiveInputs, "balance", slow.TotalBalanceUsd, "fast");
+        SetCardValue(value.LiveInputs, "credit", slow.TotalCreditUsd, "fast");
+        SetCardValue(value.LiveInputs, "end_equity", totalEquity, "fast");
+        SetCardValue(value.LiveInputs, "floating_pnl", fast.FloatingPnlUsd, "fast");
+        SetCardValue(value.LiveInputs, "closed_pnl", fast.ClosedPnl != null ? fast.ClosedPnl.TotalClosedPnlUsd : 0.0, "fast");
+        SetCardValue(value.LiveInputs, "raw_wd_equity", wdEquity, "fast");
+        SetCardValue(value.LiveInputs, "wd_equity_z", wdEquityClamped, "fast");
+        SetCardValue(value.LiveInputs, "abs_exposure", fast.AbsExposureUsd, "fast");
+
+        value.Daily.RefreshedAt = nowUtc.ToString("O", ci);
+        value.LiveInputs.RefreshedAt = nowUtc.ToString("O", ci);
+        if (string.IsNullOrWhiteSpace(value.Monthly.RefreshedAt))
+            value.Monthly.RefreshedAt = nowUtc.ToString("O", ci);
+
+        return value;
+    }
+
+    private static void SetCardValue(Mt5CroCardsSection section, string id, double value, string freshness)
+    {
+        if (section == null || section.Cards == null || string.IsNullOrWhiteSpace(id))
+            return;
+
+        Mt5CroCardValue card = section.Cards.FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (card == null)
+            return;
+
+        card.Value = value;
+        card.Freshness = freshness;
+    }
+
+    private static TimeZoneInfo ResolveCroTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Nicosia");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("GTB Standard Time");
+        }
     }
 
     private static string SerializeJson(object payload)

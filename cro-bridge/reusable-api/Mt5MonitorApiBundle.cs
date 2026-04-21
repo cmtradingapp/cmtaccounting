@@ -498,6 +498,99 @@ namespace Mt5Monitor.Api
         public IList<Mt5DepositWithdrawalCurrencyTotal> CurrencyTotals { get; set; }
     }
 
+    public sealed class Mt5CroCardSpec
+    {
+        public Mt5CroCardSpec()
+        {
+            Dependencies = new List<string>();
+            Exclusions = new List<string>();
+            FormulaNotes = new List<string>();
+        }
+
+        public string Id { get; set; }
+        public string Label { get; set; }
+        public string Section { get; set; }
+        public string Timeframe { get; set; }
+        public string Kind { get; set; }
+        public IList<string> Dependencies { get; set; }
+        public IList<string> Exclusions { get; set; }
+        public IList<string> FormulaNotes { get; set; }
+    }
+
+    public sealed class Mt5CroCardValue
+    {
+        public string Id { get; set; }
+        public string Label { get; set; }
+        public string Kind { get; set; }
+        public double Value { get; set; }
+        public string Freshness { get; set; }
+        public string Formula { get; set; }
+        public string Notes { get; set; }
+    }
+
+    public sealed class Mt5CroCardsSection
+    {
+        public Mt5CroCardsSection()
+        {
+            Cards = new List<Mt5CroCardValue>();
+        }
+
+        public string Key { get; set; }
+        public string Label { get; set; }
+        public string RefreshedAt { get; set; }
+        public IList<Mt5CroCardValue> Cards { get; set; }
+    }
+
+    public sealed class Mt5CroCardsMeta
+    {
+        public string Source { get; set; }
+        public string GroupMask { get; set; }
+        public string RequestedDate { get; set; }
+        public string ReportDate { get; set; }
+        public string Mode { get; set; }
+        public bool Live { get; set; }
+        public bool TablesLiveScopeOnly { get; set; }
+        public string GeneratedAt { get; set; }
+        public string FastRefreshedAt { get; set; }
+        public string SlowRefreshedAt { get; set; }
+        public string LivePushedAt { get; set; }
+        public string MarketTimezone { get; set; }
+        public string Notes { get; set; }
+    }
+
+    public sealed class Mt5CroCardsBundle
+    {
+        public Mt5CroCardsBundle()
+        {
+            Specs = new List<Mt5CroCardSpec>();
+            Daily = new Mt5CroCardsSection { Key = "daily", Label = "Daily" };
+            Monthly = new Mt5CroCardsSection { Key = "monthly", Label = "Monthly" };
+            LiveInputs = new Mt5CroCardsSection { Key = "live_inputs", Label = "Live Inputs" };
+        }
+
+        public Mt5CroCardsMeta Meta { get; set; }
+        public IList<Mt5CroCardSpec> Specs { get; set; }
+        public Mt5CroCardsSection Daily { get; set; }
+        public Mt5CroCardsSection Monthly { get; set; }
+        public Mt5CroCardsSection LiveInputs { get; set; }
+    }
+
+    public sealed class Mt5CroCardsRequest
+    {
+        public Mt5CroCardsRequest()
+        {
+            ReportDate = DateTime.Today;
+            AsOfUtc = DateTime.UtcNow;
+            IncludeSpecs = true;
+        }
+
+        public DateTime ReportDate { get; set; }
+        public DateTime AsOfUtc { get; set; }
+        public string GroupMask { get; set; }
+        public string Source { get; set; }
+        public bool IncludeSpecs { get; set; }
+    }
+
     public sealed class Mt5UsdConversionRate
     {
         public string Currency { get; set; }
@@ -5103,6 +5196,7 @@ ORDER BY scoped.login;";
         public string Name { get; set; }
         public string Group { get; set; }
         public string Currency { get; set; }
+        public DateTime Registration { get; set; }
     }
 
     internal static class Mt5MonitorCollector
@@ -5352,7 +5446,8 @@ ORDER BY scoped.login;";
                             Login = user.Login(),
                             Name = user.Name() ?? string.Empty,
                             Group = groupName,
-                            Currency = currency
+                            Currency = currency,
+                            Registration = SMTTime.ToDateTime(user.Registration())
                         };
                     }
                 }
@@ -6954,6 +7049,1332 @@ ORDER BY scoped.login;";
         {
             int safeDigits = NormalizeCurrencyDigits(digits);
             return Math.Round(left + right, safeDigits, MidpointRounding.AwayFromZero);
+        }
+    }
+
+    internal sealed class Mt5CroDailyAggregate
+    {
+        public DateTime LocalDate { get; set; }
+        public double ClosedPnlUsd { get; set; }
+        public double FloatingPnlUsd { get; set; }
+        public double BalanceUsd { get; set; }
+        public double CreditUsd { get; set; }
+        public double EquityUsd { get; set; }
+    }
+
+    internal sealed class Mt5CroSymbolSpreadInput
+    {
+        public string Symbol { get; set; }
+        public double VolumeLots { get; set; }
+        public double ContractSize { get; set; }
+    }
+
+    internal sealed class Mt5CroDealMetrics
+    {
+        public Mt5CroDealMetrics()
+        {
+            TraderLogins = new HashSet<ulong>();
+            ActiveTraderLogins = new HashSet<ulong>();
+            DepositorLogins = new HashSet<ulong>();
+            PositiveDepositsByLogin = new Dictionary<ulong, double>();
+            NetDepositsByLogin = new Dictionary<ulong, double>();
+            ClosedTotalsByCurrency = new Dictionary<string, Mt5PositionHistoryCurrencyTotal>(StringComparer.OrdinalIgnoreCase);
+            SpreadInputsBySymbol = new Dictionary<string, Mt5CroSymbolSpreadInput>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public HashSet<ulong> TraderLogins { get; private set; }
+        public HashSet<ulong> ActiveTraderLogins { get; private set; }
+        public HashSet<ulong> DepositorLogins { get; private set; }
+        public Dictionary<ulong, double> PositiveDepositsByLogin { get; private set; }
+        public Dictionary<ulong, double> NetDepositsByLogin { get; private set; }
+        public Dictionary<string, Mt5PositionHistoryCurrencyTotal> ClosedTotalsByCurrency { get; private set; }
+        public Dictionary<string, Mt5CroSymbolSpreadInput> SpreadInputsBySymbol { get; private set; }
+        public double DepositsUsd { get; set; }
+        public double WithdrawalsUsd { get; set; }
+        public double NetDepositsUsd { get; set; }
+        public double VolumeUsd { get; set; }
+        public double IslamicAccountSwapsUsd { get; set; }
+        public double ClosedSwapUsd { get; set; }
+    }
+
+    internal sealed class Mt5CroCurrentPositionMetrics
+    {
+        public double FloatingPnlUsd { get; set; }
+        public double AbsExposureUsd { get; set; }
+        public double OpenStorageUsd { get; set; }
+        public int PositionCount { get; set; }
+        public HashSet<ulong> ActiveTraderLogins { get; set; }
+    }
+
+    internal sealed class Mt5CroCurrentAccountMetrics
+    {
+        public double BalanceUsd { get; set; }
+        public double CreditUsd { get; set; }
+        public double EquityUsd { get; set; }
+        public double ProfitUsd { get; set; }
+    }
+
+    public static class Mt5CroWorkbookCards
+    {
+        private static readonly IList<Mt5CroCardSpec> _specs = BuildSpecs();
+
+        public static IList<Mt5CroCardSpec> Specs
+        {
+            get { return _specs; }
+        }
+
+        private static IList<Mt5CroCardSpec> BuildSpecs()
+        {
+            return new List<Mt5CroCardSpec>
+            {
+                CreateSpec("daily_pnl", "Daily PnL", "daily", "day", "money",
+                    new [] { "daily closed pnl", "current floating pnl", "previous day floating pnl" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "delta_floating + closed_pnl" }),
+                CreateSpec("daily_pnl_cash", "Daily PnL Cash", "daily", "day", "money",
+                    new [] { "end equity", "end credits", "start equity", "start credits", "protected bonus balance", "net deposits" },
+                    new [] { "net deposits exclude bonus", "net deposits exclude fees placeholder", "net deposits exclude Spread Charge" },
+                    new [] { "max(end clean equity,0) - max(start clean equity,0) - net deposits" }),
+                CreateSpec("daily_net_deposits", "Daily Net Deposits", "daily", "day", "money",
+                    new [] { "balance deals" },
+                    new [] { "exclude comments bonus", "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "sum filtered balance deals" }),
+                CreateSpec("daily_ftd", "Daily #FTD", "daily", "day", "count",
+                    new [] { "all-time first valid deposit date", "daily balance deals" },
+                    new [] { "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "count logins whose first valid deposit falls on the day" }),
+                CreateSpec("daily_retention_depositors", "Daily Retention #Depositors", "daily", "day", "count",
+                    new [] { "daily depositors", "daily FTD set" },
+                    new [] { "exclude comments bonus", "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "depositors excluding the day FTD logins" }),
+                CreateSpec("daily_retention_net_deposits", "Daily Net Deposit Retention", "daily", "day", "money",
+                    new [] { "daily net deposits", "daily FTD set" },
+                    new [] { "exclude comments bonus", "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "net deposits excluding day FTD logins" }),
+                CreateSpec("daily_traders", "Daily #Traders", "daily", "day", "count",
+                    new [] { "trade deals" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "unique logins with trading activity during the day" }),
+                CreateSpec("daily_active_traders", "#Active Traders", "daily", "day", "count",
+                    new [] { "current positions open time", "entry-in deals" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "unique logins with open trade activity based on open time" }),
+                CreateSpec("daily_depositors", "#Depositors", "daily", "day", "count",
+                    new [] { "balance deals" },
+                    new [] { "exclude comments bonus", "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "unique logins with positive filtered deposits" }),
+                CreateSpec("daily_deposits", "Deposits", "daily", "day", "money",
+                    new [] { "balance deals" },
+                    new [] { "exclude comments bonus", "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "positive filtered deposits only" }),
+                CreateSpec("daily_ftd_amount", "FTD Amount", "daily", "day", "money",
+                    new [] { "daily deposit deals", "all-time first valid deposit date" },
+                    new [] { "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "sum positive deposits for the day FTD logins" }),
+                CreateSpec("daily_volume", "Volume", "daily", "day", "money",
+                    new [] { "trade deals" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "sum trade notional" }),
+                CreateSpec("daily_spread", "Spread", "daily", "day", "money",
+                    new [] { "trade deals", "symbol metadata", "tick history" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity", "exclude SPREAD", "exclude Correction", "exclude Cashback" },
+                    new [] { "negative spread cost using average bid/ask and traded lots" }),
+                CreateSpec("daily_islamic_swaps", "Islamic Account Swaps", "daily", "day", "money",
+                    new [] { "trade deals", "balance deals" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "SPREAD symbol trades plus fees placeholder / Spread Charge balance rows" }),
+                CreateSpec("open_pnl", "Open PnL", "daily", "point_in_time", "money",
+                    new [] { "current positions or end-of-day floating pnl" },
+                    new [] { "n/a" },
+                    new [] { "end-of-period floating pnl" }),
+                CreateSpec("end_equity", "End Equity", "daily", "point_in_time", "money",
+                    new [] { "current trading accounts or daily report end equity" },
+                    new [] { "n/a" },
+                    new [] { "end-of-period equity" }),
+                CreateSpec("raw_wd_equity", "WD Equity", "live_inputs", "point_in_time", "money",
+                    new [] { "balance", "floating pnl", "cumulative bonuses" },
+                    new [] { "n/a" },
+                    new [] { "raw pre-clamp withdrawable equity input" }),
+                CreateSpec("wd_equity_z", "WD Equity Z", "live_inputs", "point_in_time", "money",
+                    new [] { "raw WD equity" },
+                    new [] { "n/a" },
+                    new [] { "max(raw WD equity, 0)" }),
+                CreateSpec("abs_exposure", "ABS Exposure", "live_inputs", "point_in_time", "money",
+                    new [] { "current positions" },
+                    new [] { "n/a" },
+                    new [] { "absolute current exposure" }),
+                CreateSpec("monthly_pnl", "Monthly PnL", "monthly", "mtd", "money",
+                    new [] { "monthly closed pnl", "current floating", "month-start floating" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "monthly closed pnl + (end floating - start-of-month floating)" }),
+                CreateSpec("monthly_pnl_cash", "Monthly PnL Cash", "monthly", "mtd", "money",
+                    new [] { "end clean equity", "month-start clean equity", "monthly net deposits" },
+                    new [] { "net deposits exclude bonus", "net deposits exclude fees placeholder", "net deposits exclude Spread Charge" },
+                    new [] { "max(end clean equity,0) - max(start clean equity,0) - monthly net deposits" }),
+                CreateSpec("monthly_net_deposits", "Monthly Net Deposits", "monthly", "mtd", "money",
+                    new [] { "balance deals" },
+                    new [] { "exclude comments bonus", "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "sum filtered balance deals for the month" }),
+                CreateSpec("monthly_ftd", "Monthly #FTD", "monthly", "mtd", "count",
+                    new [] { "all-time first valid deposit date", "monthly balance deals" },
+                    new [] { "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "count logins whose first valid deposit falls in the month" }),
+                CreateSpec("monthly_retention_depositors", "Monthly Retention #Depositors", "monthly", "mtd", "count",
+                    new [] { "monthly depositors", "monthly FTD set" },
+                    new [] { "exclude comments bonus", "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "depositors excluding the month FTD logins" }),
+                CreateSpec("monthly_retention_net_deposits", "Monthly Net Deposit Retention", "monthly", "mtd", "money",
+                    new [] { "monthly net deposits", "monthly FTD set" },
+                    new [] { "exclude comments bonus", "exclude fees placeholder", "exclude Spread Charge" },
+                    new [] { "net deposits excluding month FTD logins" }),
+                CreateSpec("monthly_traders", "Monthly #Traders", "monthly", "mtd", "count",
+                    new [] { "trade deals" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "unique logins with trading activity during the month" }),
+                CreateSpec("monthly_volume", "Monthly Volume", "monthly", "mtd", "money",
+                    new [] { "trade deals" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "sum trade notional for the month" }),
+                CreateSpec("monthly_total_swaps", "Monthly Total Swaps", "monthly", "mtd", "money",
+                    new [] { "closed swap deals", "open position storage" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "closed trade swaps plus current open storage where available" }),
+                CreateSpec("new_acc_reg", "#New Acc Reg", "daily", "day", "count",
+                    new [] { "user registration timestamps" },
+                    new [] { "n/a" },
+                    new [] { "new registered accounts within the selected day" }),
+                CreateSpec("balance", "Balance", "live_inputs", "point_in_time", "money",
+                    new [] { "current trading accounts or daily report" },
+                    new [] { "n/a" },
+                    new [] { "end-of-period balance" }),
+                CreateSpec("credit", "Credit", "live_inputs", "point_in_time", "money",
+                    new [] { "current trading accounts or daily report" },
+                    new [] { "n/a" },
+                    new [] { "end-of-period credit" }),
+                CreateSpec("floating_pnl", "Floating PnL", "live_inputs", "point_in_time", "money",
+                    new [] { "positions or trading accounts profit" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "end-of-period floating pnl" }),
+                CreateSpec("closed_pnl", "Closed PnL", "live_inputs", "day", "money",
+                    new [] { "closed trade deals" },
+                    new [] { "exclude Zeroing*", "exclude Inactivity" },
+                    new [] { "closed pnl for the selected day" })
+            };
+        }
+
+        private static Mt5CroCardSpec CreateSpec(
+            string id,
+            string label,
+            string section,
+            string timeframe,
+            string kind,
+            IEnumerable<string> dependencies,
+            IEnumerable<string> exclusions,
+            IEnumerable<string> formulaNotes)
+        {
+            return new Mt5CroCardSpec
+            {
+                Id = id,
+                Label = label,
+                Section = section,
+                Timeframe = timeframe,
+                Kind = kind,
+                Dependencies = dependencies != null ? dependencies.ToList() : new List<string>(),
+                Exclusions = exclusions != null ? exclusions.ToList() : new List<string>(),
+                FormulaNotes = formulaNotes != null ? formulaNotes.ToList() : new List<string>()
+            };
+        }
+    }
+
+    public static class Mt5CroCardsGenerator
+    {
+        private static readonly string[] DepositExclusionTokens = { "bonus", "fees placeholder", "spread charge" };
+        private static readonly string[] FtdExclusionTokens = { "fees placeholder", "spread charge" };
+        private static readonly string[] TradeSymbolSoftExclusions = { "inactivity" };
+        private static readonly string[] SpreadSymbolHardExclusions = { "SPREAD", "CORRECTION", "CASHBACK" };
+        private static readonly DateTime AllTimeHistoryStart = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        public static Mt5CroCardsBundle Generate(
+            Mt5MonitorSettings settings,
+            Mt5CroCardsRequest request,
+            Action<string> statusWriter)
+        {
+            if (settings == null)
+                throw new ArgumentNullException("settings");
+
+            Mt5MonitorSettings effectiveSettings = settings.Clone();
+            if (request != null && !string.IsNullOrWhiteSpace(request.GroupMask))
+                effectiveSettings.GroupMask = NormalizeGroupMask(request.GroupMask, effectiveSettings.GroupMask);
+
+            effectiveSettings.Validate();
+            Action<string> writer = statusWriter ?? (_ => { });
+
+            MTRetCode initializeResult = SMTManagerAPIFactory.Initialize(effectiveSettings.SdkLibsPath);
+            if (initializeResult != MTRetCode.MT_RET_OK)
+                throw new InvalidOperationException("Initialize failed: " + initializeResult);
+
+            CIMTManagerAPI manager = Mt5MonitorCollector.Connect(
+                effectiveSettings.Server,
+                effectiveSettings.Login,
+                effectiveSettings.Password,
+                writer);
+
+            if (manager == null)
+            {
+                SMTManagerAPIFactory.Shutdown();
+                throw new InvalidOperationException("Failed to connect to MT5 Manager API.");
+            }
+
+            try
+            {
+                Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, effectiveSettings.GroupMask);
+                Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, effectiveSettings.GroupMask, groupCurrencies);
+                IDictionary<string, Mt5UsdConversionRate> usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+                return Generate(
+                    manager,
+                    effectiveSettings,
+                    request,
+                    groupCurrencies,
+                    loginContexts,
+                    usdRates,
+                    writer);
+            }
+            finally
+            {
+                Mt5MonitorCollector.Disconnect(manager);
+                SMTManagerAPIFactory.Shutdown();
+            }
+        }
+
+        public static Mt5CroCardsBundle Generate(Mt5MonitorSettings settings, Mt5CroCardsRequest request)
+        {
+            return Generate(settings, request, null);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            Mt5CroCardsRequest request,
+            Action<string> statusWriter,
+            bool indented)
+        {
+            return SerializeJson(Generate(settings, request, statusWriter), indented);
+        }
+
+        public static string GenerateJson(Mt5MonitorSettings settings, Mt5CroCardsRequest request)
+        {
+            return GenerateJson(settings, request, null, true);
+        }
+
+        internal static Mt5CroCardsBundle Generate(
+            CIMTManagerAPI manager,
+            Mt5MonitorSettings settings,
+            Mt5CroCardsRequest request,
+            Dictionary<string, string> groupCurrencies,
+            Dictionary<ulong, Mt5LoginContext> loginContexts,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            Action<string> statusWriter)
+        {
+            if (manager == null)
+                throw new ArgumentNullException("manager");
+            if (settings == null)
+                throw new ArgumentNullException("settings");
+
+            Action<string> writer = statusWriter ?? (_ => { });
+            TimeZoneInfo croTimeZone = ResolveCroTimeZone();
+            DateTime nowUtc = request != null && request.AsOfUtc != default(DateTime)
+                ? NormalizeUtc(request.AsOfUtc)
+                : DateTime.UtcNow;
+            DateTime todayLocal = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, croTimeZone).Date;
+            DateTime reportDateLocal = request != null && request.ReportDate != default(DateTime)
+                ? request.ReportDate.Date
+                : todayLocal;
+            bool isLiveToday = reportDateLocal == todayLocal;
+
+            DateTime previousDayLocal = reportDateLocal.AddDays(-1);
+            DateTime monthStartLocal = new DateTime(reportDateLocal.Year, reportDateLocal.Month, 1);
+            DateTime previousMonthEndLocal = monthStartLocal.AddDays(-1);
+            DateTime monthHistoryStartLocal = previousMonthEndLocal;
+
+            writer(string.Format(
+                CultureInfo.InvariantCulture,
+                "Generating CRO workbook cards for {0:yyyy-MM-dd} (live_today={1}) group={2}.",
+                reportDateLocal,
+                isLiveToday ? "true" : "false",
+                settings.GroupMask));
+
+            Dictionary<DateTime, Mt5CroDailyAggregate> dailyAggregates = CollectDailyAggregates(
+                manager,
+                settings.GroupMask,
+                groupCurrencies,
+                monthHistoryStartLocal,
+                reportDateLocal,
+                usdRates,
+                croTimeZone,
+                writer);
+
+            Mt5CroDealMetrics dayMetrics = CollectDealMetrics(
+                manager,
+                settings.GroupMask,
+                loginContexts,
+                groupCurrencies,
+                usdRates,
+                reportDateLocal,
+                reportDateLocal,
+                croTimeZone,
+                writer);
+
+            Mt5CroDealMetrics monthMetrics = CollectDealMetrics(
+                manager,
+                settings.GroupMask,
+                loginContexts,
+                groupCurrencies,
+                usdRates,
+                monthStartLocal,
+                reportDateLocal,
+                croTimeZone,
+                writer);
+
+            Dictionary<ulong, DateTime> firstValidDepositDates = CollectFirstValidDepositDates(
+                manager,
+                settings.GroupMask,
+                croTimeZone,
+                reportDateLocal,
+                writer);
+
+            Mt5CroCurrentAccountMetrics currentAccounts = isLiveToday
+                ? CollectCurrentAccountMetrics(manager, settings.GroupMask, groupCurrencies, loginContexts, usdRates, writer)
+                : null;
+
+            Mt5CroCurrentPositionMetrics currentPositions = isLiveToday
+                ? CollectCurrentPositionMetrics(manager, groupCurrencies, loginContexts, usdRates, writer)
+                : new Mt5CroCurrentPositionMetrics { ActiveTraderLogins = new HashSet<ulong>() };
+
+            Mt5CroDailyAggregate previousDay = GetDailyAggregate(dailyAggregates, previousDayLocal);
+            Mt5CroDailyAggregate previousMonthEnd = GetDailyAggregate(dailyAggregates, previousMonthEndLocal);
+            Mt5CroDailyAggregate reportDayAggregate = GetDailyAggregate(dailyAggregates, reportDateLocal);
+
+            double endFloatingUsd = isLiveToday && currentAccounts != null ? currentAccounts.ProfitUsd : reportDayAggregate.FloatingPnlUsd;
+            double endBalanceUsd = isLiveToday && currentAccounts != null ? currentAccounts.BalanceUsd : reportDayAggregate.BalanceUsd;
+            double endCreditUsd = isLiveToday && currentAccounts != null ? currentAccounts.CreditUsd : reportDayAggregate.CreditUsd;
+            double endEquityUsd = isLiveToday && currentAccounts != null ? currentAccounts.EquityUsd : reportDayAggregate.EquityUsd;
+            double currentAbsExposureUsd = isLiveToday && currentPositions != null ? currentPositions.AbsExposureUsd : 0.0;
+
+            double previousFloatingUsd = previousDay.FloatingPnlUsd;
+            double monthStartFloatingUsd = previousMonthEnd.FloatingPnlUsd;
+            double dailyClosedPnlUsd = new Mt5DailyClosedPnlCalculator().Calculate(dayMetrics.ClosedTotalsByCurrency.Values, usdRates).TotalClosedPnlUsd;
+            double monthlyClosedPnlUsd = new Mt5DailyClosedPnlCalculator().Calculate(monthMetrics.ClosedTotalsByCurrency.Values, usdRates).TotalClosedPnlUsd;
+            double dailyPnlUsd = (endFloatingUsd - previousFloatingUsd) + dailyClosedPnlUsd;
+            double monthlyPnlUsd = monthlyClosedPnlUsd + (endFloatingUsd - monthStartFloatingUsd);
+
+            Mt5MonitorCollector.WdEquityZProtectedBonusCollection endBonusCollection =
+                Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
+                    manager,
+                    groupCurrencies,
+                    loginContexts,
+                    settings.GroupMask,
+                    AllTimeHistoryStart.Date,
+                    reportDateLocal,
+                    "Bonus Protected Trad",
+                    false,
+                    writer);
+
+            Mt5MonitorCollector.WdEquityZProtectedBonusCollection startDayBonusCollection =
+                Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
+                    manager,
+                    groupCurrencies,
+                    loginContexts,
+                    settings.GroupMask,
+                    AllTimeHistoryStart.Date,
+                    previousDayLocal,
+                    "Bonus Protected Trad",
+                    false,
+                    writer);
+
+            Mt5MonitorCollector.WdEquityZProtectedBonusCollection monthStartBonusCollection =
+                Mt5MonitorCollector.CollectWdEquityZProtectedBonuses(
+                    manager,
+                    groupCurrencies,
+                    loginContexts,
+                    settings.GroupMask,
+                    AllTimeHistoryStart.Date,
+                    previousMonthEndLocal,
+                    "Bonus Protected Trad",
+                    false,
+                    writer);
+
+            double dailyPnlCashUsd = CalculatePnlCash(
+                endEquityUsd,
+                endCreditUsd,
+                endBonusCollection.EndProtectedBonusesUsd,
+                previousDay.EquityUsd,
+                previousDay.CreditUsd,
+                startDayBonusCollection.EndProtectedBonusesUsd,
+                dayMetrics.NetDepositsUsd);
+
+            double monthlyPnlCashUsd = CalculatePnlCash(
+                endEquityUsd,
+                endCreditUsd,
+                endBonusCollection.EndProtectedBonusesUsd,
+                previousMonthEnd.EquityUsd,
+                previousMonthEnd.CreditUsd,
+                monthStartBonusCollection.EndProtectedBonusesUsd,
+                monthMetrics.NetDepositsUsd);
+
+            HashSet<ulong> dailyFtdLogins = FindFtdLogins(firstValidDepositDates, reportDateLocal, reportDateLocal);
+            HashSet<ulong> monthlyFtdLogins = FindFtdLogins(firstValidDepositDates, monthStartLocal, reportDateLocal);
+
+            double dailyFtdAmountUsd = dayMetrics.PositiveDepositsByLogin
+                .Where(pair => dailyFtdLogins.Contains(pair.Key))
+                .Sum(pair => pair.Value);
+            double monthlyFtdAmountUsd = monthMetrics.PositiveDepositsByLogin
+                .Where(pair => monthlyFtdLogins.Contains(pair.Key))
+                .Sum(pair => pair.Value);
+
+            double dailyRetentionNetDepositsUsd = dayMetrics.NetDepositsByLogin
+                .Where(pair => !dailyFtdLogins.Contains(pair.Key))
+                .Sum(pair => pair.Value);
+            double monthlyRetentionNetDepositsUsd = monthMetrics.NetDepositsByLogin
+                .Where(pair => !monthlyFtdLogins.Contains(pair.Key))
+                .Sum(pair => pair.Value);
+
+            int dailyRetentionDepositors = dayMetrics.DepositorLogins.Count(login => !dailyFtdLogins.Contains(login));
+            int monthlyRetentionDepositors = monthMetrics.DepositorLogins.Count(login => !monthlyFtdLogins.Contains(login));
+
+            int newRegistrationsDaily = loginContexts.Values.Count(context => ToCroLocalDate(context.Registration, croTimeZone) == reportDateLocal);
+            int newRegistrationsMonthly = loginContexts.Values.Count(
+                context =>
+                {
+                    DateTime localDate = ToCroLocalDate(context.Registration, croTimeZone);
+                    return localDate >= monthStartLocal && localDate <= reportDateLocal;
+                });
+
+            double dailySpreadUsd = CalculateSpreadUsd(manager, usdRates, dayMetrics.SpreadInputsBySymbol, reportDateLocal, reportDateLocal, croTimeZone);
+            double monthlySpreadUsd = CalculateSpreadUsd(manager, usdRates, monthMetrics.SpreadInputsBySymbol, monthStartLocal, reportDateLocal, croTimeZone);
+
+            double dailyIslamicSwapsUsd = dayMetrics.IslamicAccountSwapsUsd;
+            double monthlyTotalSwapsUsd = monthMetrics.ClosedSwapUsd + (currentPositions != null ? currentPositions.OpenStorageUsd : 0.0);
+
+            Mt5LiveWdEquityZReport wdLive = isLiveToday
+                ? Mt5LiveWdEquityZGenerator.Generate(
+                    settings,
+                    new Mt5LiveWdEquityZRequest
+                    {
+                        AsOfUtc = nowUtc,
+                        FilterZeroEquityAndBalance = true,
+                        BonusScopePositiveBalanceOnly = true,
+                        IncludeCrmBonusLoginRows = false
+                    },
+                    writer)
+                : null;
+
+            double rawWdEquityUsd;
+            double wdEquityZUsd;
+            if (wdLive != null)
+            {
+                rawWdEquityUsd = wdLive.PreClampWdEquityUsd;
+                wdEquityZUsd = wdLive.WdEquityZUsd;
+            }
+            else
+            {
+                rawWdEquityUsd = endEquityUsd - endCreditUsd - endBonusCollection.EndProtectedBonusesUsd;
+                wdEquityZUsd = Math.Max(0.0, rawWdEquityUsd);
+            }
+
+            var bundle = new Mt5CroCardsBundle
+            {
+                Meta = new Mt5CroCardsMeta
+                {
+                    Source = string.IsNullOrWhiteSpace(request != null ? request.Source : null) ? "AN100" : request.Source,
+                    GroupMask = settings.GroupMask,
+                    RequestedDate = reportDateLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    ReportDate = reportDateLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    Mode = isLiveToday ? "live_fast_slow_bundle" : "on_demand_snapshot",
+                    Live = isLiveToday,
+                    TablesLiveScopeOnly = !isLiveToday,
+                    GeneratedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                    FastRefreshedAt = isLiveToday ? DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture) : null,
+                    SlowRefreshedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                    MarketTimezone = croTimeZone.Id,
+                    Notes = isLiveToday
+                        ? "Cards use live MT5 current-state inputs for end-of-period values and workbook formulas for daily/monthly aggregates."
+                        : "Cards use on-demand MT5 history and workbook formulas. Non-card tables remain live-scope only."
+                }
+            };
+
+            if (request == null || request.IncludeSpecs)
+                bundle.Specs = Mt5CroWorkbookCards.Specs.ToList();
+
+            AddCard(bundle.Daily, "daily_pnl", "Daily PnL", "money", dailyPnlUsd, isLiveToday ? "slow_formula_live_end" : "snapshot");
+            AddCard(bundle.Daily, "daily_pnl_cash", "Daily PnL Cash", "money", dailyPnlCashUsd, "slow_formula");
+            AddCard(bundle.Daily, "daily_net_deposits", "Daily Net Deposits", "money", dayMetrics.NetDepositsUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.Daily, "daily_ftd", "Daily #FTD", "count", dailyFtdLogins.Count, "slow");
+            AddCard(bundle.Daily, "daily_retention_depositors", "Daily Retention #Depositors", "count", dailyRetentionDepositors, "slow");
+            AddCard(bundle.Daily, "daily_retention_net_deposits", "Daily Net Deposit Retention", "money", dailyRetentionNetDepositsUsd, "slow");
+            AddCard(bundle.Daily, "daily_traders", "Daily #Traders", "count", dayMetrics.TraderLogins.Count, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.Daily, "daily_active_traders", "#Active Traders", "count", isLiveToday && currentPositions != null ? currentPositions.ActiveTraderLogins.Count : dayMetrics.ActiveTraderLogins.Count, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.Daily, "daily_depositors", "#Depositors", "count", dayMetrics.DepositorLogins.Count, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.Daily, "daily_deposits", "Deposits", "money", dayMetrics.DepositsUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.Daily, "daily_ftd_amount", "FTD Amount", "money", dailyFtdAmountUsd, "slow");
+            AddCard(bundle.Daily, "daily_volume", "Volume", "money", dayMetrics.VolumeUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.Daily, "daily_spread", "Spread", "money", dailySpreadUsd, "slow_tick_history");
+            AddCard(bundle.Daily, "daily_islamic_swaps", "Islamic Account Swaps", "money", dailyIslamicSwapsUsd, "slow");
+            AddCard(bundle.Daily, "new_acc_reg", "#New Acc Reg", "count", newRegistrationsDaily, "slow");
+            AddCard(bundle.Daily, "open_pnl", "Open PnL", "money", endFloatingUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.Daily, "end_equity", "End Equity", "money", endEquityUsd, isLiveToday ? "fast" : "snapshot");
+
+            AddCard(bundle.Monthly, "monthly_pnl", "Monthly PnL", "money", monthlyPnlUsd, "slow_formula");
+            AddCard(bundle.Monthly, "monthly_pnl_cash", "Monthly PnL Cash", "money", monthlyPnlCashUsd, "slow_formula");
+            AddCard(bundle.Monthly, "monthly_net_deposits", "Monthly Net Deposits", "money", monthMetrics.NetDepositsUsd, "slow");
+            AddCard(bundle.Monthly, "monthly_ftd", "Monthly #FTD", "count", monthlyFtdLogins.Count, "slow");
+            AddCard(bundle.Monthly, "monthly_retention_depositors", "Monthly Retention #Depositors", "count", monthlyRetentionDepositors, "slow");
+            AddCard(bundle.Monthly, "monthly_retention_net_deposits", "Monthly Net Deposit Retention", "money", monthlyRetentionNetDepositsUsd, "slow");
+            AddCard(bundle.Monthly, "monthly_traders", "Monthly #Traders", "count", monthMetrics.TraderLogins.Count, "slow");
+            AddCard(bundle.Monthly, "monthly_volume", "Monthly Volume", "money", monthMetrics.VolumeUsd, "slow");
+            AddCard(bundle.Monthly, "monthly_total_swaps", "Monthly Total Swaps", "money", monthlyTotalSwapsUsd, "slow_approx");
+            AddCard(bundle.Monthly, "daily_spread", "Spread", "money", monthlySpreadUsd, "slow_tick_history");
+            AddCard(bundle.Monthly, "new_acc_reg", "#New Acc Reg", "count", newRegistrationsMonthly, "slow");
+            AddCard(bundle.Monthly, "daily_ftd_amount", "FTD Amount", "money", monthlyFtdAmountUsd, "slow");
+
+            AddCard(bundle.LiveInputs, "balance", "Balance", "money", endBalanceUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.LiveInputs, "credit", "Credit", "money", endCreditUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.LiveInputs, "end_equity", "Equity", "money", endEquityUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.LiveInputs, "floating_pnl", "Floating PnL", "money", endFloatingUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.LiveInputs, "closed_pnl", "Closed PnL", "money", dailyClosedPnlUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.LiveInputs, "raw_wd_equity", "WD Equity", "money", rawWdEquityUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.LiveInputs, "wd_equity_z", "WD Equity Z", "money", wdEquityZUsd, isLiveToday ? "fast" : "snapshot");
+            AddCard(bundle.LiveInputs, "abs_exposure", "ABS Exposure", "money", currentAbsExposureUsd, isLiveToday ? "fast" : "snapshot");
+
+            bundle.Daily.RefreshedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            bundle.Monthly.RefreshedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            bundle.LiveInputs.RefreshedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            return bundle;
+        }
+
+        private static Dictionary<DateTime, Mt5CroDailyAggregate> CollectDailyAggregates(
+            CIMTManagerAPI manager,
+            string groupMask,
+            Dictionary<string, string> groupCurrencies,
+            DateTime fromLocalDate,
+            DateTime toLocalDate,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            TimeZoneInfo timeZone,
+            Action<string> statusWriter)
+        {
+            DateTime rangeStartUtc = ToCroBoundaryUtc(fromLocalDate, timeZone, false);
+            DateTime rangeEndUtc = ToCroBoundaryUtc(toLocalDate, timeZone, true);
+            var dailies = manager.DailyCreateArray();
+            var aggregates = new Dictionary<DateTime, Mt5CroDailyAggregate>();
+
+            try
+            {
+                MTRetCode result = manager.DailyRequestByGroup(
+                    groupMask,
+                    ToUnixSeconds(rangeStartUtc),
+                    ToUnixSeconds(rangeEndUtc),
+                    dailies);
+
+                if (result != MTRetCode.MT_RET_OK)
+                    throw new InvalidOperationException("DailyRequestByGroup failed: " + result + " (" + (uint)result + ")");
+
+                for (uint i = 0; i < dailies.Total(); i++)
+                {
+                    CIMTDaily daily = dailies.Next(i);
+                    if (daily == null)
+                        continue;
+
+                    DateTime localDate = ToCroLocalDate(SMTTime.ToDateTime(daily.Datetime()), timeZone);
+                    string groupName = daily.Group() ?? string.Empty;
+                    string currency = !string.IsNullOrWhiteSpace(groupName) && groupCurrencies.ContainsKey(groupName)
+                        ? groupCurrencies[groupName]
+                        : "USD";
+
+                    Mt5CroDailyAggregate aggregate;
+                    if (!aggregates.TryGetValue(localDate, out aggregate))
+                    {
+                        aggregate = new Mt5CroDailyAggregate { LocalDate = localDate };
+                        aggregates[localDate] = aggregate;
+                    }
+
+                    double closedPnl = daily.DailyProfit() + daily.DailyStorage() + daily.DailyCommInstant();
+                    double floatingPnl = daily.Profit() + daily.ProfitStorage();
+                    aggregate.ClosedPnlUsd += ConvertNativeToUsd(currency, closedPnl, usdRates, null);
+                    aggregate.FloatingPnlUsd += ConvertNativeToUsd(currency, floatingPnl, usdRates, null);
+                    aggregate.BalanceUsd += ConvertNativeToUsd(currency, daily.Balance(), usdRates, null);
+                    aggregate.CreditUsd += ConvertNativeToUsd(currency, daily.Credit(), usdRates, null);
+                    aggregate.EquityUsd += ConvertNativeToUsd(currency, daily.ProfitEquity(), usdRates, null);
+                }
+            }
+            finally
+            {
+                dailies.Release();
+            }
+
+            return aggregates;
+        }
+
+        private static Mt5CroDealMetrics CollectDealMetrics(
+            CIMTManagerAPI manager,
+            string groupMask,
+            Dictionary<ulong, Mt5LoginContext> loginContexts,
+            Dictionary<string, string> groupCurrencies,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            DateTime fromLocalDate,
+            DateTime toLocalDate,
+            TimeZoneInfo timeZone,
+            Action<string> statusWriter)
+        {
+            var metrics = new Mt5CroDealMetrics();
+            DateTime rangeStartUtc = ToCroBoundaryUtc(fromLocalDate, timeZone, false);
+            DateTime rangeEndUtc = ToCroBoundaryUtc(toLocalDate, timeZone, true);
+            var deals = manager.DealCreateArray();
+
+            try
+            {
+                MTRetCode result = manager.DealRequestByGroup(
+                    groupMask,
+                    SMTTime.FromDateTime(rangeStartUtc),
+                    SMTTime.FromDateTime(rangeEndUtc),
+                    deals);
+
+                if (result != MTRetCode.MT_RET_OK)
+                    throw new InvalidOperationException("DealRequestByGroup failed: " + result + " (" + (uint)result + ")");
+
+                for (uint i = 0; i < deals.Total(); i++)
+                {
+                    CIMTDeal deal = deals.Next(i);
+                    if (deal == null)
+                        continue;
+
+                    ulong login = deal.Login();
+                    Mt5LoginContext loginContext = ResolveCroLoginContext(loginContexts, login);
+                    string currency = ResolveCroLoginCurrency(loginContext, groupCurrencies);
+                    string comment = deal.Comment() ?? string.Empty;
+                    string symbol = deal.Symbol() ?? string.Empty;
+
+                    if (deal.Action() == 2)
+                    {
+                        double amountUsd = ConvertNativeToUsd(currency, deal.Profit(), usdRates, deal.RateProfit());
+
+                        if (!ShouldExcludeDepositComment(comment, true))
+                        {
+                            metrics.NetDepositsUsd += amountUsd;
+                            AddAmount(metrics.NetDepositsByLogin, login, amountUsd);
+                            if (amountUsd > 0.0)
+                            {
+                                metrics.DepositsUsd += amountUsd;
+                                metrics.DepositorLogins.Add(login);
+                                AddAmount(metrics.PositiveDepositsByLogin, login, amountUsd);
+                            }
+                            else
+                            {
+                                metrics.WithdrawalsUsd += amountUsd;
+                            }
+                        }
+
+                        if (IsIslamicBalanceComment(comment))
+                            metrics.IslamicAccountSwapsUsd += amountUsd;
+
+                        continue;
+                    }
+
+                    if (deal.Action() != 0 && deal.Action() != 1)
+                        continue;
+                    if (ShouldExcludeTradeSymbol(symbol))
+                        continue;
+
+                    double lots = ToDisplayLots(deal.Volume());
+                    metrics.TraderLogins.Add(login);
+                    if (deal.Entry() == 0)
+                        metrics.ActiveTraderLogins.Add(login);
+
+                    metrics.VolumeUsd += Math.Abs(lots * deal.ContractSize() * deal.Price());
+                    metrics.ClosedSwapUsd += ConvertNativeToUsd(currency, deal.Storage(), usdRates, deal.RateProfit());
+
+                    if (deal.Entry() != 0)
+                    {
+                        AccumulateClosedTotals(
+                            metrics.ClosedTotalsByCurrency,
+                            currency,
+                            (int)deal.DigitsCurrency(),
+                            deal.Profit(),
+                            deal.Storage(),
+                            deal.Commission(),
+                            deal.Fee());
+                    }
+
+                    if (!ShouldExcludeSpreadSymbol(symbol))
+                    {
+                        Mt5CroSymbolSpreadInput spreadInput;
+                        if (!metrics.SpreadInputsBySymbol.TryGetValue(symbol, out spreadInput))
+                        {
+                            spreadInput = new Mt5CroSymbolSpreadInput
+                            {
+                                Symbol = symbol,
+                                ContractSize = deal.ContractSize()
+                            };
+                            metrics.SpreadInputsBySymbol[symbol] = spreadInput;
+                        }
+
+                        spreadInput.VolumeLots += lots;
+                    }
+
+                    if (string.Equals(symbol, "SPREAD", StringComparison.OrdinalIgnoreCase))
+                    {
+                        metrics.IslamicAccountSwapsUsd += ConvertNativeToUsd(
+                            currency,
+                            deal.Profit() + deal.Storage() + deal.Commission() + deal.Fee(),
+                            usdRates,
+                            deal.RateProfit());
+                    }
+                }
+            }
+            finally
+            {
+                deals.Dispose();
+            }
+
+            return metrics;
+        }
+
+        private static Dictionary<ulong, DateTime> CollectFirstValidDepositDates(
+            CIMTManagerAPI manager,
+            string groupMask,
+            TimeZoneInfo timeZone,
+            DateTime reportDateLocal,
+            Action<string> statusWriter)
+        {
+            var firstDepositDates = new Dictionary<ulong, DateTime>();
+            DateTime rangeEndUtc = ToCroBoundaryUtc(reportDateLocal, timeZone, true);
+            var deals = manager.DealCreateArray();
+
+            try
+            {
+                MTRetCode result = manager.DealRequestByGroup(
+                    groupMask,
+                    SMTTime.FromDateTime(AllTimeHistoryStart),
+                    SMTTime.FromDateTime(rangeEndUtc),
+                    deals);
+
+                if (result != MTRetCode.MT_RET_OK)
+                    throw new InvalidOperationException("DealRequestByGroup failed: " + result + " (" + (uint)result + ")");
+
+                for (uint i = 0; i < deals.Total(); i++)
+                {
+                    CIMTDeal deal = deals.Next(i);
+                    if (deal == null || deal.Action() != 2 || deal.Profit() <= 0.0)
+                        continue;
+
+                    string comment = deal.Comment() ?? string.Empty;
+                    if (ShouldExcludeFtdComment(comment))
+                        continue;
+
+                    DateTime localDate = ToCroLocalDate(SMTTime.ToDateTime(deal.Time()), timeZone);
+                    DateTime existing;
+                    if (!firstDepositDates.TryGetValue(deal.Login(), out existing) || localDate < existing)
+                        firstDepositDates[deal.Login()] = localDate;
+                }
+            }
+            finally
+            {
+                deals.Dispose();
+            }
+
+            return firstDepositDates;
+        }
+
+        private static Mt5CroCurrentAccountMetrics CollectCurrentAccountMetrics(
+            CIMTManagerAPI manager,
+            string groupMask,
+            Dictionary<string, string> groupCurrencies,
+            Dictionary<ulong, Mt5LoginContext> loginContexts,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            Action<string> statusWriter)
+        {
+            Mt5TradingAccountsSnapshot snapshot = Mt5MonitorCollector.CollectTradingAccounts(
+                manager,
+                groupCurrencies,
+                loginContexts,
+                groupMask,
+                statusWriter);
+
+            var metrics = new Mt5CroCurrentAccountMetrics();
+            if (snapshot.Rows == null)
+                return metrics;
+
+            foreach (Mt5TradingAccountRow row in snapshot.Rows)
+            {
+                string currency = string.IsNullOrWhiteSpace(row.Currency) ? "USD" : row.Currency;
+                metrics.BalanceUsd += ConvertNativeToUsd(currency, row.Balance, usdRates, null);
+                metrics.CreditUsd += ConvertNativeToUsd(currency, row.Credit, usdRates, null);
+                metrics.EquityUsd += ConvertNativeToUsd(currency, row.Equity, usdRates, null);
+                metrics.ProfitUsd += ConvertNativeToUsd(currency, row.Profit, usdRates, null);
+            }
+
+            return metrics;
+        }
+
+        private static Mt5CroCurrentPositionMetrics CollectCurrentPositionMetrics(
+            CIMTManagerAPI manager,
+            Dictionary<string, string> groupCurrencies,
+            Dictionary<ulong, Mt5LoginContext> loginContexts,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            Action<string> statusWriter)
+        {
+            var metrics = new Mt5CroCurrentPositionMetrics
+            {
+                ActiveTraderLogins = new HashSet<ulong>()
+            };
+
+            foreach (KeyValuePair<string, string> group in groupCurrencies)
+            {
+                var positions = manager.PositionCreateArray();
+                try
+                {
+                    MTRetCode result = manager.PositionGetByGroup(group.Key, positions);
+                    if (result != MTRetCode.MT_RET_OK)
+                        continue;
+
+                    for (uint i = 0; i < positions.Total(); i++)
+                    {
+                        CIMTPosition position = positions.Next(i);
+                        if (position == null)
+                            continue;
+
+                        string symbol = position.Symbol() ?? string.Empty;
+                        if (ShouldExcludeTradeSymbol(symbol))
+                            continue;
+
+                        string currency = ResolveCroLoginCurrency(ResolveCroLoginContext(loginContexts, position.Login()), groupCurrencies);
+                        double floatingNative = position.Profit() + position.Storage();
+                        double lots = ToDisplayLots(position.Volume());
+                        metrics.PositionCount++;
+                        metrics.FloatingPnlUsd += ConvertNativeToUsd(currency, floatingNative, usdRates, position.RateProfit());
+                        metrics.OpenStorageUsd += ConvertNativeToUsd(currency, position.Storage(), usdRates, position.RateProfit());
+                        metrics.AbsExposureUsd += Math.Abs(lots * position.ContractSize() * position.PriceCurrent());
+                        metrics.ActiveTraderLogins.Add(position.Login());
+                    }
+                }
+                finally
+                {
+                    positions.Dispose();
+                }
+            }
+
+            return metrics;
+        }
+
+        private static HashSet<ulong> FindFtdLogins(
+            IDictionary<ulong, DateTime> firstValidDepositDates,
+            DateTime fromLocalDate,
+            DateTime toLocalDate)
+        {
+            return new HashSet<ulong>(
+                firstValidDepositDates
+                    .Where(pair => pair.Value >= fromLocalDate && pair.Value <= toLocalDate)
+                    .Select(pair => pair.Key));
+        }
+
+        private static double CalculateSpreadUsd(
+            CIMTManagerAPI manager,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            IDictionary<string, Mt5CroSymbolSpreadInput> spreadInputs,
+            DateTime fromLocalDate,
+            DateTime toLocalDate,
+            TimeZoneInfo timeZone)
+        {
+            if (spreadInputs == null || spreadInputs.Count == 0)
+                return 0.0;
+
+            DateTime rangeStartUtc = ToCroBoundaryUtc(fromLocalDate, timeZone, false);
+            DateTime rangeEndUtc = ToCroBoundaryUtc(toLocalDate, timeZone, true);
+            double total = 0.0;
+
+            foreach (Mt5CroSymbolSpreadInput input in spreadInputs.Values)
+            {
+                if (input == null || string.IsNullOrWhiteSpace(input.Symbol) || input.VolumeLots <= 0.0)
+                    continue;
+
+                MTRetCode tickResult;
+                MTTickShort[] ticks = manager.TickHistoryRequest(
+                    input.Symbol,
+                    ToUnixSeconds(rangeStartUtc),
+                    ToUnixSeconds(rangeEndUtc),
+                    out tickResult);
+
+                double averageSpread = 0.0;
+                if (tickResult == MTRetCode.MT_RET_OK && ticks != null && ticks.Length > 0)
+                {
+                    averageSpread = ticks.Where(tick => tick.ask > 0.0 && tick.bid > 0.0)
+                        .Select(tick => tick.ask - tick.bid)
+                        .DefaultIfEmpty(0.0)
+                        .Average();
+                }
+
+                if (averageSpread <= 0.0)
+                {
+                    MTTickShort lastTick;
+                    if (manager.TickLast(input.Symbol, out lastTick) == MTRetCode.MT_RET_OK && lastTick.ask > 0.0 && lastTick.bid > 0.0)
+                        averageSpread = lastTick.ask - lastTick.bid;
+                }
+
+                if (averageSpread <= 0.0)
+                    continue;
+
+                var symbol = manager.SymbolCreate();
+                try
+                {
+                    string conversionCurrency = "USD";
+                    if (manager.SymbolRequest(input.Symbol, symbol) == MTRetCode.MT_RET_OK)
+                    {
+                        string profitCurrency = symbol.CurrencyProfit() ?? string.Empty;
+                        string marginCurrency = symbol.CurrencyMargin() ?? string.Empty;
+                        conversionCurrency = ResolveSpreadConversionCurrency(profitCurrency, marginCurrency, usdRates);
+                    }
+
+                    double rateToUsd = ResolvePositiveUsdRate(conversionCurrency, usdRates);
+                    total -= input.VolumeLots * input.ContractSize * averageSpread * rateToUsd;
+                }
+                finally
+                {
+                    symbol.Release();
+                }
+            }
+
+            return total;
+        }
+
+        private static string ResolveSpreadConversionCurrency(
+            string profitCurrency,
+            string marginCurrency,
+            IDictionary<string, Mt5UsdConversionRate> usdRates)
+        {
+            if (string.Equals(profitCurrency, "USD", StringComparison.OrdinalIgnoreCase))
+                return "USD";
+            if (!string.IsNullOrWhiteSpace(profitCurrency) && ResolvePositiveUsdRate(profitCurrency, usdRates) > 0.0)
+                return profitCurrency;
+            if (string.Equals(marginCurrency, "USD", StringComparison.OrdinalIgnoreCase))
+                return "USD";
+            if (!string.IsNullOrWhiteSpace(marginCurrency) && ResolvePositiveUsdRate(marginCurrency, usdRates) > 0.0)
+                return marginCurrency;
+            return "USD";
+        }
+
+        private static double ResolvePositiveUsdRate(string currency, IDictionary<string, Mt5UsdConversionRate> usdRates)
+        {
+            string effectiveCurrency = string.IsNullOrWhiteSpace(currency) ? "USD" : currency;
+            if (string.Equals(effectiveCurrency, "USD", StringComparison.OrdinalIgnoreCase))
+                return 1.0;
+
+            Mt5UsdConversionRate rate;
+            if (usdRates != null && usdRates.TryGetValue(effectiveCurrency, out rate) && rate != null && rate.PositiveToUsd > 0.0)
+                return rate.PositiveToUsd;
+
+            return 0.0;
+        }
+
+        private static void AddCard(
+            Mt5CroCardsSection section,
+            string id,
+            string label,
+            string kind,
+            double value,
+            string freshness)
+        {
+            if (section == null)
+                return;
+
+            section.Cards.Add(new Mt5CroCardValue
+            {
+                Id = id,
+                Label = label,
+                Kind = kind,
+                Value = value,
+                Freshness = freshness
+            });
+        }
+
+        private static Mt5CroDailyAggregate GetDailyAggregate(IDictionary<DateTime, Mt5CroDailyAggregate> aggregates, DateTime localDate)
+        {
+            Mt5CroDailyAggregate aggregate;
+            if (aggregates != null && aggregates.TryGetValue(localDate, out aggregate))
+                return aggregate;
+
+            return new Mt5CroDailyAggregate { LocalDate = localDate };
+        }
+
+        private static bool ShouldExcludeDepositComment(string comment, bool excludeBonus)
+        {
+            string value = (comment ?? string.Empty).ToLowerInvariant();
+            if (excludeBonus && value.Contains("bonus"))
+                return true;
+            return value.Contains("fees placeholder") || value.Contains("spread charge");
+        }
+
+        private static bool ShouldExcludeFtdComment(string comment)
+        {
+            string value = (comment ?? string.Empty).ToLowerInvariant();
+            return value.Contains("fees placeholder") || value.Contains("spread charge");
+        }
+
+        private static bool IsIslamicBalanceComment(string comment)
+        {
+            string value = (comment ?? string.Empty).ToLowerInvariant();
+            return value.Contains("fees placeholder") || value.Contains("spread charge");
+        }
+
+        private static bool ShouldExcludeTradeSymbol(string symbol)
+        {
+            string value = (symbol ?? string.Empty).Trim();
+            if (value.StartsWith("Zeroing", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return TradeSymbolSoftExclusions.Any(token => value.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static bool ShouldExcludeSpreadSymbol(string symbol)
+        {
+            string value = (symbol ?? string.Empty).Trim();
+            if (ShouldExcludeTradeSymbol(value))
+                return true;
+
+            return SpreadSymbolHardExclusions.Any(token => string.Equals(value, token, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void AddAmount(IDictionary<ulong, double> values, ulong login, double amount)
+        {
+            if (values == null)
+                return;
+
+            double existing;
+            values.TryGetValue(login, out existing);
+            values[login] = existing + amount;
+        }
+
+        private static void AccumulateClosedTotals(
+            IDictionary<string, Mt5PositionHistoryCurrencyTotal> totals,
+            string currency,
+            int currencyDigits,
+            double profit,
+            double swap,
+            double commission,
+            double fee)
+        {
+            string effectiveCurrency = string.IsNullOrWhiteSpace(currency) ? "USD" : currency;
+            Mt5PositionHistoryCurrencyTotal total;
+            if (!totals.TryGetValue(effectiveCurrency, out total))
+            {
+                total = new Mt5PositionHistoryCurrencyTotal
+                {
+                    Currency = effectiveCurrency,
+                    CurrencyDigits = NormalizeCroCurrencyDigits(currencyDigits)
+                };
+                totals[effectiveCurrency] = total;
+            }
+
+            total.CurrencyDigits = Math.Max(total.CurrencyDigits, NormalizeCroCurrencyDigits(currencyDigits));
+            total.Profit += profit;
+            total.Swap += swap;
+            total.Commission += commission;
+            total.Fee += fee;
+        }
+
+        private static int NormalizeCroCurrencyDigits(int digits)
+        {
+            if (digits < 0)
+                return 0;
+            if (digits > 8)
+                return 8;
+            return digits;
+        }
+
+        private static string NormalizeGroupMask(string requested, string fallback)
+        {
+            string value = string.IsNullOrWhiteSpace(requested) ? fallback : requested.Trim();
+            return string.IsNullOrWhiteSpace(value)
+                ? "CMV*"
+                : value.Replace("%", "*");
+        }
+
+        private static DateTime NormalizeUtc(DateTime value)
+        {
+            if (value == default(DateTime))
+                return value;
+            return value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+        }
+
+        private static DateTime ToCroBoundaryUtc(DateTime localDate, TimeZoneInfo timeZone, bool endOfDay)
+        {
+            DateTime unspecified = new DateTime(localDate.Year, localDate.Month, localDate.Day, 0, 0, 0, DateTimeKind.Unspecified);
+            if (endOfDay)
+                unspecified = unspecified.AddDays(1).AddMilliseconds(-1);
+
+            return TimeZoneInfo.ConvertTimeToUtc(unspecified, timeZone);
+        }
+
+        private static DateTime ToCroLocalDate(DateTime utcValue, TimeZoneInfo timeZone)
+        {
+            if (utcValue == default(DateTime))
+                return default(DateTime);
+
+            DateTime utc = utcValue.Kind == DateTimeKind.Utc
+                ? utcValue
+                : DateTime.SpecifyKind(utcValue, DateTimeKind.Utc);
+            return TimeZoneInfo.ConvertTimeFromUtc(utc, timeZone).Date;
+        }
+
+        private static TimeZoneInfo ResolveCroTimeZone()
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById("Europe/Nicosia");
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById("GTB Standard Time");
+            }
+        }
+
+        private static Mt5LoginContext ResolveCroLoginContext(Dictionary<ulong, Mt5LoginContext> loginContexts, ulong login)
+        {
+            Mt5LoginContext context;
+            return loginContexts != null && loginContexts.TryGetValue(login, out context)
+                ? context
+                : new Mt5LoginContext { Login = login, Currency = "USD" };
+        }
+
+        private static string ResolveCroLoginCurrency(Mt5LoginContext context, Dictionary<string, string> groupCurrencies)
+        {
+            if (context != null && !string.IsNullOrWhiteSpace(context.Currency))
+                return context.Currency;
+            if (context != null && !string.IsNullOrWhiteSpace(context.Group) && groupCurrencies != null && groupCurrencies.ContainsKey(context.Group))
+                return groupCurrencies[context.Group];
+            return "USD";
+        }
+
+        private static double ConvertNativeToUsd(
+            string currency,
+            double nativeAmount,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            double? fallbackRateProfit)
+        {
+            if (nativeAmount == 0.0)
+                return 0.0;
+
+            string effectiveCurrency = string.IsNullOrWhiteSpace(currency) ? "USD" : currency;
+            if (string.Equals(effectiveCurrency, "USD", StringComparison.OrdinalIgnoreCase))
+                return nativeAmount;
+
+            Mt5UsdConversionRate rate;
+            if (usdRates != null && usdRates.TryGetValue(effectiveCurrency, out rate) && rate != null)
+            {
+                double toUsd = nativeAmount >= 0.0 ? rate.PositiveToUsd : rate.NegativeToUsd;
+                if (toUsd > 0.0)
+                    return nativeAmount * toUsd;
+            }
+
+            if (fallbackRateProfit.HasValue && fallbackRateProfit.Value > 1.5 && fallbackRateProfit.Value != 0.0)
+                return nativeAmount / fallbackRateProfit.Value;
+
+            return nativeAmount;
+        }
+
+        private static double CalculatePnlCash(
+            double endEquityUsd,
+            double endCreditsUsd,
+            double endProtectedBonusesUsd,
+            double startEquityUsd,
+            double startCreditsUsd,
+            double startProtectedBonusesUsd,
+            double netDepositsUsd)
+        {
+            double endClean = endEquityUsd - endCreditsUsd - endProtectedBonusesUsd;
+            double startClean = startEquityUsd - startCreditsUsd - startProtectedBonusesUsd;
+            return Math.Max(endClean, 0.0) - Math.Max(startClean, 0.0) - netDepositsUsd;
+        }
+
+        private static long ToUnixSeconds(DateTime utcDateTime)
+        {
+            DateTime utc = utcDateTime.Kind == DateTimeKind.Utc
+                ? utcDateTime
+                : DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc);
+            return (long)(utc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+        }
+
+        private static double ToDisplayLots(ulong rawVolume)
+        {
+            return rawVolume / 10000.0;
+        }
+
+        private static string SerializeJson<T>(T value, bool indented)
+        {
+            var serializer = new DataContractJsonSerializer(typeof(T));
+            using (var stream = new MemoryStream())
+            {
+                serializer.WriteObject(stream, value);
+                string json = Encoding.UTF8.GetString(stream.ToArray());
+                return indented ? PrettyPrintJson(json) : json;
+            }
+        }
+
+        private static string PrettyPrintJson(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return json;
+
+            var builder = new StringBuilder(json.Length + 64);
+            bool inString = false;
+            int depth = 0;
+
+            for (int i = 0; i < json.Length; i++)
+            {
+                char ch = json[i];
+                char previous = i > 0 ? json[i - 1] : '\0';
+
+                if (ch == '"' && previous != '\\')
+                    inString = !inString;
+
+                if (inString)
+                {
+                    builder.Append(ch);
+                    continue;
+                }
+
+                switch (ch)
+                {
+                    case '{':
+                    case '[':
+                        builder.Append(ch);
+                        builder.AppendLine();
+                        depth++;
+                        builder.Append(new string(' ', depth * 2));
+                        break;
+
+                    case '}':
+                    case ']':
+                        builder.AppendLine();
+                        depth = Math.Max(0, depth - 1);
+                        builder.Append(new string(' ', depth * 2));
+                        builder.Append(ch);
+                        break;
+
+                    case ',':
+                        builder.Append(ch);
+                        builder.AppendLine();
+                        builder.Append(new string(' ', depth * 2));
+                        break;
+
+                    case ':':
+                        builder.Append(": ");
+                        break;
+
+                    default:
+                        if (!char.IsWhiteSpace(ch))
+                            builder.Append(ch);
+                        break;
+                }
+            }
+
+            return builder.ToString();
         }
     }
 }

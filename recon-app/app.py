@@ -2496,6 +2496,50 @@ def cro_data():
     except Exception:
         age = 9e9
 
+    normalize_group = lambda value: ((value or "").strip() or "CMV*").replace("%", "*")
+    requested_date = (request.args.get("date") or date.today().isoformat()).strip()
+    requested_group = normalize_group(request.args.get("group") or live.get("group_mask") or os.environ.get("CRO_GROUP") or "CMV*")
+    requested_source = (request.args.get("source") or live.get("source") or "AN100").strip() or "AN100"
+    live_group = normalize_group(live.get("group_mask") or os.environ.get("CRO_GROUP") or "CMV*")
+    live_source = (live.get("source") or "AN100").strip() or "AN100"
+    today_iso = date.today().isoformat()
+    is_requested_live_scope = requested_date == today_iso and requested_group == live_group and requested_source == live_source
+    is_default_live_scope = has_data and is_requested_live_scope
+
+    if not is_default_live_scope and not (not has_data and is_requested_live_scope):
+        try:
+            raw = _cro_report_fetch({
+                "type": "cro-cards",
+                "format": "json",
+                "from_date": requested_date,
+                "to_date": requested_date,
+                "group_mask": requested_group,
+                "source": requested_source,
+            })
+            bundle = json.loads(raw.decode("utf-8", errors="replace"))
+            return jsonify({
+                "date": requested_date,
+                "requested": requested_date,
+                "fellback": False,
+                "source": requested_source,
+                "group_mask": requested_group,
+                "cro_cards": bundle,
+                "by_group": [],
+                "by_symbol": [],
+                "closed_pnl_by_ccy": [],
+                "monthly_closed_pnl_by_ccy": [],
+                "closed_pnl_by_group": [],
+                "snap_login_count": 0,
+                "trend": [],
+                "live_pushed_at": None,
+                "live_stale": False,
+                "live_age_s": None,
+                "waiting": False,
+                "tables_live_scope_only": True,
+            })
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 502
+
     today     = date.today().isoformat()
     today_ym  = today[:7]   # "2026-04"
     flt = lambda k: float(live.get(k, 0) or 0)
@@ -2643,6 +2687,7 @@ def cro_data():
         "fellback":   False,
         "source":     live.get("source", "AN100"),
         "group_mask": live.get("group_mask", "CMV*"),
+        "cro_cards":  live.get("cro_cards"),
         "daily":      daily,
         "monthly":    monthly,
         "by_group":   live.get("by_group", []),
@@ -2656,6 +2701,7 @@ def cro_data():
         "live_stale":  (not has_data) or age >= _CRO_LIVE_MAX_AGE_S,
         "live_age_s": age if has_data else None,
         "waiting":    not has_data,
+        "tables_live_scope_only": False,
     })
 
 

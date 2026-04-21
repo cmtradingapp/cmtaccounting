@@ -14,6 +14,40 @@
   gap: 8px;
   margin-bottom: 28px;
 }
+.cro-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 20px 0 18px;
+}
+.cro-section-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cro-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cro-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.cro-section-fresh {
+  font-size: 10px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.cro-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
 /* Primary metric card */
 .ck {
   background: var(--surface);
@@ -134,8 +168,8 @@
   </div>
 </div>
 
-<div class="cro-primary" id="croPrimary"></div>
-<div class="cro-secondary" id="croSecondary"></div>
+<div class="cro-sections" id="croCardsSections"></div>
+<div id="croTablesScopeNote" class="page-sub" style="display:none;margin-top:-4px;margin-bottom:14px;color:var(--text-2);"></div>
 
 <div class="section-title" style="display:flex;align-items:center;gap:10px;margin-top:18px;">
   MT5 Reports
@@ -297,7 +331,7 @@
     return Number(s.n_accounts || 0) === 0 && Number(s.n_traders || 0) === 0;
   }
 
-  function renderAll(daily, monthly, bundle) {
+  function renderLegacyCards(daily, monthly, bundle) {
     var isLive = bundle && !bundle.live_stale && bundle.live_pushed_at;
     var pill = isLive
       ? '<span class="pill-live">LIVE ' + new Date(bundle.live_pushed_at).toLocaleTimeString() + '</span>'
@@ -313,29 +347,91 @@
         mtd + '</div>';
     }
 
-    function cs(label, val) {
-      return '<div class="cs"><div class="cs-label">' + label + '</div><div class="cs-val">' + val + '</div></div>';
+    var d = daily, m = monthly;
+    document.getElementById('croCardsSections').innerHTML =
+      '<div class="cro-section-block">' +
+        '<div class="cro-section-head"><div class="cro-section-title">Legacy Cards</div></div>' +
+        '<div class="cro-card-grid">' +
+          ck('Net PnL', fmtMoney(d.pnl), cls(d.pnl), fmtMoney(m.pnl)) +
+          ck('Closed PnL', fmtMoney(d.closed_pnl), cls(d.closed_pnl), fmtMoney(m.closed_pnl)) +
+          ck('Floating PnL', fmtMoney(d.floating_pnl), cls(d.floating_pnl), null, pill) +
+          ck('Net Deposits', fmtMoney(d.net_deposits), cls(d.net_deposits), fmtMoney(m.net_deposits)) +
+          ck('Volume', fmtMoney(d.volume_usd), '', fmtMoney(m.volume_usd || 0)) +
+          ck('Traders', fmtInt(d.n_traders), '', fmtInt(m.n_traders)) +
+          ck('Active', fmtInt(d.n_active_traders), '', fmtInt(m.n_active_traders)) +
+          ck('Depositors', fmtInt(d.n_depositors), '', fmtInt(m.n_depositors)) +
+          ck('FTD', fmtInt(d.n_ftd), '', fmtInt(m.n_ftd)) +
+          ck('Ret. Deposits', fmtInt(d.n_retention_depositors), '', fmtInt(m.n_retention_depositors)) +
+          ck('Equity', fmtMoney(d.equity), '', null) +
+          ck('WD Equity', fmtMoney(d.wd_equity), cls(d.wd_equity), null) +
+          ck('Daily PnL Cash', fmtMoney(d.daily_pnl_cash_usd), cls(d.daily_pnl_cash_usd), null) +
+          ck('Balance', fmtMoney(d.balance), '', null) +
+          ck('Credit', fmtMoney(d.credit), '', null) +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderCroCards(croCards, legacyDaily, legacyMonthly, bundle) {
+    var dailySection = croCards ? (croCards.daily || croCards.Daily) : null;
+    var monthlySection = croCards ? (croCards.monthly || croCards.Monthly) : null;
+    var liveSection = croCards ? (croCards.live_inputs || croCards.LiveInputs) : null;
+    var meta = croCards ? (croCards.meta || croCards.Meta || {}) : {};
+
+    if (!croCards || !dailySection || !monthlySection || !liveSection) {
+      renderLegacyCards(legacyDaily, legacyMonthly, bundle);
+      return;
     }
 
-    var d = daily, m = monthly;
-    document.getElementById('croPrimary').innerHTML =
-      ck('Net PnL',      fmtMoney(d.pnl),          cls(d.pnl),          fmtMoney(m.pnl)) +
-      ck('Closed PnL',  fmtMoney(d.closed_pnl),    cls(d.closed_pnl),   fmtMoney(m.closed_pnl)) +
-      ck('Floating PnL',fmtMoney(d.floating_pnl),  cls(d.floating_pnl), null, pill) +
-      ck('Net Deposits', fmtMoney(d.net_deposits),  cls(d.net_deposits), fmtMoney(m.net_deposits));
+    function formatCard(card) {
+      var kind = (card.kind || card.Kind || '').toLowerCase();
+      var value = Number(card.value !== undefined ? card.value : (card.Value || 0));
+      if (kind === 'count') return fmtInt(value);
+      if (kind === 'money') return fmtMoney(value);
+      return value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
 
-    document.getElementById('croSecondary').innerHTML =
-      cs('Volume',        fmtMoney(d.volume_usd)) +
-      cs('Traders',       fmtInt(d.n_traders)) +
-      cs('Active',        fmtInt(d.n_active_traders)) +
-      cs('Depositors',    fmtInt(d.n_depositors)) +
-      cs('FTD',           fmtInt(d.n_ftd)) +
-      cs('Ret. Deposits', fmtInt(d.n_retention_depositors)) +
-      cs('Equity',        fmtMoney(d.equity)) +
-      cs('WD Equity Z',   fmtMoney(d.wd_equity)) +
-      cs('Daily PnL Cash', fmtMoney(d.daily_pnl_cash_usd)) +
-      cs('Balance',       fmtMoney(d.balance)) +
-      cs('Credit',        fmtMoney(d.credit));
+    function freshnessBadge(card) {
+      var freshness = card ? (card.freshness || card.Freshness) : '';
+      if (!freshness) return '';
+      var label = String(freshness).replace(/_/g, ' ');
+      if (label.indexOf('fast') >= 0 || label.indexOf('live') >= 0) {
+        return '<span class="pill-live">' + label.toUpperCase() + '</span>';
+      }
+      return '<span class="pill-eod">' + label.toUpperCase() + '</span>';
+    }
+
+    function cardHtml(card) {
+      var value = Number(card.value !== undefined ? card.value : (card.Value || 0));
+      return '<div class="ck ' + cls(value) + '">' +
+        '<div class="ck-label">' + (card.label || card.Label || card.id || card.Id || '') + freshnessBadge(card) + '</div>' +
+        '<div class="ck-val">' + formatCard(card) + '</div>' +
+      '</div>';
+    }
+
+    function sectionHtml(section) {
+      var cards = (section && (section.cards || section.Cards)) ? (section.cards || section.Cards) : [];
+      return '<div class="cro-section-block">' +
+        '<div class="cro-section-head">' +
+          '<div class="cro-section-title">' + (section.label || section.Label || '') + '</div>' +
+          '<div class="cro-section-fresh">' + (((section.refreshed_at || section.RefreshedAt || '') + '').replace('T', ' ').replace('Z', ' UTC')) + '</div>' +
+        '</div>' +
+        '<div class="cro-card-grid">' + cards.map(cardHtml).join('') + '</div>' +
+      '</div>';
+    }
+
+    document.getElementById('croCardsSections').innerHTML =
+      sectionHtml(dailySection) +
+      sectionHtml(monthlySection) +
+      sectionHtml(liveSection);
+
+    var noteEl = document.getElementById('croTablesScopeNote');
+    if (meta.tables_live_scope_only || meta.TablesLiveScopeOnly) {
+      noteEl.style.display = '';
+      noteEl.textContent = 'Lower tables remain live-scope only for now. Historical / filtered requests update workbook cards only.';
+    } else {
+      noteEl.style.display = 'none';
+      noteEl.textContent = '';
+    }
   }
 
   function renderGroupTable(rows) {
@@ -498,6 +594,18 @@
     '</tr>';
   }
 
+  function renderLiveScopeOnlyTables() {
+    document.getElementById('groupTbody').innerHTML = '<tr><td colspan="8" class="empty">Live-scope only table. Apply today + default bridge group to view it.</td></tr>';
+    document.getElementById('groupTfoot').innerHTML = '';
+    document.getElementById('symbolTbody').innerHTML = '<tr><td colspan="9" class="empty">Live-scope only table. Apply today + default bridge group to view it.</td></tr>';
+    document.getElementById('symbolTfoot').innerHTML = '';
+    document.getElementById('trendTbody').innerHTML = '<tr><td colspan="8" class="empty">Live-scope only table. Historical workbook cards are available above.</td></tr>';
+    document.getElementById('grpClosedTbody').innerHTML = '<tr><td colspan="2" class="empty">Live-scope only table.</td></tr>';
+    document.getElementById('grpClosedTfoot').innerHTML = '';
+    document.getElementById('ccyTbody').innerHTML = '<tr><td colspan="5" class="empty">Live-scope only table.</td></tr>';
+    document.getElementById('ccyTfoot').innerHTML = '';
+  }
+
   function setSub(text, isError) {
     var el = document.getElementById('croSub');
     el.textContent = text;
@@ -514,37 +622,41 @@
             '&source=' + encodeURIComponent(s);
     fetch('/cro/data' + q).then(function (r) { return r.json(); }).then(function (data) {
       if (data.error) { setSub('Error: ' + data.error, true); return; }
-      if (data.waiting || !data.daily) {
+      if (data.waiting && !data.cro_cards) {
         setSub('Bridge warming up — first push pending…', false);
         return;
       }
       // Zero-flash guard: don't overwrite good values with transient zeros.
-      if (_hasGoodData && looksEmpty(data.daily)) {
+      if (data.daily && _hasGoodData && looksEmpty(data.daily)) {
         setSub('Bridge reconnecting — holding last values…', false);
         return;
       }
-      if (!looksEmpty(data.daily)) _hasGoodData = true;
-      renderAll(data.daily, data.monthly, data);
+      if (data.daily && !looksEmpty(data.daily)) _hasGoodData = true;
+      renderCroCards(data.cro_cards, data.daily, data.monthly, data);
       _snapLoginCount = data.snap_login_count || 0;
       _ccyDay = data.closed_pnl_by_ccy || [];
       _ccyMth = data.monthly_closed_pnl_by_ccy || [];
-      renderCcyTable(document.getElementById('ccyTabMth').classList.contains('active') ? _ccyMth : _ccyDay);
-      renderGroupTable(data.by_group);
-      renderClosedPnlByGroup(data.closed_pnl_by_group);
-      renderSymbolTable(data.by_symbol);
-      renderTrendTable(data.trend);
+      if (data.tables_live_scope_only) {
+        renderLiveScopeOnlyTables();
+      } else {
+        renderCcyTable(document.getElementById('ccyTabMth').classList.contains('active') ? _ccyMth : _ccyDay);
+        renderGroupTable(data.by_group);
+        renderClosedPnlByGroup(data.closed_pnl_by_group);
+        renderSymbolTable(data.by_symbol);
+        renderTrendTable(data.trend);
+      }
       var fb = data.fellback ? ' · latest data: ' + data.date + ' (requested ' + data.requested + ')' : '';
-      var baseText = 'Source ' + data.source + ' · group ' + data.group_mask +
-        ' · ' + data.daily.label + ' · ' + fmtInt(data.daily.n_accounts) + ' accounts · ' +
-        fmtInt(data.daily.n_deals) + ' trade deals' + fb;
+      var baseText = 'Source ' + data.source + ' · group ' + data.group_mask + ' · ' + data.requested + fb;
       setSub(baseText, false);
       document.getElementById('croSub').setAttribute('data-base', baseText);
+      window._croLiveMode = !!(data.cro_cards && ((data.cro_cards.meta && data.cro_cards.meta.live) || (data.cro_cards.Meta && data.cro_cards.Meta.Live)));
     }).catch(function (e) { setSub('Fetch failed: ' + e.message, true); });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     var today = new Date().toISOString().slice(0, 10);
     document.getElementById('croDate').value = today;
+    window._croLiveMode = true;
     var CARDS_INTERVAL_MS  = 2000;
     var TABLES_INTERVAL_MS = 5 * 60 * 1000;
     var _cardsTimer  = null;
@@ -552,22 +664,25 @@
     var _lastUpdated = null;
 
     function loadCardsOnly() {
+      if (window._croLiveMode === false) return;
       var d = document.getElementById('croDate').value;
       var g = document.getElementById('croGroup').value;
       var s = document.getElementById('croSource').value;
       var q = '?date=' + encodeURIComponent(d) + '&group=' + encodeURIComponent(g) + '&source=' + encodeURIComponent(s);
       fetch('/cro/data' + q).then(function (r) { return r.json(); }).then(function (data) {
-        if (data.error || data.waiting || !data.daily) return;
+        if (data.error || data.waiting || (!data.daily && !data.cro_cards)) return;
         // Zero-flash guard: keep last good values if bridge is mid-reconnect.
-        if (_hasGoodData && looksEmpty(data.daily)) return;
-        if (!looksEmpty(data.daily)) _hasGoodData = true;
-        renderAll(data.daily, data.monthly, data);
+        if (data.daily && _hasGoodData && looksEmpty(data.daily)) return;
+        if (data.daily && !looksEmpty(data.daily)) _hasGoodData = true;
+        renderCroCards(data.cro_cards, data.daily, data.monthly, data);
         _snapLoginCount = data.snap_login_count || 0;
         _ccyDay = data.closed_pnl_by_ccy || [];
         _ccyMth = data.monthly_closed_pnl_by_ccy || [];
-        renderCcyTable(document.getElementById('ccyTabMth').classList.contains('active') ? _ccyMth : _ccyDay);
-        renderGroupTable(data.by_group);
-        renderClosedPnlByGroup(data.closed_pnl_by_group);
+        if (!data.tables_live_scope_only) {
+          renderCcyTable(document.getElementById('ccyTabMth').classList.contains('active') ? _ccyMth : _ccyDay);
+          renderGroupTable(data.by_group);
+          renderClosedPnlByGroup(data.closed_pnl_by_group);
+        }
         _lastUpdated = new Date();
         updateSub(data);
       }).catch(function () {});
@@ -576,10 +691,7 @@
     function updateSub(data) {
       var ts = _lastUpdated ? _lastUpdated.toLocaleTimeString() : '';
       var fb = data.fellback ? ' · latest: ' + data.date : '';
-      var base = 'Source ' + data.source + ' · ' + data.daily.label
-        + ' · ' + fmtInt(data.daily.n_accounts) + ' accts'
-        + ' · ' + fmtInt(data.daily.n_deals) + ' deals'
-        + fb + (ts ? ' · updated ' + ts : '');
+      var base = 'Source ' + data.source + ' · ' + data.requested + fb + (ts ? ' · updated ' + ts : '');
       setSub(base, false);
       document.getElementById('croSub').setAttribute('data-base', base);
     }
