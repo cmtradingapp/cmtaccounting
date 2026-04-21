@@ -2522,6 +2522,15 @@ def _cro_build_legacy_cards_from_live(live, today_iso=None):
     credit = flt("credit")
     wd_equity = flt("wd_equity")
 
+    # Readiness flags published by the bridge — fast-side cards (floating, deposits,
+    # positions, traders) are always ready; balance/credit/equity come from the slow
+    # worker's UserRequestArray (balance_ready); WD Equity Z comes from the slow
+    # worker's Mt5LiveWdEquityZGenerator (wd_ready); all `monthly_*` values come from
+    # the slow worker's CollectSlowStats (monthly_ready).
+    monthly_ready = bool(live.get("monthly_stats_ready"))
+    wd_ready = bool(live.get("wd_equity_ready"))
+    balance_ready = bool(live.get("balance_ready"))
+
     daily = {
         "label": today_iso,
         "start": today_iso,
@@ -2551,6 +2560,9 @@ def _cro_build_legacy_cards_from_live(live, today_iso=None):
         "n_ftd": n_ftd,
         "n_retention_depositors": max(n_dep_day - n_ftd, 0),
         "n_deals": i("n_closing_deals"),
+        "wd_ready": wd_ready,
+        "balance_ready": balance_ready,
+        "monthly_ready": monthly_ready,
     }
 
     monthly = {
@@ -2581,6 +2593,7 @@ def _cro_build_legacy_cards_from_live(live, today_iso=None):
         "n_ftd": n_ftd,
         "n_retention_depositors": max(n_dep_mth - n_ftd, 0),
         "n_deals": i("n_closing_deals"),
+        "monthly_ready": monthly_ready,
     }
 
     return daily, monthly

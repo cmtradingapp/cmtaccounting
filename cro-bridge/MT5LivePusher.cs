@@ -22,6 +22,12 @@ public sealed class MT5LivePusher
     private static readonly HashSet<string> ExcludedGroups =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    // FTD registry is written by the slow worker and read by the fast loop (via BuildPayload).
+    // All three of these are guarded by `_ftdLock`. `_ftdToday` is also read lock-free from
+    // the fast loop via `Volatile.Read` — plain int reads are atomic on all supported CPUs but
+    // we use Volatile.Read/Write to enforce a memory barrier so cross-thread reads see the
+    // latest write without depending on luck.
+    private static readonly object _ftdLock = new object();
     private static readonly HashSet<ulong> KnownDepositors = new HashSet<ulong>();
     private static bool _knownDepositorsLoaded;
     private static string _knownDepositorsDate = string.Empty;
@@ -122,6 +128,24 @@ public sealed class MT5LivePusher
 	        public int RefreshSeconds;
 	    }
 
+	    // Shared state between the fast push loop and the slow worker thread.
+	    // Writers (slow thread) allocate a fresh snapshot object per cycle and swap references
+	    // under _sharedLock. Readers (fast thread) lock briefly to copy references and then
+	    // operate on the immutable snapshot lock-free.
+	    private sealed class LiveSharedState
+	    {
+	        public SlowStats Slow;                         // null before first slow cycle completes
+	        public WdEquityPollingState WdPolling;         // null before first WD refresh completes
+	        public HashSet<ulong> DepositorLoginsSnapshot; // published by fast loop; consumed by slow for FTD
+	        public bool MonthlyReady;
+	        public bool WdReady;
+	        public bool BalanceReady;
+	        public DateTime SlowRefreshedAtUtc;
+	        public DateTime WdRefreshedAtUtc;
+	    }
+
+	    private static readonly object _sharedLock = new object();
+
     [DataContract]
     public sealed class PusherPayload
     {
@@ -178,6 +202,12 @@ public sealed class MT5LivePusher
         [DataMember] public string wd_equity_crm_query_as_of { get; set; }
         [DataMember] public string wd_equity_missing_currency_rates { get; set; }
         [DataMember] public string wd_equity_summary { get; set; }
+        // Readiness flags — frontend uses these to dim unready values instead of showing $0.00
+        [DataMember] public bool wd_equity_ready { get; set; }
+        [DataMember] public bool monthly_stats_ready { get; set; }
+        [DataMember] public bool balance_ready { get; set; }
+        [DataMember] public string slow_refreshed_at { get; set; }
+        [DataMember] public string wd_refreshed_at { get; set; }
         [DataMember] public double daily_pnl_cash_usd { get; set; }
         [DataMember] public double monthly_closed_pnl { get; set; }
         [DataMember] public double monthly_net_deposits { get; set; }
@@ -290,34 +320,80 @@ public sealed class MT5LivePusher
 	                slowEvery,
 	                wdEquityConfig.RefreshSeconds));
 
+        var shared = new LiveSharedState();
+        var stopEvt = new ManualResetEventSlim(false);
+
+        int slowRefreshSeconds = ParsePositiveInt(Environment.GetEnvironmentVariable("CRO_SLOW_REFRESH_SECONDS"), intervalSeconds * slowEvery);
+        bool singleConnection = ParsePositiveInt(Environment.GetEnvironmentVariable("CRO_SINGLE_CONNECTION"), 0) == 1;
+        // CRO workbook-cards generator is expensive on a second MT5 connection (hangs inside
+        // CollectDailyAggregates when racing the fast loop's DealRequestByGroup). Default off;
+        // enable with CRO_CARDS_ENABLED=1 after we have a working async variant.
+        bool croCardsEnabled = ParsePositiveInt(Environment.GetEnvironmentVariable("CRO_CARDS_ENABLED"), 0) == 1;
+
+        Console.CancelKeyPress += (s, e) =>
+        {
+            Console.Error.WriteLine("[pusher] SIGINT received; stopping loops...");
+            e.Cancel = true;
+            stopEvt.Set();
+        };
+
+        var slowThread = new Thread(() =>
+        {
+            try { RunSlowLoop(settings, shared, stopEvt, wdEquityConfig, slowRefreshSeconds, singleConnection, croCardsEnabled, ci); }
+            catch (Exception ex) { Console.Error.WriteLine("[pusher-slow] fatal: " + ex); }
+        }) { IsBackground = true, Name = "cro-slow-worker" };
+        slowThread.Start();
+
+        int exitCode = 0;
+        try
+        {
+            RunFastLoop(settings, shared, stopEvt, wdEquityConfig, intervalSeconds, ci);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[pusher] fast loop fatal: " + ex);
+            exitCode = 1;
+        }
+        finally
+        {
+            stopEvt.Set();
+            if (!slowThread.Join(TimeSpan.FromSeconds(10)))
+                Console.Error.WriteLine("[pusher] slow thread did not exit within 10s");
+            SMTManagerAPIFactory.Shutdown();
+        }
+        return exitCode;
+    }
+
+    private static void RunFastLoop(
+        Mt5MonitorSettings settings,
+        LiveSharedState shared,
+        ManualResetEventSlim stopEvt,
+        WdEquityBridgeConfig wdEquityConfig,
+        int intervalSeconds,
+        CultureInfo ci)
+    {
         CIMTManagerAPI manager = null;
         Dictionary<string, string> groupCurrencies = null;
         Dictionary<ulong, Mt5LoginContext> loginContexts = null;
-	        IDictionary<string, Mt5UsdConversionRate> usdRates = null;
-	        var closedPnlCalculator = new Mt5DailyClosedPnlCalculator();
-	        var slow = new SlowStats();
-	        WdEquityPollingState wdPolling = null;
-	        int slowCycle = slowEvery;
-	        int refreshCycle = 60;
-            bool fastSeedPushed = false;
+        IDictionary<string, Mt5UsdConversionRate> usdRates = null;
+        var closedPnlCalculator = new Mt5DailyClosedPnlCalculator();
+        int refreshCycle = 60;
+        bool fastSeedPushed = false;
 
         try
         {
-            while (true)
+            while (!stopEvt.IsSet)
             {
                 try
                 {
                     if (manager == null)
                     {
-                        manager = ConnectWithRetry(settings);
+                        manager = ConnectWithRetry(settings, "pusher");
                         groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
-	                        loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
-	                        usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
-	                        slow = new SlowStats();
-	                        wdPolling = null;
-	                        slowCycle = slowEvery;
-	                        refreshCycle = 60;
-                            fastSeedPushed = false;
+                        loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+                        usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+                        refreshCycle = 60;
+                        fastSeedPushed = false;
                         Console.Error.WriteLine(
                             string.Format(
                                 ci,
@@ -338,121 +414,57 @@ public sealed class MT5LivePusher
 
                     DateTime nowUtc = DateTime.UtcNow;
                     DateTime dayStartUtc = nowUtc.Date;
-                    DateTime monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-                    string todayKey = dayStartUtc.ToString("yyyy-MM-dd", ci);
 
                     FastStats fast = CollectFastStats(
-                        manager,
-                        settings,
-                        groupCurrencies,
-                        loginContexts,
-                        usdRates,
-                        dayStartUtc,
-                        nowUtc,
-                        closedPnlCalculator,
-                        ci);
+                        manager, settings, groupCurrencies, loginContexts, usdRates,
+                        dayStartUtc, nowUtc, closedPnlCalculator, ci);
 
-	                    if (fast.PositionCount == 0 && fast.TraderLogins.Count == 0)
-	                    {
+                    if (fast.PositionCount == 0 && fast.TraderLogins.Count == 0)
+                    {
                         Console.Error.WriteLine("[pusher] sanity: 0 positions + 0 traders -- skipping");
-	                        Thread.Sleep(intervalSeconds * 1000);
-	                        continue;
-	                    }
+                        stopEvt.Wait(intervalSeconds * 1000);
+                        continue;
+                    }
 
-                        if (!fastSeedPushed)
-                        {
-                            var seedPayload = BuildPayload(settings, loginContexts, fast, slow, wdPolling, wdEquityConfig, nowUtc, ci);
-                            seedPayload.cro_cards = null;
-                            Console.Error.WriteLine("[pusher] first fast payload ready; pushing partial cards while WD/slow stats warm up.");
-                            Console.WriteLine(SerializeJson(seedPayload));
-                            Console.Out.Flush();
-                            fastSeedPushed = true;
-                        }
+                    // Publish the latest depositor set so the slow worker's FTD logic has fresh input.
+                    var depositorSnapshot = new HashSet<ulong>(fast.DepositorLogins);
 
-	                    if (IsWdRefreshDue(wdPolling, nowUtc))
-	                    {
-	                        DateTime wdRefreshStartedUtc = DateTime.UtcNow;
-	                        Console.Error.WriteLine("[pusher] wd refresh: polling live Trading Accounts...");
-	                        try
-	                        {
-	                            wdPolling = RefreshWdEquityZ(
-	                                manager,
-	                                settings,
-	                                groupCurrencies,
-	                                loginContexts,
-	                                usdRates,
-	                                wdEquityConfig,
-	                                nowUtc,
-	                                ci);
+                    SlowStats cachedSlow;
+                    WdEquityPollingState cachedWd;
+                    bool monthlyReady, wdReady, balanceReady;
+                    DateTime slowRefreshedAtUtc, wdRefreshedAtUtc;
+                    lock (_sharedLock)
+                    {
+                        shared.DepositorLoginsSnapshot = depositorSnapshot;
+                        cachedSlow = shared.Slow;
+                        cachedWd = shared.WdPolling;
+                        monthlyReady = shared.MonthlyReady;
+                        wdReady = shared.WdReady;
+                        balanceReady = shared.BalanceReady;
+                        slowRefreshedAtUtc = shared.SlowRefreshedAtUtc;
+                        wdRefreshedAtUtc = shared.WdRefreshedAtUtc;
+                    }
 
-	                            TimeSpan wdRefreshDuration = DateTime.UtcNow - wdRefreshStartedUtc;
-	                            Console.Error.WriteLine(
-	                                string.Format(
-	                                    ci,
-	                                    "[pusher] wd refresh: raw={0:N0} included={1:N0} balance={2:N0} floating={3:N0} bonuses={4:N0} wdz={5:N0} took={6:N1}s",
-	                                    wdPolling.Report != null ? wdPolling.Report.RawAccountCount : 0,
-	                                    wdPolling.AccountCount,
-	                                    wdPolling.Report != null ? wdPolling.Report.BalanceUsdTotal : 0.0,
-	                                    wdPolling.Report != null ? wdPolling.Report.FloatingPnlUsdTotal : 0.0,
-	                                    wdPolling.Report != null ? wdPolling.Report.CumulativeBonusUsd : 0.0,
-	                                    wdPolling.Report != null ? wdPolling.Report.WdEquityZUsd : 0.0,
-	                                    wdRefreshDuration.TotalSeconds));
-	                        }
-	                        catch (Exception ex)
-	                        {
-	                            int retrySeconds = Math.Max(1, Math.Min(60, wdEquityConfig.RefreshSeconds));
-	                            Console.Error.WriteLine("[pusher] wd refresh failed: " + ex.Message + " -- keeping previous cached value");
-	                            if (wdPolling == null)
-	                                wdPolling = new WdEquityPollingState();
-	                            wdPolling.RefreshSeconds = wdEquityConfig.RefreshSeconds;
-	                            wdPolling.NextRefreshUtc = nowUtc.AddSeconds(retrySeconds);
-	                        }
-	                    }
+                    PusherPayload payload = BuildPayload(
+                        settings, loginContexts, fast, cachedSlow ?? new SlowStats(), cachedWd,
+                        wdEquityConfig, nowUtc, ci);
+                    payload.monthly_stats_ready = monthlyReady;
+                    payload.wd_equity_ready = wdReady;
+                    payload.balance_ready = balanceReady;
+                    payload.slow_refreshed_at = slowRefreshedAtUtc == default(DateTime)
+                        ? string.Empty
+                        : slowRefreshedAtUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", ci);
+                    payload.wd_refreshed_at = wdRefreshedAtUtc == default(DateTime)
+                        ? string.Empty
+                        : wdRefreshedAtUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", ci);
 
-	                    if (++slowCycle >= slowEvery)
-	                    {
-                        slowCycle = 0;
-                        slow = CollectSlowStats(
-                            manager,
-                            settings,
-                            groupCurrencies,
-                            loginContexts,
-                            usdRates,
-	                            monthStartUtc,
-	                            nowUtc,
-	                            closedPnlCalculator,
-	                            fast.DepositorLogins,
-	                            todayKey,
-	                            ci);
+                    if (!fastSeedPushed)
+                    {
+                        payload.cro_cards = null;
+                        Console.Error.WriteLine("[pusher] first fast payload ready; pushing partial cards while WD/slow stats warm up.");
+                        fastSeedPushed = true;
+                    }
 
-                        slow.CroCards = Mt5CroCardsGenerator.Generate(
-                            manager,
-                            settings,
-                            new Mt5CroCardsRequest
-                            {
-                                ReportDate = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, ResolveCroTimeZone()).Date,
-                                AsOfUtc = nowUtc,
-                                GroupMask = settings.GroupMask,
-                                Source = "AN100",
-                                IncludeSpecs = true
-                            },
-                            groupCurrencies,
-                            loginContexts,
-                            usdRates,
-                            _ => { });
-
-                        Console.Error.WriteLine(
-                            string.Format(
-                                ci,
-                                "[pusher] slow: bal={0:N0} cred={1:N0} mth_closed={2:N0} wdz={3:N0} ftd={4}",
-	                                slow.TotalBalanceUsd,
-	                                slow.TotalCreditUsd,
-	                                slow.ClosedPnl != null ? slow.ClosedPnl.TotalClosedPnlUsd : 0.0,
-	                                wdPolling != null && wdPolling.Report != null ? wdPolling.Report.WdEquityZUsd : 0.0,
-	                                _ftdToday));
-	                    }
-
-	                    PusherPayload payload = BuildPayload(settings, loginContexts, fast, slow, wdPolling, wdEquityConfig, nowUtc, ci);
                     Console.WriteLine(SerializeJson(payload));
                     Console.Out.Flush();
                 }
@@ -464,34 +476,243 @@ public sealed class MT5LivePusher
                     groupCurrencies = null;
                     loginContexts = null;
                     usdRates = null;
-                    Thread.Sleep(5000);
+                    stopEvt.Wait(5000);
                     continue;
                 }
 
-                Thread.Sleep(intervalSeconds * 1000);
+                stopEvt.Wait(intervalSeconds * 1000);
             }
         }
         finally
         {
             Mt5MonitorCollector.Disconnect(manager);
-            SMTManagerAPIFactory.Shutdown();
+        }
+    }
+
+    private static void RunSlowLoop(
+        Mt5MonitorSettings settings,
+        LiveSharedState shared,
+        ManualResetEventSlim stopEvt,
+        WdEquityBridgeConfig wdEquityConfig,
+        int slowRefreshSeconds,
+        bool singleConnectionForced,
+        bool croCardsEnabled,
+        CultureInfo ci)
+    {
+        CIMTManagerAPI manager = null;
+        Dictionary<string, string> groupCurrencies = null;
+        Dictionary<ulong, Mt5LoginContext> loginContexts = null;
+        IDictionary<string, Mt5UsdConversionRate> usdRates = null;
+        var closedPnlCalculator = new Mt5DailyClosedPnlCalculator();
+        bool singleConnectionFallback = singleConnectionForced;
+        int refreshCycle = 60;
+
+        DateTime wdDueUtc = DateTime.UtcNow;       // run immediately on start
+        DateTime slowDueUtc = DateTime.UtcNow;     // run immediately on start
+
+        // Small initial delay so the fast loop grabs the first connection first.
+        stopEvt.Wait(2000);
+
+        try
+        {
+            while (!stopEvt.IsSet)
+            {
+                try
+                {
+                    if (manager == null)
+                    {
+                        if (singleConnectionFallback)
+                        {
+                            Console.Error.WriteLine("[pusher-slow] CRO_SINGLE_CONNECTION=1 — slow worker disabled; slow data will not refresh.");
+                            stopEvt.Wait(30000);
+                            continue;
+                        }
+                        try
+                        {
+                            manager = ConnectWithRetry(settings, "pusher-slow");
+                        }
+                        catch (Exception connEx)
+                        {
+                            Console.Error.WriteLine("[pusher-slow] second MT5 connection failed: " + connEx.Message + " — falling back to single-connection mode.");
+                            singleConnectionFallback = true;
+                            continue;
+                        }
+                        groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
+                        loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+                        usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+                        refreshCycle = 60;
+                        Console.Error.WriteLine(
+                            string.Format(
+                                ci,
+                                "[pusher-slow] connected. groups={0} logins={1} fx_rates={2}",
+                                groupCurrencies.Count,
+                                loginContexts.Count,
+                                usdRates.Count));
+                    }
+
+                    if (--refreshCycle <= 0)
+                    {
+                        groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
+                        loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+                        usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+                        refreshCycle = 60;
+                    }
+
+                    DateTime nowUtc = DateTime.UtcNow;
+
+                    if (nowUtc >= wdDueUtc)
+                    {
+                        DateTime wdRefreshStartedUtc = DateTime.UtcNow;
+                        Console.Error.WriteLine("[pusher-slow] wd refresh: polling live Trading Accounts...");
+                        try
+                        {
+                            WdEquityPollingState newWd = RefreshWdEquityZ(
+                                manager, settings, groupCurrencies, loginContexts, usdRates,
+                                wdEquityConfig, nowUtc, ci);
+
+                            TimeSpan dur = DateTime.UtcNow - wdRefreshStartedUtc;
+                            Console.Error.WriteLine(
+                                string.Format(
+                                    ci,
+                                    "[pusher-slow] wd refresh: raw={0:N0} included={1:N0} balance={2:N0} floating={3:N0} bonuses={4:N0} wdz={5:N0} took={6:N1}s",
+                                    newWd.Report != null ? newWd.Report.RawAccountCount : 0,
+                                    newWd.AccountCount,
+                                    newWd.Report != null ? newWd.Report.BalanceUsdTotal : 0.0,
+                                    newWd.Report != null ? newWd.Report.FloatingPnlUsdTotal : 0.0,
+                                    newWd.Report != null ? newWd.Report.CumulativeBonusUsd : 0.0,
+                                    newWd.Report != null ? newWd.Report.WdEquityZUsd : 0.0,
+                                    dur.TotalSeconds));
+
+                            lock (_sharedLock)
+                            {
+                                shared.WdPolling = newWd;
+                                shared.WdReady = true;
+                                shared.WdRefreshedAtUtc = nowUtc;
+                            }
+                            wdDueUtc = nowUtc.AddSeconds(Math.Max(1, wdEquityConfig.RefreshSeconds));
+                        }
+                        catch (Exception ex)
+                        {
+                            int retrySeconds = Math.Max(1, Math.Min(60, wdEquityConfig.RefreshSeconds));
+                            Console.Error.WriteLine("[pusher-slow] wd refresh failed: " + ex.Message + " -- keeping previous cached value");
+                            wdDueUtc = nowUtc.AddSeconds(retrySeconds);
+                        }
+                    }
+
+                    if (!stopEvt.IsSet && nowUtc >= slowDueUtc)
+                    {
+                        DateTime slowStartedUtc = DateTime.UtcNow;
+                        DateTime monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                        string todayKey = nowUtc.Date.ToString("yyyy-MM-dd", ci);
+
+                        HashSet<ulong> depositors;
+                        lock (_sharedLock)
+                            depositors = shared.DepositorLoginsSnapshot != null
+                                ? new HashSet<ulong>(shared.DepositorLoginsSnapshot)
+                                : new HashSet<ulong>();
+
+                        try
+                        {
+                            SlowStats newSlow = CollectSlowStats(
+                                manager, settings, groupCurrencies, loginContexts, usdRates,
+                                monthStartUtc, nowUtc, closedPnlCalculator,
+                                depositors, todayKey, ci);
+
+                            if (croCardsEnabled)
+                            {
+                                newSlow.CroCards = Mt5CroCardsGenerator.Generate(
+                                    manager, settings,
+                                    new Mt5CroCardsRequest
+                                    {
+                                        ReportDate = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, ResolveCroTimeZone()).Date,
+                                        AsOfUtc = nowUtc,
+                                        GroupMask = settings.GroupMask,
+                                        Source = "AN100",
+                                        IncludeSpecs = true
+                                    },
+                                    groupCurrencies, loginContexts, usdRates,
+                                    msg => Console.Error.WriteLine("[pusher-slow] cro-cards: " + msg));
+                            }
+
+                            int ftdSnapshot;
+                            lock (_ftdLock) { ftdSnapshot = _ftdToday; }
+
+                            Console.Error.WriteLine(
+                                string.Format(
+                                    ci,
+                                    "[pusher-slow] slow: bal={0:N0} cred={1:N0} mth_closed={2:N0} ftd={3} took={4:N1}s",
+                                    newSlow.TotalBalanceUsd,
+                                    newSlow.TotalCreditUsd,
+                                    newSlow.ClosedPnl != null ? newSlow.ClosedPnl.TotalClosedPnlUsd : 0.0,
+                                    ftdSnapshot,
+                                    (DateTime.UtcNow - slowStartedUtc).TotalSeconds));
+
+                            lock (_sharedLock)
+                            {
+                                shared.Slow = newSlow;
+                                shared.MonthlyReady = true;
+                                shared.BalanceReady = true;
+                                shared.SlowRefreshedAtUtc = nowUtc;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine("[pusher-slow] slow cycle failed: " + ex.Message + " -- keeping previous cached value");
+                        }
+                        slowDueUtc = nowUtc.AddSeconds(Math.Max(5, slowRefreshSeconds));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("[pusher-slow] ERROR: " + ex.Message + " -- reconnecting");
+                    Mt5MonitorCollector.Disconnect(manager);
+                    manager = null;
+                    groupCurrencies = null;
+                    loginContexts = null;
+                    usdRates = null;
+                    stopEvt.Wait(5000);
+                    continue;
+                }
+
+                // Sleep until the earlier of the two due times (bounded).
+                DateTime now = DateTime.UtcNow;
+                DateTime nextDue = wdDueUtc < slowDueUtc ? wdDueUtc : slowDueUtc;
+                int waitMs = (int)Math.Min(30000, Math.Max(500, (nextDue - now).TotalMilliseconds));
+                stopEvt.Wait(waitMs);
+            }
+        }
+        finally
+        {
+            Mt5MonitorCollector.Disconnect(manager);
         }
     }
 
     private static CIMTManagerAPI ConnectWithRetry(Mt5MonitorSettings settings)
     {
+        return ConnectWithRetry(settings, "pusher");
+    }
+
+    private static CIMTManagerAPI ConnectWithRetry(Mt5MonitorSettings settings, string logPrefix)
+    {
+        string prefix = "[" + logPrefix + "]";
+        int maxAttempts = logPrefix == "pusher" ? int.MaxValue : 3;
+        int attempt = 0;
         while (true)
         {
+            attempt++;
             CIMTManagerAPI manager = Mt5MonitorCollector.Connect(
                 settings.Server,
                 settings.Login,
                 settings.Password,
-                message => Console.Error.WriteLine("[pusher] " + message));
+                message => Console.Error.WriteLine(prefix + " " + message));
 
             if (manager != null)
                 return manager;
 
-            Console.Error.WriteLine("[pusher] retrying connection in 5 seconds...");
+            if (attempt >= maxAttempts)
+                throw new InvalidOperationException("Connect failed after " + maxAttempts + " attempts");
+
+            Console.Error.WriteLine(prefix + " retrying connection in 5 seconds...");
             Thread.Sleep(5000);
         }
     }
@@ -893,20 +1114,24 @@ public sealed class MT5LivePusher
 
     private static void UpdateFtd(HashSet<ulong> todayDepositors, string todayKey)
     {
-        if (_knownDepositorsDate == todayKey)
-            return;
-
-        _ftdToday = 0;
-        foreach (ulong login in todayDepositors)
+        lock (_ftdLock)
         {
-            if (!KnownDepositors.Contains(login))
-                _ftdToday++;
+            if (_knownDepositorsDate == todayKey)
+                return;
+
+            int ftd = 0;
+            foreach (ulong login in todayDepositors)
+            {
+                if (!KnownDepositors.Contains(login))
+                    ftd++;
+            }
+
+            foreach (ulong login in todayDepositors)
+                KnownDepositors.Add(login);
+
+            _knownDepositorsDate = todayKey;
+            Volatile.Write(ref _ftdToday, ftd);
         }
-
-        foreach (ulong login in todayDepositors)
-            KnownDepositors.Add(login);
-
-        _knownDepositorsDate = todayKey;
     }
 
 	    private static PusherPayload BuildPayload(
@@ -1008,7 +1233,7 @@ public sealed class MT5LivePusher
             n_traders = fast.TraderLogins.Count,
             n_active_traders = fast.ActiveTraderLogins.Count,
             n_depositors = fast.DepositorLogins.Count,
-            n_ftd = _ftdToday,
+            n_ftd = Volatile.Read(ref _ftdToday),
             closed_pnl_by_ccy = ToCurrencyPayloads(dailyClosed),
             balance = slow.TotalBalanceUsd,
             credit = slow.TotalCreditUsd,

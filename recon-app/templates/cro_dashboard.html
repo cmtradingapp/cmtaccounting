@@ -142,6 +142,9 @@
 }
 .ccy-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .total-row td { border-top: 2px solid var(--border); font-weight: 700; }
+/* Dimmed placeholder shown while slow-loop data (MTD, Balance/Credit/Equity, WD Equity Z)
+   has not yet been computed on the bridge. Cleaner than flashing $0.00 for 3-15s. */
+.loading-dim { color: var(--text-2); opacity: .55; font-weight: 500; letter-spacing: 0; }
 </style>
 <div class="page-header">
   <div>
@@ -334,6 +337,13 @@
         && Number(s.equity || 0) === 0;
   }
 
+  // Wrap a formatted value with dim "…" placeholder when the slow worker hasn't
+  // produced it yet. Avoids flashing $0.00 on cold start.
+  function dim(val, ready) {
+    if (ready === false) return '<span class="loading-dim">…</span>';
+    return val;
+  }
+
   function renderLegacyCards(daily, monthly, bundle) {
     var isLive = bundle && !bundle.live_stale && bundle.live_pushed_at;
     var pill = isLive
@@ -351,25 +361,32 @@
     }
 
     var d = daily, m = monthly;
+    // `ready` flags default to TRUE when the key is missing (older payloads
+    // predate the flags — don't dim their values). Explicit `false` means
+    // the slow worker hasn't published yet — show the dim "…" placeholder.
+    var mReady = m.monthly_ready !== false;
+    var bReady = d.balance_ready !== false;
+    var wReady = d.wd_ready !== false;
+    // Net PnL depends on MTD for the MTD row, but the day value (floating + closed) is fast-ready
     document.getElementById('croCardsSections').innerHTML =
       '<div class="cro-section-block">' +
         '<div class="cro-section-head"><div class="cro-section-title">Legacy Cards</div></div>' +
         '<div class="cro-card-grid">' +
-          ck('Net PnL', fmtMoney(d.pnl), cls(d.pnl), fmtMoney(m.pnl)) +
-          ck('Closed PnL', fmtMoney(d.closed_pnl), cls(d.closed_pnl), fmtMoney(m.closed_pnl)) +
+          ck('Net PnL', fmtMoney(d.pnl), cls(d.pnl), dim(fmtMoney(m.pnl), mReady)) +
+          ck('Closed PnL', fmtMoney(d.closed_pnl), cls(d.closed_pnl), dim(fmtMoney(m.closed_pnl), mReady)) +
           ck('Floating PnL', fmtMoney(d.floating_pnl), cls(d.floating_pnl), null, pill) +
-          ck('Net Deposits', fmtMoney(d.net_deposits), cls(d.net_deposits), fmtMoney(m.net_deposits)) +
-          ck('Volume', fmtMoney(d.volume_usd), '', fmtMoney(m.volume_usd || 0)) +
-          ck('Traders', fmtInt(d.n_traders), '', fmtInt(m.n_traders)) +
-          ck('Active', fmtInt(d.n_active_traders), '', fmtInt(m.n_active_traders)) +
-          ck('Depositors', fmtInt(d.n_depositors), '', fmtInt(m.n_depositors)) +
-          ck('FTD', fmtInt(d.n_ftd), '', fmtInt(m.n_ftd)) +
-          ck('Ret. Deposits', fmtInt(d.n_retention_depositors), '', fmtInt(m.n_retention_depositors)) +
-          ck('Equity', fmtMoney(d.equity), '', null) +
-          ck('WD Equity', fmtMoney(d.wd_equity), cls(d.wd_equity), null) +
-          ck('Daily PnL Cash', fmtMoney(d.daily_pnl_cash_usd), cls(d.daily_pnl_cash_usd), null) +
-          ck('Balance', fmtMoney(d.balance), '', null) +
-          ck('Credit', fmtMoney(d.credit), '', null) +
+          ck('Net Deposits', fmtMoney(d.net_deposits), cls(d.net_deposits), dim(fmtMoney(m.net_deposits), mReady)) +
+          ck('Volume', fmtMoney(d.volume_usd), '', dim(fmtMoney(m.volume_usd || 0), mReady)) +
+          ck('Traders', fmtInt(d.n_traders), '', dim(fmtInt(m.n_traders), mReady)) +
+          ck('Active', fmtInt(d.n_active_traders), '', dim(fmtInt(m.n_active_traders), mReady)) +
+          ck('Depositors', fmtInt(d.n_depositors), '', dim(fmtInt(m.n_depositors), mReady)) +
+          ck('FTD', dim(fmtInt(d.n_ftd), mReady), '', dim(fmtInt(m.n_ftd), mReady)) +
+          ck('Ret. Deposits', dim(fmtInt(d.n_retention_depositors), mReady), '', dim(fmtInt(m.n_retention_depositors), mReady)) +
+          ck('Equity', dim(fmtMoney(d.equity), bReady), '', null) +
+          ck('WD Equity', dim(fmtMoney(d.wd_equity), wReady), wReady ? cls(d.wd_equity) : '', null) +
+          ck('Daily PnL Cash', dim(fmtMoney(d.daily_pnl_cash_usd), wReady), wReady ? cls(d.daily_pnl_cash_usd) : '', null) +
+          ck('Balance', dim(fmtMoney(d.balance), bReady), '', null) +
+          ck('Credit', dim(fmtMoney(d.credit), bReady), '', null) +
         '</div>' +
       '</div>';
   }
