@@ -902,7 +902,8 @@ public sealed class MT5LivePusher
 	        double totalEquity = slow.TotalBalanceUsd + slow.TotalCreditUsd + fast.FloatingPnlUsd;
 	        double legacyWdEquity = Math.Max(0.0, slow.TotalBalanceUsd + fast.FloatingPnlUsd - slow.MonthlyCobUsd);
 	        bool hasWdReport = wdPolling != null && wdPolling.Report != null && wdReport.GeneratedAt != default(DateTime);
-	        double wdEquity = hasWdReport ? wdReport.WdEquityZUsd : 0.0;
+	        double wdEquity = hasWdReport ? wdReport.PreClampWdEquityUsd : 0.0;
+	        double wdEquityClamped = hasWdReport ? wdReport.WdEquityZUsd : 0.0;
 
         var bySymbol = fast.Symbols.Values
             .OrderByDescending(item => Math.Abs(item.NotionalUsd))
@@ -971,7 +972,7 @@ public sealed class MT5LivePusher
             credit = slow.TotalCreditUsd,
             equity = totalEquity,
             wd_equity = wdEquity,
-            wd_equity_z = wdEquity,
+            wd_equity_z = wdEquityClamped,
             wd_equity_legacy = legacyWdEquity,
             wd_equity_balance_usd = wdReport.BalanceUsdTotal,
             wd_equity_floating_usd = wdReport.FloatingPnlUsdTotal,
@@ -1012,7 +1013,7 @@ public sealed class MT5LivePusher
 	                ? string.Join(", ", wdReport.MissingCurrencyRates)
 	                : string.Empty,
 	            wd_equity_summary = hasWdReport
-	                ? wdReport.CalculationSummary
+	                ? wdReport.CalculationSummary + " Dashboard field wd_equity currently shows the raw pre-clamp value."
 	                : "WD Equity Z pending first live Trading Accounts refresh.",
             monthly_closed_pnl = monthlyClosed.TotalClosedPnlUsd,
             monthly_net_deposits = slow.MonthlyDepositsUsd + slow.MonthlyWithdrawalsUsd,

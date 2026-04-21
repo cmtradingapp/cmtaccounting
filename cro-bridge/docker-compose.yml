@@ -16,6 +16,11 @@ services:
       CRO_SLOW_EVERY: "30"
       CRO_GROUP: CMV*
       CRO_SOURCE: AN100
+      # CRM (Azure SQL) — for live WD Equity Z CRM bonus lookup
+      CRM_HOST: cmtmainserver.database.windows.net
+      CRM_PORT: "1433"
+      CRM_DB: cmt_main
+      CRM_USER: reco
       # Force Wine to use native dotnet48 DLLs (not its builtin stubs) so the
       # .NET Framework 4.8 runtime loads the MT5 Manager assemblies correctly.
       WINEDLLOVERRIDES: "mscoree=n,b;fusion=n,b"
