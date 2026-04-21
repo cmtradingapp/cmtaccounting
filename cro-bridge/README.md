@@ -94,6 +94,11 @@ live-account breakdown/metadata fields such as:
 This makes it easier to validate the live raw formula against MT5 Manager and
 CRM source data.
 
+For cross-checks, the bridge report server also supports a `wd-equity-audit`
+report type. It exports the same live WD formula inputs the pusher uses:
+included Trading Accounts rows, USD-normalized balance / floating values,
+CRM cumulative bonus totals by login, and the final summary totals.
+
 ## Zero-downtime guarantees
 
 1. `restart: always` — Docker restarts on any exit (crash, OOM, manual stop).

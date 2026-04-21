@@ -13,7 +13,7 @@ public static class MT5Reporter
         if (args.Length < 2)
         {
             Console.Error.WriteLine("Usage: MT5Reporter.exe <report_type> [<from_date> <to_date>] <format>");
-            Console.Error.WriteLine("  report_type: deposit-withdrawal | positions-history | trading-accounts");
+            Console.Error.WriteLine("  report_type: deposit-withdrawal | positions-history | trading-accounts | wd-equity-audit");
             Console.Error.WriteLine("  format: json | csv  (positions-history: json only)");
             return 1;
         }
@@ -24,12 +24,29 @@ public static class MT5Reporter
 
         try
         {
-            if (reportType == "trading-accounts")
+            if (reportType == "trading-accounts" || reportType == "wd-equity-audit")
             {
                 string fmt = args.Length > 1 ? args[1].ToLowerInvariant() : "json";
-                string output = fmt == "csv"
-                    ? Mt5TradingAccountsGenerator.GenerateCsv(settings)
-                    : Mt5TradingAccountsGenerator.GenerateJson(settings);
+                string output;
+                if (reportType == "trading-accounts")
+                {
+                    output = fmt == "csv"
+                        ? Mt5TradingAccountsGenerator.GenerateCsv(settings)
+                        : Mt5TradingAccountsGenerator.GenerateJson(settings);
+                }
+                else
+                {
+                    var request = new Mt5LiveWdEquityZRequest
+                    {
+                        AsOfUtc = DateTime.UtcNow,
+                        FilterZeroEquityAndBalance = true,
+                        BonusScopePositiveBalanceOnly = true,
+                        IncludeCrmBonusLoginRows = true
+                    };
+                    output = fmt == "csv"
+                        ? Mt5LiveWdEquityZAuditGenerator.GenerateCsv(settings, request)
+                        : Mt5LiveWdEquityZAuditGenerator.GenerateJson(settings, request);
+                }
                 Console.Write(output);
                 return 0;
             }

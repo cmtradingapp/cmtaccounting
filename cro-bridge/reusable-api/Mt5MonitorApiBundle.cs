@@ -680,6 +680,60 @@ namespace Mt5Monitor.Api
         public IList<Mt5LiveWdEquityZCrmBonusLoginTotal> CrmBonusLogins { get; set; }
     }
 
+    public sealed class Mt5LiveWdEquityZAuditRow
+    {
+        public ulong Login { get; set; }
+        public string Name { get; set; }
+        public string Group { get; set; }
+        public string Currency { get; set; }
+        public int CurrencyDigits { get; set; }
+        public double Balance { get; set; }
+        public double FloatingPnl { get; set; }
+        public double Equity { get; set; }
+        public double BalanceUsd { get; set; }
+        public double FloatingPnlUsd { get; set; }
+        public double CumulativeBonusUsd { get; set; }
+        public double PreClampContributionUsd { get; set; }
+    }
+
+    public sealed class Mt5LiveWdEquityZAuditSnapshot
+    {
+        public Mt5LiveWdEquityZAuditSnapshot()
+        {
+            Rows = new List<Mt5LiveWdEquityZAuditRow>();
+            MissingCurrencyRates = new List<string>();
+            Assumptions = new List<string>();
+            ReportType = "LiveWdEquityZAudit";
+        }
+
+        public string ReportType { get; set; }
+        public string Server { get; set; }
+        public ulong ManagerLogin { get; set; }
+        public string GroupMask { get; set; }
+        public DateTime GeneratedAt { get; set; }
+        public DateTime AsOfUtc { get; set; }
+        public DateTime CrmQueryAsOfUtc { get; set; }
+        public bool FilterZeroEquityAndBalance { get; set; }
+        public bool BonusScopePositiveBalanceOnly { get; set; }
+        public int RawAccountCount { get; set; }
+        public int IncludedAccountCount { get; set; }
+        public int SkippedZeroEquityCount { get; set; }
+        public int SkippedZeroBalanceCount { get; set; }
+        public int SkippedExcludedGroupCount { get; set; }
+        public int BonusScopeLoginCount { get; set; }
+        public int CrmMatchedLoginCount { get; set; }
+        public int CrmMatchedTransactionCount { get; set; }
+        public double BalanceUsdTotal { get; set; }
+        public double FloatingPnlUsdTotal { get; set; }
+        public double CumulativeBonusUsd { get; set; }
+        public double PreClampWdEquityUsd { get; set; }
+        public double WdEquityZUsd { get; set; }
+        public string CalculationSummary { get; set; }
+        public IList<string> MissingCurrencyRates { get; set; }
+        public IList<string> Assumptions { get; set; }
+        public IList<Mt5LiveWdEquityZAuditRow> Rows { get; set; }
+    }
+
     public sealed class Mt5DailyPnlCashRequest
     {
         public Mt5DailyPnlCashRequest()
@@ -1539,6 +1593,80 @@ namespace Mt5Monitor.Api
             return builder.ToString();
         }
 
+        public static string BuildLiveWdEquityZAuditCsv(Mt5LiveWdEquityZAuditSnapshot snapshot)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            var builder = new StringBuilder(16384);
+            builder.AppendLine("sep=,");
+
+            AppendRow(builder, "Metric", "Value");
+            AppendRow(builder, "Report Type", snapshot.ReportType ?? "LiveWdEquityZAudit");
+            AppendRow(builder, "Server", snapshot.Server ?? string.Empty);
+            AppendRow(builder, "Manager Login", snapshot.ManagerLogin.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "Group Mask", snapshot.GroupMask ?? string.Empty);
+            AppendRow(builder, "Generated At", snapshot.GeneratedAt == default(DateTime) ? string.Empty : snapshot.GeneratedAt.ToString("O", CultureInfo.InvariantCulture));
+            AppendRow(builder, "As Of Utc", snapshot.AsOfUtc == default(DateTime) ? string.Empty : snapshot.AsOfUtc.ToString("O", CultureInfo.InvariantCulture));
+            AppendRow(builder, "CRM Query As Of Utc", snapshot.CrmQueryAsOfUtc == default(DateTime) ? string.Empty : snapshot.CrmQueryAsOfUtc.ToString("O", CultureInfo.InvariantCulture));
+            AppendRow(builder, "Filter Zero Equity And Balance", snapshot.FilterZeroEquityAndBalance ? "true" : "false");
+            AppendRow(builder, "Bonus Scope Positive Balance Only", snapshot.BonusScopePositiveBalanceOnly ? "true" : "false");
+            AppendRow(builder, "Raw Account Count", snapshot.RawAccountCount.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "Included Account Count", snapshot.IncludedAccountCount.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "Skipped Zero Equity Count", snapshot.SkippedZeroEquityCount.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "Skipped Zero Balance Count", snapshot.SkippedZeroBalanceCount.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "Skipped Excluded Group Count", snapshot.SkippedExcludedGroupCount.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "Bonus Scope Login Count", snapshot.BonusScopeLoginCount.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "CRM Matched Login Count", snapshot.CrmMatchedLoginCount.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "CRM Transaction Count", snapshot.CrmMatchedTransactionCount.ToString(CultureInfo.InvariantCulture));
+            AppendRow(builder, "Balance USD Total", snapshot.BalanceUsdTotal.ToString("F2", CultureInfo.InvariantCulture));
+            AppendRow(builder, "Floating PnL USD Total", snapshot.FloatingPnlUsdTotal.ToString("F2", CultureInfo.InvariantCulture));
+            AppendRow(builder, "Cumulative Bonus USD", snapshot.CumulativeBonusUsd.ToString("F2", CultureInfo.InvariantCulture));
+            AppendRow(builder, "Pre Clamp WD Equity USD", snapshot.PreClampWdEquityUsd.ToString("F2", CultureInfo.InvariantCulture));
+            AppendRow(builder, "WD Equity Z USD", snapshot.WdEquityZUsd.ToString("F2", CultureInfo.InvariantCulture));
+            AppendRow(builder, "Missing Currency Rates", snapshot.MissingCurrencyRates != null ? string.Join(", ", snapshot.MissingCurrencyRates) : string.Empty);
+            AppendRow(builder, "Assumptions", snapshot.Assumptions != null ? string.Join(" | ", snapshot.Assumptions) : string.Empty);
+            AppendRow(builder, "Calculation Summary", snapshot.CalculationSummary ?? string.Empty);
+            builder.AppendLine();
+
+            AppendRow(
+                builder,
+                "Login",
+                "Name",
+                "Group",
+                "Currency",
+                "Balance",
+                "Floating PnL",
+                "Equity",
+                "Balance USD",
+                "Floating USD",
+                "CRM Bonus USD",
+                "Pre Clamp Contribution USD");
+
+            if (snapshot.Rows != null)
+            {
+                for (int i = 0; i < snapshot.Rows.Count; i++)
+                {
+                    Mt5LiveWdEquityZAuditRow row = snapshot.Rows[i];
+                    AppendRow(
+                        builder,
+                        row.Login.ToString(CultureInfo.InvariantCulture),
+                        row.Name ?? string.Empty,
+                        row.Group ?? string.Empty,
+                        row.Currency ?? string.Empty,
+                        FormatDailyMoney(row.Balance, row.CurrencyDigits),
+                        FormatDailyMoney(row.FloatingPnl, row.CurrencyDigits),
+                        FormatDailyMoney(row.Equity, row.CurrencyDigits),
+                        row.BalanceUsd.ToString("F2", CultureInfo.InvariantCulture),
+                        row.FloatingPnlUsd.ToString("F2", CultureInfo.InvariantCulture),
+                        row.CumulativeBonusUsd.ToString("F2", CultureInfo.InvariantCulture),
+                        row.PreClampContributionUsd.ToString("F2", CultureInfo.InvariantCulture));
+                }
+            }
+
+            return builder.ToString();
+        }
+
         public static string BuildDepositWithdrawalCsv(Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings)
         {
             if (snapshot == null)
@@ -2049,6 +2177,19 @@ namespace Mt5Monitor.Api
         public static string BuildTradingAccountsJson(Mt5TradingAccountsSnapshot snapshot, Mt5MonitorSettings settings)
         {
             return BuildTradingAccountsJson(snapshot, settings, true);
+        }
+
+        public static string BuildLiveWdEquityZAuditJson(Mt5LiveWdEquityZAuditSnapshot snapshot, bool indented)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException("snapshot");
+
+            return SerializeJson(snapshot, indented);
+        }
+
+        public static string BuildLiveWdEquityZAuditJson(Mt5LiveWdEquityZAuditSnapshot snapshot)
+        {
+            return BuildLiveWdEquityZAuditJson(snapshot, true);
         }
 
         public static string BuildDepositWithdrawalJson(Mt5DepositWithdrawalSnapshot snapshot, Mt5MonitorSettings settings, bool indented)
@@ -3639,6 +3780,293 @@ ORDER BY scoped.login;";
         private static bool IsEffectivelyZero(double value)
         {
             return Math.Abs(value) <= 0.0000001;
+        }
+    }
+
+    public static class Mt5LiveWdEquityZAuditGenerator
+    {
+        public static Mt5LiveWdEquityZAuditSnapshot Generate(
+            Mt5MonitorSettings settings,
+            Mt5LiveWdEquityZRequest request,
+            Action<string> statusWriter)
+        {
+            if (settings == null)
+                throw new ArgumentNullException("settings");
+            if (request == null)
+                throw new ArgumentNullException("request");
+
+            settings.Validate();
+
+            Action<string> writer = statusWriter ?? (_ => { });
+            DateTime asOfUtc = NormalizeUtc(request.AsOfUtc);
+            writer(string.Format(
+                CultureInfo.InvariantCulture,
+                "Generating live WD Equity Z audit as of {0:yyyy-MM-dd HH:mm:ss}Z.",
+                asOfUtc));
+
+            MTRetCode initializeResult = SMTManagerAPIFactory.Initialize(settings.SdkLibsPath);
+            if (initializeResult != MTRetCode.MT_RET_OK)
+                throw new InvalidOperationException("Initialize failed: " + initializeResult);
+
+            CIMTManagerAPI manager = Mt5MonitorCollector.Connect(settings.Server, settings.Login, settings.Password, writer);
+            if (manager == null)
+            {
+                SMTManagerAPIFactory.Shutdown();
+                throw new InvalidOperationException("Failed to connect to MT5 Manager API.");
+            }
+
+            try
+            {
+                Dictionary<string, string> groupCurrencies = Mt5MonitorCollector.LoadGroupCurrencies(manager, settings.GroupMask);
+                Dictionary<ulong, Mt5LoginContext> loginContexts = Mt5MonitorCollector.LoadLoginContexts(manager, settings.GroupMask, groupCurrencies);
+                IDictionary<string, Mt5UsdConversionRate> usdRates = Mt5UsdRateLoader.LoadLiveRates(manager);
+                Mt5TradingAccountsSnapshot tradingSnapshot = Mt5MonitorCollector.CollectTradingAccounts(
+                    manager,
+                    groupCurrencies,
+                    loginContexts,
+                    settings.GroupMask,
+                    writer);
+
+                HashSet<string> excludedGroups = NormalizeExcludedGroups(request.ExcludedGroups);
+                int rawAccountCount = 0;
+                int skippedZeroEquityCount = 0;
+                int skippedZeroBalanceCount = 0;
+                int skippedExcludedGroupCount = 0;
+                var includedAccounts = new List<Mt5TradingAccountRow>();
+                var bonusScopeLogins = new HashSet<ulong>();
+
+                IList<Mt5TradingAccountRow> sourceRows = tradingSnapshot.Rows ?? new List<Mt5TradingAccountRow>();
+                for (int i = 0; i < sourceRows.Count; i++)
+                {
+                    Mt5TradingAccountRow row = sourceRows[i];
+                    if (row == null)
+                        continue;
+
+                    rawAccountCount++;
+
+                    if (excludedGroups.Contains(row.Group ?? string.Empty))
+                    {
+                        skippedExcludedGroupCount++;
+                        continue;
+                    }
+
+                    if (request.FilterZeroEquityAndBalance && IsEffectivelyZero(row.Equity))
+                    {
+                        skippedZeroEquityCount++;
+                        continue;
+                    }
+
+                    if (request.FilterZeroEquityAndBalance && IsEffectivelyZero(row.Balance))
+                    {
+                        skippedZeroBalanceCount++;
+                        continue;
+                    }
+
+                    includedAccounts.Add(row);
+                    if (!request.BonusScopePositiveBalanceOnly || row.Balance > 0.0)
+                        bonusScopeLogins.Add(row.Login);
+                }
+
+                Mt5LiveWdEquityZCrmBonusTotals crmBonusTotals = Mt5LiveWdEquityZCrmBonusReader.Collect(
+                    bonusScopeLogins,
+                    asOfUtc,
+                    true,
+                    writer);
+
+                Mt5LiveWdEquityZReport report = new Mt5LiveWdEquityZCalculator().Calculate(
+                    includedAccounts,
+                    usdRates,
+                    crmBonusTotals,
+                    request);
+
+                var missingCurrencies = new HashSet<string>(
+                    report.MissingCurrencyRates ?? new List<string>(),
+                    StringComparer.OrdinalIgnoreCase);
+                Dictionary<ulong, Mt5LiveWdEquityZCrmBonusLoginTotal> bonusByLogin =
+                    (crmBonusTotals.LoginTotals ?? new List<Mt5LiveWdEquityZCrmBonusLoginTotal>())
+                        .Where(item => item != null)
+                        .GroupBy(item => item.Login)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => new Mt5LiveWdEquityZCrmBonusLoginTotal
+                            {
+                                Login = group.Key,
+                                NetAmountUsd = group.Sum(item => item.NetAmountUsd),
+                                TransactionCount = group.Sum(item => item.TransactionCount)
+                            });
+
+                var rows = new List<Mt5LiveWdEquityZAuditRow>(includedAccounts.Count);
+                for (int i = 0; i < includedAccounts.Count; i++)
+                {
+                    Mt5TradingAccountRow row = includedAccounts[i];
+                    double balanceUsd = ConvertNativeToUsd(row.Balance, row.Currency, usdRates, missingCurrencies);
+                    double floatingUsd = ConvertNativeToUsd(row.Profit, row.Currency, usdRates, missingCurrencies);
+                    Mt5LiveWdEquityZCrmBonusLoginTotal bonusRow;
+                    double cumulativeBonusUsd = bonusByLogin.TryGetValue(row.Login, out bonusRow)
+                        ? bonusRow.NetAmountUsd
+                        : 0.0;
+
+                    rows.Add(new Mt5LiveWdEquityZAuditRow
+                    {
+                        Login = row.Login,
+                        Name = row.Name,
+                        Group = row.Group,
+                        Currency = string.IsNullOrWhiteSpace(row.Currency) ? "USD" : row.Currency,
+                        CurrencyDigits = row.CurrencyDigits,
+                        Balance = row.Balance,
+                        FloatingPnl = row.Profit,
+                        Equity = row.Equity,
+                        BalanceUsd = balanceUsd,
+                        FloatingPnlUsd = floatingUsd,
+                        CumulativeBonusUsd = cumulativeBonusUsd,
+                        PreClampContributionUsd = balanceUsd + floatingUsd - cumulativeBonusUsd
+                    });
+                }
+
+                return new Mt5LiveWdEquityZAuditSnapshot
+                {
+                    Server = settings.Server,
+                    ManagerLogin = settings.Login,
+                    GroupMask = settings.GroupMask,
+                    GeneratedAt = DateTime.Now,
+                    AsOfUtc = asOfUtc,
+                    CrmQueryAsOfUtc = report.CrmQueryAsOfUtc,
+                    FilterZeroEquityAndBalance = request.FilterZeroEquityAndBalance,
+                    BonusScopePositiveBalanceOnly = request.BonusScopePositiveBalanceOnly,
+                    RawAccountCount = rawAccountCount,
+                    IncludedAccountCount = includedAccounts.Count,
+                    SkippedZeroEquityCount = skippedZeroEquityCount,
+                    SkippedZeroBalanceCount = skippedZeroBalanceCount,
+                    SkippedExcludedGroupCount = skippedExcludedGroupCount,
+                    BonusScopeLoginCount = crmBonusTotals.ScopeLoginCount,
+                    CrmMatchedLoginCount = crmBonusTotals.MatchedLoginCount,
+                    CrmMatchedTransactionCount = crmBonusTotals.MatchedTransactionCount,
+                    BalanceUsdTotal = report.BalanceUsdTotal,
+                    FloatingPnlUsdTotal = report.FloatingPnlUsdTotal,
+                    CumulativeBonusUsd = report.CumulativeBonusUsd,
+                    PreClampWdEquityUsd = report.PreClampWdEquityUsd,
+                    WdEquityZUsd = report.WdEquityZUsd,
+                    CalculationSummary = report.CalculationSummary,
+                    MissingCurrencyRates = missingCurrencies
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                    Assumptions = report.Assumptions != null
+                        ? report.Assumptions.ToList()
+                        : new List<string>(),
+                    Rows = rows
+                        .OrderByDescending(item => Math.Abs(item.PreClampContributionUsd))
+                        .ThenBy(item => item.Login)
+                        .ToList()
+                };
+            }
+            finally
+            {
+                Mt5MonitorCollector.Disconnect(manager);
+                SMTManagerAPIFactory.Shutdown();
+            }
+        }
+
+        public static Mt5LiveWdEquityZAuditSnapshot Generate(
+            Mt5MonitorSettings settings,
+            Mt5LiveWdEquityZRequest request)
+        {
+            return Generate(settings, request, null);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            Mt5LiveWdEquityZRequest request,
+            Action<string> statusWriter,
+            bool indented)
+        {
+            return Mt5MonitorJsonExporter.BuildLiveWdEquityZAuditJson(
+                Generate(settings, request, statusWriter),
+                indented);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            Mt5LiveWdEquityZRequest request,
+            Action<string> statusWriter)
+        {
+            return GenerateJson(settings, request, statusWriter, true);
+        }
+
+        public static string GenerateJson(
+            Mt5MonitorSettings settings,
+            Mt5LiveWdEquityZRequest request)
+        {
+            return GenerateJson(settings, request, null, true);
+        }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            Mt5LiveWdEquityZRequest request,
+            Action<string> statusWriter)
+        {
+            return Mt5MonitorCsvExporter.BuildLiveWdEquityZAuditCsv(
+                Generate(settings, request, statusWriter));
+        }
+
+        public static string GenerateCsv(
+            Mt5MonitorSettings settings,
+            Mt5LiveWdEquityZRequest request)
+        {
+            return GenerateCsv(settings, request, null);
+        }
+
+        private static DateTime NormalizeUtc(DateTime value)
+        {
+            if (value == default(DateTime))
+                return DateTime.UtcNow;
+
+            if (value.Kind == DateTimeKind.Utc)
+                return value;
+
+            if (value.Kind == DateTimeKind.Local)
+                return value.ToUniversalTime();
+
+            return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        }
+
+        private static HashSet<string> NormalizeExcludedGroups(IEnumerable<string> groups)
+        {
+            return new HashSet<string>(
+                groups == null
+                    ? Enumerable.Empty<string>()
+                    : groups.Where(group => !string.IsNullOrWhiteSpace(group)),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static bool IsEffectivelyZero(double value)
+        {
+            return Math.Abs(value) <= 0.0000001;
+        }
+
+        private static double ConvertNativeToUsd(
+            double nativeAmount,
+            string currency,
+            IDictionary<string, Mt5UsdConversionRate> usdRates,
+            ISet<string> missingCurrencies)
+        {
+            if (nativeAmount == 0.0)
+                return 0.0;
+
+            string effectiveCurrency = string.IsNullOrWhiteSpace(currency) ? "USD" : currency;
+            Mt5UsdConversionRate rate;
+            if (usdRates != null && usdRates.TryGetValue(effectiveCurrency, out rate) && rate != null)
+            {
+                double usdRate = nativeAmount >= 0.0 ? rate.PositiveToUsd : rate.NegativeToUsd;
+                if (usdRate > 0.0)
+                    return nativeAmount * usdRate;
+            }
+
+            if (missingCurrencies != null)
+                missingCurrencies.Add(effectiveCurrency);
+
+            return 0.0;
         }
     }
 

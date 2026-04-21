@@ -1,7 +1,7 @@
 """cro-report-server — HTTP server that runs on-demand MT5 reports.
 
 Listens on :5051; accepts POST /report with JSON body:
-  {"type": "deposit-withdrawal"|"positions-history"|"trading-accounts",
+  {"type": "deposit-withdrawal"|"positions-history"|"trading-accounts"|"wd-equity-audit",
    "from_date": "YYYY-MM-DD",  (omit for trading-accounts)
    "to_date":   "YYYY-MM-DD",  (omit for trading-accounts)
    "format":    "json"|"csv"}
@@ -25,7 +25,7 @@ CONTENT_TYPES = {
     "csv":  "text/csv",
 }
 
-REPORT_TYPES = {"deposit-withdrawal", "positions-history", "trading-accounts"}
+REPORT_TYPES = {"deposit-withdrawal", "positions-history", "trading-accounts", "wd-equity-audit"}
 
 
 def _decode_log_bytes(raw: bytes) -> str:
@@ -66,7 +66,7 @@ class ReportHandler(BaseHTTPRequestHandler):
             self._reply(400, "text/plain", b"format must be json or csv")
             return
 
-        if report_type == "trading-accounts":
+        if report_type in {"trading-accounts", "wd-equity-audit"}:
             cmd_args = [fmt]
         else:
             if not from_date or not to_date:

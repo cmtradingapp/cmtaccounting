@@ -58,6 +58,8 @@ Useful entry points:
 - `Mt5UsdRateLoader.LoadLiveRates(settings)` loads the live bid/ask USD conversion table from MT5
 - `Mt5LiveWdEquityZGenerator.Generate(settings, request)` calculates live WD Equity Z from current Trading Accounts balances/profit plus CRM cumulative bonus totals
 - `Mt5LiveWdEquityZCalculator.Calculate(...)` can also calculate the same live metric from already-loaded trading account rows, USD rates, and CRM bonus totals
+- `Mt5LiveWdEquityZAuditGenerator.Generate(settings, request)` returns a row-level audit snapshot for the live WD formula, including the included accounts, their USD conversions, and CRM bonus totals by login
+- `Mt5LiveWdEquityZAuditGenerator.GenerateJson(...)` and `GenerateCsv(...)` export the same row-level audit in machine-friendly form for reconciliation
 - `Mt5WdEquityZGenerator.Generate(settings, request)` calculates WD Equity Z for a report date using MT5 daily fields plus balance deals whose comment contains a protected-bonus marker
 - `Mt5WdEquityZCalculator.Calculate(...)` can also calculate the same metric from already-loaded daily rows and protected-bonus totals
 - `Mt5DailyPnlCashGenerator.Generate(settings, request)` calculates Daily PnL Cash for a report date using MT5 daily fields, protected-bonus balances, and filtered deposit/withdrawal balance deals
