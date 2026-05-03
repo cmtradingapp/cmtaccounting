@@ -360,6 +360,28 @@ code {
   box-shadow: 0 -1px 0 0 rgba(255, 255, 255, 0.02);   /* faint highlight above */
 }
 
+/* Section heading — emitted before a `dividerTop` row that has a
+   `sectionLabel` (e.g. "Activity" group at the bottom of each card).
+   Small caps, muted, sits flush against the divider below it. */
+.section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  padding: 14px 14px 4px;
+  margin-top: 6px;
+}
+/* When a `.section-label` precedes a `.metric.divider-top`, the divider's
+   own top margin/padding compounds with the label spacing — neutralise it
+   to keep the heading visually attached to its section. */
+.section-label + .metric.divider-top {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 6px;
+  box-shadow: none;
+}
+
 /* PRIMARY tier — section-coloured left border + larger, bolder value.
    Applied to the four "headline" metrics (WDZ, Positive Exposure,
    Daily P&L, Daily P&L Cash) so the eye lands on them first. */

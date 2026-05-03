@@ -211,6 +211,85 @@ position size regardless of direction.`,
   ↑ mathematical absolute: long + |short|`,
       sources: ["exposure_snapshot"],
       componentsOf: ["exposure_assets", "exposure_long_assets", "exposure_short_assets"] },
+
+    // ── ACTIVITY & COUNTS (mirrors Mt5MonitorApiBundle.cs)
+    { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
+      summary:
+`Distinct logins that closed at least one position today. Synthetic
+"Zeroing*" / "*inactivity*" symbols are excluded (per the C# bundle).`,
+      formula:
+`COUNT(DISTINCT login)
+FROM closed_positions
+WHERE close_time IN [today_start, today_end)
+  AND symbol NOT ILIKE 'Zeroing%'
+  AND symbol NOT ILIKE '%inactivity%'`,
+      sources: ["closed_positions"], componentsOf: [] },
+
+    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
+      summary:
+`Distinct logins currently holding open positions in the live book
+(positions_snapshot, refreshed each slow cycle).`,
+      formula:
+`COUNT(DISTINCT login)
+FROM positions_snapshot
+WHERE symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
+      sources: ["positions_snapshot"], componentsOf: [] },
+
+    { key: "n_depositors", label: "#Depositors", formatter: "int",
+      summary:
+`Distinct logins that made at least one positive deposit today.
+Excludes bonus / fees-placeholder / spread-charge comments.`,
+      formula:
+`COUNT(DISTINCT login)
+FROM deposits_withdrawals
+WHERE action = 2 AND amount > 0 AND time IN [today_start, today_end)
+  AND comment NOT LIKE '%bonus%'
+  AND comment NOT LIKE '%fees placeholder%'
+  AND comment NOT LIKE '%spread charge%'`,
+      sources: ["deposits_withdrawals"], componentsOf: [] },
+
+    { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
+      summary:
+`Accounts whose IMTUser.Registration timestamp falls within today.
+Test groups excluded.`,
+      formula:
+`COUNT(*) FROM accounts_snapshot
+WHERE registration IN [today_start, today_end)
+  AND group_name NOT ILIKE '%test%'`,
+      sources: ["accounts_snapshot"], componentsOf: [] },
+
+    { key: "n_ftd", label: "#FTD", formatter: "int",
+      summary:
+`First-Time Depositors: accounts whose FIRST-EVER positive deposit
+landed today. Bonus deposits do count toward "first deposit" candidacy
+(matches C# CollectFirstValidDepositDates), only fees-placeholder /
+spread-charge are filtered out at the candidacy stage.`,
+      formula:
+`WITH first_dep AS (
+  SELECT login, MIN(time) AS first_time
+  FROM deposits_withdrawals
+  WHERE action = 2 AND amount > 0
+    AND comment NOT LIKE '%fees placeholder%'
+    AND comment NOT LIKE '%spread charge%'
+  GROUP BY login)
+SELECT COUNT(*) FROM first_dep
+WHERE first_time IN [today_start, today_end)`,
+      sources: ["deposits_withdrawals"], componentsOf: [] },
+
+    { key: "ftd_amount_usd", label: "FTD Amount", formatter: "money", signed: false,
+      summary:
+`Total deposits made TODAY by FTD logins (USD-converted via external_rates
+mid-rate). Bonus deposits are excluded from the AMOUNT sum (unlike the
+FTD-login set itself), so this represents real cash brought in.`,
+      formula:
+`SUM(amount → USD via mid-rate)
+FROM deposits_withdrawals
+WHERE login ∈ today's FTD set
+  AND action = 2 AND amount > 0 AND time IN [today_start, today_end)
+  AND comment NOT LIKE '%bonus%'
+  AND comment NOT LIKE '%fees placeholder%'
+  AND comment NOT LIKE '%spread charge%'`,
+      sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
   ],
 
   yesterday: [
@@ -355,6 +434,63 @@ value.`,
 See Today's card for the current value.`,
       formula: `(not applicable for the yesterday EOD window)`,
       sources: [], componentsOf: [] },
+
+    // ── ACTIVITY & COUNTS (yesterday window)
+    { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
+      summary: `Distinct logins that closed at least one position yesterday.`,
+      formula:
+`COUNT(DISTINCT login)
+FROM closed_positions
+WHERE close_time IN [yesterday_start, today_start)
+  AND symbol NOT ILIKE 'Zeroing%'
+  AND symbol NOT ILIKE '%inactivity%'`,
+      sources: ["closed_positions"], componentsOf: [] },
+
+    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
+      summary:
+`Distinct logins that opened OR closed positions during yesterday's
+window. Approximates "logins with new opens yesterday" — see plan note.`,
+      formula:
+`COUNT(DISTINCT login)
+FROM closed_positions
+WHERE (open_time IN window OR close_time IN window)
+  AND symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
+      sources: ["closed_positions"], componentsOf: [] },
+
+    { key: "n_depositors", label: "#Depositors", formatter: "int",
+      summary: `Distinct logins with positive deposits yesterday.`,
+      formula:
+`COUNT(DISTINCT login)
+FROM deposits_withdrawals
+WHERE action = 2 AND amount > 0 AND time IN [yesterday, today)
+  AND comment NOT LIKE '%bonus%'
+  AND comment NOT LIKE '%fees placeholder%'
+  AND comment NOT LIKE '%spread charge%'`,
+      sources: ["deposits_withdrawals"], componentsOf: [] },
+
+    { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
+      summary: `Accounts registered yesterday (test groups excluded).`,
+      formula:
+`COUNT(*) FROM accounts_snapshot
+WHERE registration IN [yesterday, today)
+  AND group_name NOT ILIKE '%test%'`,
+      sources: ["accounts_snapshot"], componentsOf: [] },
+
+    { key: "n_ftd", label: "#FTD", formatter: "int",
+      summary: `Logins whose first-ever positive deposit landed yesterday.`,
+      formula:
+`WITH first_dep AS (... per login MIN(time)...)
+SELECT COUNT(*) FROM first_dep
+WHERE first_time IN [yesterday, today)`,
+      sources: ["deposits_withdrawals"], componentsOf: [] },
+
+    { key: "ftd_amount_usd", label: "FTD Amount", formatter: "money", signed: false,
+      summary: `Cash deposit total for yesterday's FTD logins (USD).`,
+      formula:
+`SUM(amount → USD)
+FROM deposits_withdrawals JOIN ftd_logins
+WHERE deposit window = yesterday, bonus/fees/spread excluded`,
+      sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
   ],
 
   monthly: [
@@ -495,6 +631,60 @@ no historical record at month-start — see Today's card for the current value.`
 See Today's card for the current value.`,
       formula: `(not applicable for the month-start window)`,
       sources: [], componentsOf: [] },
+
+    // ── ACTIVITY & COUNTS (MTD window)
+    { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
+      summary: `Distinct logins that closed at least one position this month-to-date.`,
+      formula:
+`COUNT(DISTINCT login)
+FROM closed_positions
+WHERE close_time IN [month_start, today_end)
+  AND symbol NOT ILIKE 'Zeroing%'
+  AND symbol NOT ILIKE '%inactivity%'`,
+      sources: ["closed_positions"], componentsOf: [] },
+
+    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
+      summary: `Distinct logins that opened OR closed positions during MTD.`,
+      formula:
+`COUNT(DISTINCT login)
+FROM closed_positions
+WHERE (open_time IN window OR close_time IN window)
+  AND symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
+      sources: ["closed_positions"], componentsOf: [] },
+
+    { key: "n_depositors", label: "#Depositors", formatter: "int",
+      summary: `Distinct logins with positive deposits MTD.`,
+      formula:
+`COUNT(DISTINCT login)
+FROM deposits_withdrawals
+WHERE action = 2 AND amount > 0 AND time IN [month_start, today_end)
+  AND comment NOT LIKE '%bonus%'
+  AND comment NOT LIKE '%fees placeholder%'
+  AND comment NOT LIKE '%spread charge%'`,
+      sources: ["deposits_withdrawals"], componentsOf: [] },
+
+    { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
+      summary: `Accounts registered MTD (test groups excluded).`,
+      formula:
+`COUNT(*) FROM accounts_snapshot
+WHERE registration IN [month_start, today_end)
+  AND group_name NOT ILIKE '%test%'`,
+      sources: ["accounts_snapshot"], componentsOf: [] },
+
+    { key: "n_ftd", label: "#FTD", formatter: "int",
+      summary: `Logins whose first-ever positive deposit fell in MTD.`,
+      formula:
+`WITH first_dep AS (... per login MIN(time)...)
+SELECT COUNT(*) FROM first_dep
+WHERE first_time IN [month_start, today_end)`,
+      sources: ["deposits_withdrawals"], componentsOf: [] },
+
+    { key: "ftd_amount_usd", label: "FTD Amount", formatter: "money", signed: false,
+      summary: `Cash deposit total for MTD FTD logins (USD).`,
+      formula:
+`SUM(amount → USD) FROM deposits_withdrawals JOIN ftd_logins
+WHERE deposit window = MTD, bonus/fees/spread excluded`,
+      sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
   ],
 };
 
@@ -630,6 +820,17 @@ function renderSection(sectionName, sectionData, ranks) {
   const frag = document.createDocumentFragment();
 
   for (const def of defs) {
+    // Section heading: when a row carries both `dividerTop` AND
+    // `sectionLabel` (e.g. "Activity"), emit a small uppercase label
+    // BEFORE the metric row. This visually groups the rows below into a
+    // distinct section.
+    if (def.dividerTop && def.sectionLabel) {
+      const heading = document.createElement("div");
+      heading.className = "section-label";
+      heading.textContent = def.sectionLabel;
+      frag.appendChild(heading);
+    }
+
     // `placeholder: true` rows render as "—" in every card — used to pad
     // Yesterday/Monthly so all cards share the same row count and metrics
     // line up at the same Y position. Treat the value as null and the

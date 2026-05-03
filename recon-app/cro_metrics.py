@@ -325,6 +325,157 @@ def yesterday_floating_usd(cur, yesterday_start: int, today_start: int) -> float
     return _scalar(cur, sql, {"from_ts": yesterday_start, "to_ts": today_start})
 
 
+# ──────────────────────────────────── Activity & Counts metrics
+#
+# Mirrors Mt5MonitorApiBundle.cs lines 7896-7897 / 8876-8892. Trade-symbol
+# exclusions:
+#   - Hard prefix:   "Zeroing*"   (case-insensitive)
+#   - Soft contains: "*inactivity*"
+# Spread-symbol-specific extra exclusions ("SPREAD"/"CORRECTION"/"CASHBACK")
+# only apply to the Spread metric, which is deferred — see plan.
+
+# Embedded into trade-symbol filters via SQL `NOT (... OR ...)`.
+_TRADER_SYMBOL_FILTER = (
+    "symbol NOT ILIKE 'Zeroing%%' AND symbol NOT ILIKE '%%inactivity%%'"
+)
+
+
+def n_traders(cur, from_ts: int, to_ts: int) -> int:
+    """Distinct logins with any closing-leg deal in [from, to) — excludes
+    Zeroing* and *inactivity* synthetic symbols (matches C# bundle)."""
+    sql = f"""
+        SELECT COUNT(DISTINCT login)::int AS v
+        FROM closed_positions
+        WHERE close_time >= %(from_ts)s AND close_time < %(to_ts)s
+          AND {_TRADER_SYMBOL_FILTER}
+    """
+    cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
+    row = cur.fetchone() or {}
+    return int(row.get("v") or 0)
+
+
+def n_active_traders_live(cur) -> int:
+    """Distinct logins currently holding open positions (live snapshot)."""
+    sql = f"""
+        SELECT COUNT(DISTINCT login)::int AS v
+        FROM positions_snapshot
+        WHERE {_TRADER_SYMBOL_FILTER}
+    """
+    cur.execute(sql)
+    row = cur.fetchone() or {}
+    return int(row.get("v") or 0)
+
+
+def n_active_traders_period(cur, from_ts: int, to_ts: int) -> int:
+    """Historical (yesterday / monthly): distinct logins who opened OR
+    closed positions within the window. Approximates the C# definition
+    (logins with opening-leg deals) — see plan note 2 on tradeoff."""
+    sql = f"""
+        SELECT COUNT(DISTINCT login)::int AS v
+        FROM closed_positions
+        WHERE {_TRADER_SYMBOL_FILTER}
+          AND ((open_time  >= %(from_ts)s AND open_time  < %(to_ts)s)
+            OR (close_time >= %(from_ts)s AND close_time < %(to_ts)s))
+    """
+    cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
+    row = cur.fetchone() or {}
+    return int(row.get("v") or 0)
+
+
+def n_depositors(cur, from_ts: int, to_ts: int) -> int:
+    """Distinct logins with positive deposits in [from, to). Excludes
+    bonus / fees-placeholder / spread-charge comments per Mt5MonitorApiBundle.cs."""
+    sql = """
+        SELECT COUNT(DISTINCT login)::int AS v
+        FROM deposits_withdrawals
+        WHERE action = 2 AND amount > 0
+          AND time >= %(from_ts)s AND time < %(to_ts)s
+          AND COALESCE(lower(comment), '') NOT LIKE '%%bonus%%'
+          AND COALESCE(lower(comment), '') NOT LIKE '%%fees placeholder%%'
+          AND COALESCE(lower(comment), '') NOT LIKE '%%spread charge%%'
+    """
+    cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
+    row = cur.fetchone() or {}
+    return int(row.get("v") or 0)
+
+
+def n_new_registrations(cur, from_ts: int, to_ts: int) -> int:
+    """Accounts whose IMTUser.Registration timestamp falls in [from, to).
+
+    Note: Mt5MonitorApiBundle.cs uses broker-local-Cyprus date for the
+    period match. We use UTC to stay consistent with the rest of the
+    dashboard's windowing (small drift at day boundaries; see plan).
+    """
+    sql = """
+        SELECT COUNT(*)::int AS v
+        FROM accounts_snapshot
+        WHERE registration >= %(from_ts)s AND registration < %(to_ts)s
+          AND group_name NOT ILIKE '%%test%%'
+    """
+    cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
+    row = cur.fetchone() or {}
+    return int(row.get("v") or 0)
+
+
+def n_ftd(cur, from_ts: int, to_ts: int) -> int:
+    """Count of logins whose first-EVER positive deposit falls in [from, to).
+
+    Matches Mt5MonitorApiBundle.cs CollectFirstValidDepositDates: bonus
+    deposits ARE candidates for first-deposit (NOT excluded here), only
+    fees-placeholder + spread-charge comments are excluded.
+    """
+    sql = """
+        WITH first_dep AS (
+            SELECT login, MIN(time) AS first_time
+            FROM deposits_withdrawals
+            WHERE action = 2 AND amount > 0
+              AND COALESCE(lower(comment), '') NOT LIKE '%%fees placeholder%%'
+              AND COALESCE(lower(comment), '') NOT LIKE '%%spread charge%%'
+            GROUP BY login
+        )
+        SELECT COUNT(*)::int AS v
+        FROM first_dep
+        WHERE first_time >= %(from_ts)s AND first_time < %(to_ts)s
+    """
+    cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
+    row = cur.fetchone() or {}
+    return int(row.get("v") or 0)
+
+
+def ftd_amount_usd(cur, from_ts: int, to_ts: int) -> float:
+    """Sum of all positive deposits in [from, to) for FTD logins,
+    USD-converted via external_rates (mid-rate per _convert_case).
+
+    Mt5MonitorApiBundle.cs: bonus IS excluded for the *amount* sum (unlike
+    the FTD-login set itself), to match dashboard semantics that "FTD
+    Amount" represents real cash deposit value the trader brought in.
+    """
+    sql = f"""
+        WITH first_dep AS (
+            SELECT login, MIN(time) AS first_time
+            FROM deposits_withdrawals
+            WHERE action = 2 AND amount > 0
+              AND COALESCE(lower(comment), '') NOT LIKE '%%fees placeholder%%'
+              AND COALESCE(lower(comment), '') NOT LIKE '%%spread charge%%'
+            GROUP BY login
+        ),
+        ftd AS (
+            SELECT login FROM first_dep
+            WHERE first_time >= %(from_ts)s AND first_time < %(to_ts)s
+        )
+        SELECT COALESCE(SUM({_convert_case('dw.amount', 'dw.currency', 'er')}), 0)::float AS v
+        FROM deposits_withdrawals dw
+        JOIN ftd USING (login)
+        LEFT JOIN external_rates er ON er.currency = dw.currency
+        WHERE dw.action = 2 AND dw.amount > 0
+          AND dw.time >= %(from_ts)s AND dw.time < %(to_ts)s
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%bonus%%'
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%fees placeholder%%'
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%spread charge%%'
+    """
+    return _scalar(cur, sql, {"from_ts": from_ts, "to_ts": to_ts})
+
+
 # ────────────────────────────────────────────── Public top-level
 
 def collect_all_metrics(cur) -> dict:
@@ -404,6 +555,31 @@ def collect_all_metrics(cur) -> dict:
     pnl_cash_yest      = delta_wdz_yest  - netdep_yest
     pnl_cash_mtd       = delta_wdz_mtd   - netdep_mtd
 
+    # ── Activity & Counts (mirrors Mt5MonitorApiBundle.cs)
+    n_traders_today      = n_traders(cur, today_start_ts, today_end_ts)
+    n_traders_yest       = n_traders(cur, yesterday_start_ts, today_start_ts)
+    n_traders_mtd        = n_traders(cur, month_start_ts, today_end_ts)
+
+    n_active_today       = n_active_traders_live(cur)
+    n_active_yest        = n_active_traders_period(cur, yesterday_start_ts, today_start_ts)
+    n_active_mtd         = n_active_traders_period(cur, month_start_ts, today_end_ts)
+
+    n_dep_today          = n_depositors(cur, today_start_ts, today_end_ts)
+    n_dep_yest           = n_depositors(cur, yesterday_start_ts, today_start_ts)
+    n_dep_mtd            = n_depositors(cur, month_start_ts, today_end_ts)
+
+    n_regs_today         = n_new_registrations(cur, today_start_ts, today_end_ts)
+    n_regs_yest          = n_new_registrations(cur, yesterday_start_ts, today_start_ts)
+    n_regs_mtd           = n_new_registrations(cur, month_start_ts, today_end_ts)
+
+    n_ftd_today          = n_ftd(cur, today_start_ts, today_end_ts)
+    n_ftd_yest           = n_ftd(cur, yesterday_start_ts, today_start_ts)
+    n_ftd_mtd            = n_ftd(cur, month_start_ts, today_end_ts)
+
+    ftd_amt_today        = ftd_amount_usd(cur, today_start_ts, today_end_ts)
+    ftd_amt_yest         = ftd_amount_usd(cur, yesterday_start_ts, today_start_ts)
+    ftd_amt_mtd          = ftd_amount_usd(cur, month_start_ts, today_end_ts)
+
     return {
         "as_of_utc": now_utc.isoformat(),
         "today_label": today_start.strftime("%Y-%m-%d"),
@@ -433,6 +609,13 @@ def collect_all_metrics(cur) -> dict:
             "net_deposits_usd": netdep_today,
             "delta_wdz_usd": delta_wdz_today,
             "daily_pnl_cash_usd": pnl_cash_today,
+            # Activity & Counts
+            "n_traders": n_traders_today,
+            "n_active_traders": n_active_today,
+            "n_depositors": n_dep_today,
+            "n_new_regs": n_regs_today,
+            "n_ftd": n_ftd_today,
+            "ftd_amount_usd": ftd_amt_today,
         },
         "yesterday": {
             "total_balance_usd": balance_yest_eod,
@@ -448,6 +631,13 @@ def collect_all_metrics(cur) -> dict:
             "net_deposits_usd": netdep_yest,
             "delta_wdz_usd": delta_wdz_yest,
             "daily_pnl_cash_usd": pnl_cash_yest,
+            # Activity & Counts
+            "n_traders": n_traders_yest,
+            "n_active_traders": n_active_yest,
+            "n_depositors": n_dep_yest,
+            "n_new_regs": n_regs_yest,
+            "n_ftd": n_ftd_yest,
+            "ftd_amount_usd": ftd_amt_yest,
         },
         "monthly": {
             "wd_equity_z_month_start_usd": wd_pme["wd_equity_z_usd"],
@@ -464,5 +654,12 @@ def collect_all_metrics(cur) -> dict:
             "net_deposits_usd": netdep_mtd,
             "delta_wdz_usd": delta_wdz_mtd,
             "wd_equity_z_today_usd": wd_t["wd_equity_z_usd"],
+            # Activity & Counts
+            "n_traders": n_traders_mtd,
+            "n_active_traders": n_active_mtd,
+            "n_depositors": n_dep_mtd,
+            "n_new_regs": n_regs_mtd,
+            "n_ftd": n_ftd_mtd,
+            "ftd_amount_usd": ftd_amt_mtd,
         },
     }
