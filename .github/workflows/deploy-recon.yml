@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'recon-app/**'
-      - 'cro-bridge/**'
       - '.github/workflows/deploy-recon.yml'
   workflow_dispatch:
 
@@ -26,19 +25,12 @@ jobs:
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=no" \
             --exclude='fees.db' \
-            --exclude='cro_snapshots.db' \
             --exclude='.env' \
             --exclude='__pycache__' \
             --exclude='*.pyc' \
             --exclude='*.db-shm' \
             --exclude='*.db-wal' \
             recon-app/ root@213.199.45.213:/root/recon-app/
-          # cro-bridge: Wine-based MT5 push service (separate compose)
-          sshpass -e rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=no" \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            cro-bridge/ root@213.199.45.213:/root/cro-bridge/
 
       - name: Inject secrets into server .env
         env:
@@ -58,10 +50,12 @@ jobs:
           S_RETENTION_PASS: ${{ secrets.RETENTION_PASS }}
           S_CRO_USER: ${{ secrets.CRO_USER }}
           S_CRO_PASS: ${{ secrets.CRO_PASS }}
-          S_CRO_BRIDGE_SECRET: ${{ secrets.CRO_BRIDGE_SECRET }}
-          S_MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
-          S_MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
-          S_MT5_SERVER: ${{ secrets.MT5_SERVER }}
+          S_MT5_CRO_DB_HOST: ${{ secrets.MT5_CRO_DB_HOST }}
+          S_MT5_CRO_DB_PORT: ${{ secrets.MT5_CRO_DB_PORT }}
+          S_MT5_CRO_DB_NAME: ${{ secrets.MT5_CRO_DB_NAME }}
+          S_MT5_CRO_DB_USER: ${{ secrets.MT5_CRO_DB_USER }}
+          S_MT5_CRO_DB_PASS: ${{ secrets.MT5_CRO_DB_PASS }}
+          S_MT5_CRO_DB_SSLMODE: ${{ secrets.MT5_CRO_DB_SSLMODE }}
         run: |
           # echo avoids printf format-string issues (e.g. % in passwords)
           echo "ADMIN_USER=$S_ADMIN_USER"       > /tmp/new_secrets.env
@@ -79,12 +73,14 @@ jobs:
           echo "RETENTION_PASS=$S_RETENTION_PASS" >> /tmp/new_secrets.env
           echo "CRO_USER=$S_CRO_USER"                     >> /tmp/new_secrets.env
           echo "CRO_PASS=$S_CRO_PASS"                     >> /tmp/new_secrets.env
-          echo "CRO_BRIDGE_SECRET=$S_CRO_BRIDGE_SECRET"   >> /tmp/new_secrets.env
-          echo "MT5_PASSWORD=$S_MT5_PASSWORD"             >> /tmp/new_secrets.env
-          echo "MT5_LOGIN=$S_MT5_LOGIN"                   >> /tmp/new_secrets.env
-          echo "MT5_SERVER=$S_MT5_SERVER"                 >> /tmp/new_secrets.env
+          echo "MT5_CRO_DB_HOST=$S_MT5_CRO_DB_HOST"       >> /tmp/new_secrets.env
+          echo "MT5_CRO_DB_PORT=$S_MT5_CRO_DB_PORT"       >> /tmp/new_secrets.env
+          echo "MT5_CRO_DB_NAME=$S_MT5_CRO_DB_NAME"       >> /tmp/new_secrets.env
+          echo "MT5_CRO_DB_USER=$S_MT5_CRO_DB_USER"       >> /tmp/new_secrets.env
+          echo "MT5_CRO_DB_PASS=$S_MT5_CRO_DB_PASS"       >> /tmp/new_secrets.env
+          echo "MT5_CRO_DB_SSLMODE=$S_MT5_CRO_DB_SSLMODE" >> /tmp/new_secrets.env
           sshpass -e scp -o StrictHostKeyChecking=no /tmp/new_secrets.env root@213.199.45.213:/tmp/new_secrets.env
-          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d;/^RETENTION_PASS=/d;/^CRO_USER=/d;/^CRO_PASS=/d;/^CRO_BRIDGE_SECRET=/d;/^MT5_PASSWORD=/d;/^MT5_LOGIN=/d;/^MT5_SERVER=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
+          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d;/^RETENTION_PASS=/d;/^CRO_USER=/d;/^CRO_PASS=/d;/^CRO_BRIDGE_SECRET=/d;/^MT5_PASSWORD=/d;/^MT5_LOGIN=/d;/^MT5_SERVER=/d;/^MT5_CRO_DB_HOST=/d;/^MT5_CRO_DB_PORT=/d;/^MT5_CRO_DB_NAME=/d;/^MT5_CRO_DB_USER=/d;/^MT5_CRO_DB_PASS=/d;/^MT5_CRO_DB_SSLMODE=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
 
       - name: Restart or rebuild container
         env:
@@ -98,23 +94,6 @@ jobs:
             echo "Code-only change — force-recreate recon container"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/recon-app && docker compose up -d --force-recreate recon && sleep 3 && docker compose ps"
-          fi
-
-      - name: Rebuild cro-bridge if changed
-        env:
-          SSHPASS: ${{ secrets.SERVER_PASS }}
-        run: |
-          # Only rebuild the Wine image when its inputs change (Dockerfile or SDK libs)
-          if git diff HEAD~1 HEAD -- cro-bridge/Dockerfile cro-bridge/sdk-libs | grep -q .; then
-            echo "cro-bridge Dockerfile or sdk-libs changed — full rebuild (~15 min)"
-            sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-              "cd /root/cro-bridge && docker compose up -d --build --force-recreate && docker compose ps"
-          elif git diff HEAD~1 HEAD -- cro-bridge | grep -q .; then
-            echo "cro-bridge code changed — rebuild image (mcs recompiles .cs, layer cache keeps it fast)"
-            sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-              "cd /root/cro-bridge && docker compose up -d --build --force-recreate && docker compose ps"
-          else
-            echo "cro-bridge: no changes, skipping"
           fi
 
       - name: Security check — verify all routes require authentication
@@ -197,11 +176,7 @@ jobs:
           check "/operators/watermark"
           # CRO auth
           check "/cro"
-          check "/cro/data"
-          check_post "/cro/refresh"
-          # /cro/feed is not session-auth gated (secret header instead) — returns 403
-          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST --max-time 10 "$BASE/cro/feed")
-          if [ "$code" = "403" ] || [ "$code" = "000" ]; then echo "  PASS POST /cro/feed -> $code"; else echo "  FAIL POST /cro/feed -> $code (expected 403)"; FAIL=1; fi
+          check "/cro/metrics"
           # Admin auth — POST-only routes (GET returns 405, verify POST returns 401)
           check_post "/fees/mode"
           check_post "/fees/admin/snapshot/save"

@@ -1,0 +1,786 @@
+/* ──────────────────────────────────────────────────────────
+   MT5-CRO Dashboard
+   Dark theme, slick monospace, subtle glassmorphism.
+   ────────────────────────────────────────────────────────── */
+
+:root {
+  /* surfaces — darker than v3.1, with stronger contrast between tiers */
+  --bg-page:        #0A0E1F;          /* near-black with a navy hint */
+  --bg-card:        #10172A;          /* one step lighter — cards stand out */
+  --bg-card-2:      #16213E;          /* used for code/inset surfaces */
+  --bg-panel:       #10172A;
+
+  /* lines — sharper, clearly visible against bg-card */
+  --border:         #2A3858;          /* +50% brightness over v3.1 */
+  --border-strong:  #3D4F7A;          /* clearly defined dividers */
+
+  /* text — palette light + desaturated mids */
+  --text:           #F9F9F9;          /* palette[5] near-white */
+  --text-dim:       #A8AEBC;          /* desaturated cool grey */
+  --text-mute:      #5A607A;          /* further desaturated */
+
+  /* accents — palette pink-red is the only warm pop */
+  --accent:         #E94560;          /* palette[4] pink-red */
+  --accent-soft:    #E9456022;
+  --accent-purple:  #0F3460;          /* palette[3] deep blue */
+
+  /* signals — pos preserved (palette has no green); neg uses palette pink */
+  --pos:            #10c891;
+  --pos-bright:     #1adba5;
+  --pos-deep:       #0a8b65;
+  --neg:            #E94560;          /* palette[4] */
+  --neg-bright:     #F25C75;
+  --neg-deep:       #B32D44;
+  --pos-soft:       #10c89122;
+  --neg-soft:       #E9456022;
+
+  /* fonts */
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono",
+          "Roboto Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--sans);
+  font-size: 14px;
+  background: var(--bg-page);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--bg-card-2);
+  padding: 0.5px 5px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+/* ─────────── topbar ─────────── */
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 28px;
+  background: rgba(10, 14, 31, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-name {
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  font-size: 15px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-mute);
+}
+
+.dot.live {
+  background: var(--pos);
+  box-shadow: 0 0 0 2px var(--pos-soft);
+  animation: pulse 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  transition: box-shadow 0.25s ease;
+}
+
+.brand:hover .dot.live {
+  box-shadow: 0 0 0 3px var(--pos-soft);
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--pos-soft); }
+  50%      { box-shadow: 0 0 0 4px var(--pos-soft); }
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.refresh-info {
+  letter-spacing: 0.3px;
+}
+
+/* freshness pill — shows seconds since last successful poll, colour-coded
+   against the configured cadence so a slow / stuck backend is obvious */
+.freshness-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 11.5px;
+  letter-spacing: 0.2px;
+  background: var(--bg-card);
+  transition: border-color 0.12s linear, color 0.12s linear;
+}
+
+.freshness-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-mute);
+  box-shadow: 0 0 0 0 transparent;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.freshness-pill.live    { color: var(--text); border-color: var(--pos); }
+.freshness-pill.live    .freshness-dot { background: var(--pos); box-shadow: 0 0 0 3px var(--pos-soft); }
+
+.freshness-pill.lagging { color: #f5c66b;     border-color: #c89438; }
+.freshness-pill.lagging .freshness-dot { background: #f5c66b; box-shadow: 0 0 0 3px rgba(245, 198, 107, 0.18); }
+
+.freshness-pill.stale   { color: var(--neg);  border-color: var(--neg); }
+.freshness-pill.stale   .freshness-dot { background: var(--neg); box-shadow: 0 0 0 3px var(--neg-soft); }
+
+.freshness-pill.paused  { color: var(--text-mute); border-color: var(--border); }
+.freshness-pill.paused  .freshness-dot { background: var(--text-mute); }
+
+.cadence-label {
+  color: var(--text-mute);
+}
+
+.cadence-select {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cadence-select:hover {
+  border-color: var(--accent);
+}
+
+.cadence-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  outline: none;
+}
+
+.btn-refresh {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-refresh:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: rotate(180deg) scale(1.06);
+}
+
+.btn-refresh:active {
+  transform: rotate(180deg) scale(0.96);
+}
+
+.btn-refresh.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.separator {
+  color: var(--border-strong);
+}
+
+/* ─────────── layout ─────────── */
+
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 20px;
+  padding: 20px 24px;
+  max-width: 1900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+/* progressive collapse so cards stay legible at narrow widths */
+@media (max-width: 1380px) {
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 920px) {
+  .cards { grid-template-columns: 1fr; }
+}
+
+/* ─────────── card ─────────── */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;                 /* sharper corners */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.12s ease;
+}
+.card:hover { border-color: var(--border-strong); }
+
+.card-head {
+  padding: 14px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);         /* solid, no gradient */
+}
+
+.card-head h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.card-sub {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.section-today    .card-head { border-left: 3px solid var(--pos); }
+.section-yesterday .card-head { border-left: 3px solid var(--accent); }
+.section-monthly  .card-head { border-left: 3px solid var(--accent-purple); }
+
+.metric-list {
+  padding: 6px 0;
+  flex: 1;
+}
+
+/* ─────────── metric row ─────────── */
+
+.metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 16px;    /* label | value+delta | rank tick */
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 0;                                   /* let row borders meet cleanly */
+  border-bottom: 1px solid var(--border);             /* visible row separator */
+  cursor: pointer;
+  position: relative;
+  transition: background 0.10s linear,
+              box-shadow 0.10s linear,
+              border-color 0.10s linear;
+}
+
+/* value + delta share an auto-sized cell on the right.
+   The wrap hugs its content so labels can grow into whatever's left;
+   right edge always lands at the card's right padding so values still
+   right-align across rows. */
+.metric-value-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* The last metric in a card already abuts the card's bottom edge. */
+.metric-list .metric:last-child { border-bottom: none; }
+
+.metric:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+@keyframes selected-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px transparent;        }
+  50%      { box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft); }
+}
+
+.metric.selected {
+  background: var(--accent-soft);
+  animation: selected-pulse 2.4s ease-in-out infinite;
+}
+
+/* divider between the highlighted block and supporting rows — clearly visible */
+.metric.divider-top {
+  border-top: 1px solid var(--border-strong);
+  padding-top: 14px;
+  margin-top: 10px;
+  box-shadow: 0 -1px 0 0 rgba(255, 255, 255, 0.02);   /* faint highlight above */
+}
+
+/* PRIMARY tier — section-coloured left border + larger, bolder value.
+   Applied to the four "headline" metrics (WDZ, Positive Exposure,
+   Daily P&L, Daily P&L Cash) so the eye lands on them first. */
+.metric.primary {
+  border-left: 3px solid var(--accent);
+  background: rgba(233, 69, 96, 0.04);        /* warm accent tint */
+  padding-left: 12px;                          /* 14 - 3 + 1 keeps label aligned */
+}
+.section-today    .metric.primary { border-left-color: var(--pos);          }
+.section-yesterday .metric.primary { border-left-color: var(--accent);       }
+.section-monthly  .metric.primary { border-left-color: var(--accent-purple); }
+
+.metric.primary .metric-label { color: var(--text); font-weight: 600; letter-spacing: 0.3px; }
+.metric.primary .metric-value { font-size: 15px; font-weight: 600; }
+
+/* HERO tier — applied to WDZ rows so the "headline of headlines" stands
+   out by weight + colour alone. Glow halos intentionally removed for a
+   stricter UI. */
+.metric.hero .metric-value {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+.metric.hero .metric-value.pos { color: var(--pos-bright); }
+.metric.hero .metric-value.neg { color: var(--neg-bright); }
+
+.metric.primary:hover { background: rgba(233, 69, 96, 0.07); }    /* warm tint, no halo */
+
+/* Cross-card hover: sharp 1px accent ring, no transform — strict, rigid. */
+.metric.cross-hover {
+  background: rgba(233, 69, 96, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(233, 69, 96, 0.55);
+  z-index: 1;
+}
+.metric.cross-hover.primary {
+  background: rgba(233, 69, 96, 0.12);
+}
+.metric.cross-hover:hover {
+  background: rgba(233, 69, 96, 0.14);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Cross-card rank indicator: lives in its own 16px-wide grid column at the
+   far right of every row, so all ▴/▾ ticks align at the same X regardless
+   of value length. Empty cell on rows that have no rank — the column
+   stays the same width so the alignment is preserved. */
+.metric-rank {
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
+  opacity: 0.75;
+}
+.metric-rank.rank-high { color: var(--pos); }
+.metric-rank.rank-low  { color: var(--neg); }
+.metric.composite .metric-rank { font-size: 13px; opacity: 0.85; }
+
+/* HIGHEST / LOWEST badge — only visible while the row is in cross-hover
+   AND has rank-high or rank-low. Sits inside the value-wrap before the
+   value so it's adjacent to the number it's annotating. */
+.metric-badge {
+  display: none;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  margin-right: 8px;
+  border: 1px solid transparent;
+}
+.metric.cross-hover.rank-high .metric-badge,
+.metric.cross-hover.rank-low  .metric-badge {
+  display: inline-block;
+}
+.metric.cross-hover.rank-high .metric-badge {
+  background: rgba(16, 200, 145, 0.14);
+  color: var(--pos-bright);
+  border-color: rgba(16, 200, 145, 0.45);
+}
+.metric.cross-hover.rank-low .metric-badge {
+  background: rgba(233, 69, 96, 0.16);
+  color: var(--neg-bright);
+  border-color: rgba(233, 69, 96, 0.55);
+}
+
+/* Gradient green/red border on the high/low rows when cross-hover is active.
+   Drawn as a ::after pseudo-element with a mask trick so we get a real
+   gradient outline (border-image fights with the existing border-bottom,
+   and outline doesn't accept gradients). */
+.metric.cross-hover.rank-high,
+.metric.cross-hover.rank-low {
+  /* drop the accent inset from .cross-hover; the gradient takes its place */
+  box-shadow: none;
+}
+.metric.cross-hover.rank-high::after,
+.metric.cross-hover.rank-low::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  pointer-events: none;
+  z-index: 2;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+/* Single-hue gradient borders — green shades on the highest, red shades
+   on the lowest. No green↔red mixing. */
+.metric.cross-hover.rank-high::after {
+  background: linear-gradient(135deg,
+    var(--pos-bright) 0%,
+    var(--pos)        50%,
+    var(--pos-deep)   100%);
+}
+.metric.cross-hover.rank-low::after {
+  background: linear-gradient(135deg,
+    var(--neg-bright) 0%,
+    var(--neg)        50%,
+    var(--neg-deep)   100%);
+}
+
+/* COMPOSITE tier — superset of primary. Daily P&L variants get the full
+   "panel" treatment (top/bottom borders, more vertical breathing room,
+   even bigger value font). */
+.metric.composite {
+  background: rgba(233, 69, 96, 0.06);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 14px 14px 14px 12px;
+  margin: 6px 0;
+}
+.section-today    .metric.composite { border-left-color: var(--pos);          }
+.section-yesterday .metric.composite { border-left-color: var(--accent);       }
+.section-monthly  .metric.composite { border-left-color: var(--accent-purple); }
+
+.metric-label {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.1px;
+  white-space: nowrap;                  /* never wrap labels */
+  overflow: hidden;
+  text-overflow: ellipsis;              /* fall back to ellipsis if too long */
+  min-width: 0;                         /* allow grid track to shrink */
+}
+
+.metric.composite .metric-label {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+
+.metric-value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;          /* mono-width digits */
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-align: right;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+  position: relative;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: color 0.2s ease, background 0.6s ease;
+}
+
+.metric.composite .metric-value {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+.metric-value.pos { color: var(--pos); }
+.metric-value.neg { color: var(--neg); }
+
+/* delta vs. previous poll, rendered next to the value */
+
+.metric-delta {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  opacity: 0.65;
+  white-space: nowrap;
+  letter-spacing: -0.1px;
+  text-align: left;
+}
+
+.metric-delta.pos { color: var(--pos); }
+.metric-delta.neg { color: var(--neg); }
+
+.metric.composite .metric-delta { font-size: 12px; opacity: 0.75; }
+
+/* flash animations on value-change — smooth Apple-ish curve */
+
+@keyframes flash-up {
+  0%   { background: var(--pos-soft); box-shadow: 0 0 8px var(--pos-soft); }
+  100% { background: transparent;     box-shadow: 0 0 0 transparent; }
+}
+@keyframes flash-down {
+  0%   { background: var(--neg-soft); box-shadow: 0 0 8px var(--neg-soft); }
+  100% { background: transparent;     box-shadow: 0 0 0 transparent; }
+}
+
+/* composite rows flash longer + brighter so the eye catches the change */
+@keyframes flash-up-strong {
+  0%   { background: rgba(16, 200, 145, 0.22); box-shadow: 0 0 12px var(--pos-soft); }
+  100% { background: transparent;              box-shadow: 0 0 0 transparent; }
+}
+@keyframes flash-down-strong {
+  0%   { background: rgba(233, 69, 96, 0.22); box-shadow: 0 0 12px var(--neg-soft); }
+  100% { background: transparent;              box-shadow: 0 0 0 transparent; }
+}
+
+.metric-value.flash-up   { animation: flash-up   1.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.metric-value.flash-down { animation: flash-down 1.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.metric.composite .metric-value.flash-up   { animation: flash-up-strong   2s cubic-bezier(0.16, 1, 0.3, 1); }
+.metric.composite .metric-value.flash-down { animation: flash-down-strong 2s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* ─────────── formula panel ─────────── */
+
+.formula-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 78px;                     /* below topbar */
+  align-self: start;
+  max-height: calc(100vh - 100px);
+  overflow: hidden;
+}
+
+.panel-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);            /* solid */
+}
+
+.panel-head h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.panel-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-mute);
+}
+
+.panel-body {
+  padding: 18px;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.panel-body p,
+.panel-body ul {
+  margin-bottom: 10px;
+}
+
+.panel-body ul {
+  padding-left: 18px;
+}
+
+.panel-body li { margin-bottom: 5px; }
+
+.panel-placeholder {
+  color: var(--text-dim);
+}
+
+.panel-hint {
+  margin-top: 14px;
+  font-style: italic;
+  color: var(--text-mute);
+  font-size: 12px;
+}
+
+/* formula panel content rendered for a selected metric */
+
+.formula-panel .metric-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.formula-panel .metric-section-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: var(--mono);
+  background: var(--accent-soft);
+  color: var(--accent);
+  letter-spacing: 0.5px;
+  margin-bottom: 14px;
+}
+
+/* plain-English explanation rendered above the SQL formula */
+.formula-panel .metric-summary {
+  background: rgba(233, 69, 96, 0.06);
+  border-left: 3px solid var(--accent);
+  padding: 12px 14px;
+  margin: 4px 0 16px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  border-radius: 0 2px 2px 0;
+  white-space: pre-line;                /* keep author's line breaks readable */
+}
+
+.formula-panel .formula-block {
+  background: var(--bg-card-2);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+  overflow-x: auto;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.formula-panel .formula-block:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-card-2);
+}
+
+.formula-panel .formula-block .keyword { color: var(--accent-purple); }
+.formula-panel .formula-block .number  { color: var(--pos); }
+.formula-panel .formula-block .source  { color: var(--accent); }
+.formula-panel .formula-block .comment { color: var(--text-mute); font-style: italic; }
+
+.formula-panel h3 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+  margin: 18px 0 8px 0;
+}
+
+.formula-panel .components {
+  list-style: none;
+  padding: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.formula-panel .components li {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 6px;
+  margin: 0 -6px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-dim);
+  transition: background 0.10s linear, color 0.10s linear;
+}
+
+.formula-panel .components li:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+}
+
+.formula-panel .components li:last-child { border-bottom: 0; }
+.formula-panel .components .comp-value   { color: var(--text); }
+
+/* source-table chips brighten on hover */
+.formula-panel .panel-body code {
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.formula-panel .panel-body code:hover {
+  color: var(--text);
+  background: var(--bg-card);
+}
+
+/* ─────────── footer ─────────── */
+
+.footer {
+  padding: 12px 28px;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.footer code {
+  background: transparent;
+  color: var(--text-dim);
+  padding: 0;
+}
+
+.conn-ok    { color: var(--pos); }
+.conn-error { color: var(--neg); }
+
+/* ─────────── scrollbar ─────────── */
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-page); }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid var(--bg-page);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }

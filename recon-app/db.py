@@ -159,6 +159,24 @@ def _conn_fees_pg():
         connect_timeout=10,
     )
 
+def _conn_cro():
+    """Read-only connection to the MT5-CRO Postgres written by MT5-CRO-Backend.
+
+    The backend runs on a Windows host (pythonnet + MT5 SDK) and writes
+    accounts_snapshot / daily_reports / closed_positions / etc. We open a
+    short-lived connection per request — load is low (one /cro/metrics
+    poll every 5-30s) and a pool isn't worth the complexity here.
+    """
+    return psycopg2.connect(
+        host=os.environ["MT5_CRO_DB_HOST"],
+        port=int(os.environ.get("MT5_CRO_DB_PORT", 5432)),
+        dbname=os.environ["MT5_CRO_DB_NAME"],
+        user=os.environ["MT5_CRO_DB_USER"],
+        password=os.environ["MT5_CRO_DB_PASS"],
+        connect_timeout=10,
+        sslmode=os.environ.get("MT5_CRO_DB_SSLMODE", "prefer"),
+    )
+
 
 # ── Context managers ───────────────────────────────────────────────────────
 
@@ -174,6 +192,15 @@ def dealio():
 def praxis():
     """Read-only connection to the Praxis operations database."""
     conn = _conn_praxis()
+    try:
+        yield psycopg2.extras.RealDictCursor(conn)
+    finally:
+        conn.close()
+
+@contextmanager
+def cro():
+    """Read-only connection to the MT5-CRO Postgres (written by MT5-CRO-Backend)."""
+    conn = _conn_cro()
     try:
         yield psycopg2.extras.RealDictCursor(conn)
     finally:

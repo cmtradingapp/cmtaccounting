@@ -23,7 +23,14 @@ services:
       - RETENTION_PASS=${RETENTION_PASS}
       - CRO_USER=${CRO_USER:-CMTCRO}
       - CRO_PASS=${CRO_PASS}
-      - CRO_BRIDGE_SECRET=${CRO_BRIDGE_SECRET}
+      # MT5-CRO Postgres (sibling cro_postgres service in this compose;
+      # written by MT5-CRO-Backend running on a separate Windows host).
+      - MT5_CRO_DB_HOST=cro_postgres
+      - MT5_CRO_DB_PORT=5432
+      - MT5_CRO_DB_NAME=${MT5_CRO_DB_NAME:-cro_db}
+      - MT5_CRO_DB_USER=${MT5_CRO_DB_USER:-cro}
+      - MT5_CRO_DB_PASS=${MT5_CRO_DB_PASS}
+      - MT5_CRO_DB_SSLMODE=disable
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       # Praxis operations database
@@ -68,8 +75,28 @@ services:
     networks:
       - recon_net
 
+  cro_postgres:
+    # Postgres written by MT5-CRO-Backend (pythonnet, runs on a Windows host)
+    # and read by recon-app's /cro/metrics. Published to host:5432 so the
+    # Windows backend can reach it from outside this docker network.
+    # Lock down the public path via UFW + pg_hba.conf once the Windows IP
+    # is known. SSL/scram-sha-256 recommended for the public path.
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB:       ${MT5_CRO_DB_NAME:-cro_db}
+      POSTGRES_USER:     ${MT5_CRO_DB_USER:-cro}
+      POSTGRES_PASSWORD: ${MT5_CRO_DB_PASS}
+    volumes:
+      - cro_pgdata:/var/lib/postgresql/data
+    networks:
+      - recon_net
+
 volumes:
   fees_pgdata:
+  cro_pgdata:
 
 networks:
   recon_net:

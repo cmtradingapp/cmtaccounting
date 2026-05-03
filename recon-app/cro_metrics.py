@@ -1,0 +1,468 @@
+"""Read-only SQL queries that produce the CRO dashboard metrics.
+
+Ported from MT5-CRO-Frontend/app/metrics.py — same SQL, but executed via
+psycopg2 RealDictCursor instead of SQLAlchemy text() so it shares the
+existing connection pattern in db.py (`cro()` context manager).
+
+Conversion conventions (matches the MT5-CRO-Backend convention):
+  - Total Balance / Credit / Floating       -> internal_rates
+  - WD Equity / WD Equity Z / Net Deposits  -> external_rates
+                                              (per Mt5MonitorApiBundle.cs:4498)
+  - Settled / Closed P&L                    -> internal_rates
+                                              with rate_profit fallback
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+
+_ACTIVE_ACCOUNT_FILTER = (
+    "NOT (a.balance = 0 AND a.equity = 0) AND a.group_name NOT ILIKE '%%test%%'"
+)
+_ACTIVE_DAILY_FILTER = (
+    "d.group_name NOT ILIKE '%%test%%' AND NOT (d.balance = 0 AND d.profit_equity = 0)"
+)
+
+
+def _convert_case(amount_col: str, currency_col: str, rate_alias: str) -> str:
+    """SQL CASE expression converting `amount_col` (native) -> USD via `rate_alias`.
+
+    Uses MID rate (average of bid and ask) for the conversion factor, matching
+    the convention MT5 Manager uses to display per-account USD figures. Earlier
+    revisions toggled between `positive_to_usd` (=1/ask) and `negative_to_usd`
+    (=1/bid) based on the sign of the value -- that's a transactional
+    convention (sell at bid, buy at ask) which leaves a systematic gap of
+    ~half-spread per converted dollar vs. the broker's display number. MID
+    rate closes that gap.
+    """
+    return f"""
+        CASE
+            WHEN {amount_col} = 0 THEN 0
+            WHEN {currency_col} = 'USD' THEN {amount_col}
+            WHEN {rate_alias}.currency IS NOT NULL
+                AND {rate_alias}.bid > 0 AND {rate_alias}.ask > 0 THEN
+                {amount_col} * (
+                    CASE WHEN {rate_alias}.usd_base
+                         THEN 2.0::numeric / ({rate_alias}.bid + {rate_alias}.ask)
+                         ELSE ({rate_alias}.bid + {rate_alias}.ask) / 2.0::numeric
+                    END
+                )
+            ELSE {amount_col}
+        END
+    """
+
+
+def _scalar(cur, sql: str, params: dict | None = None) -> float:
+    """Execute and return the first column of the first row as float, default 0."""
+    cur.execute(sql, params or {})
+    row = cur.fetchone()
+    if not row:
+        return 0.0
+    # RealDictCursor returns dict; grab the only value.
+    return float(next(iter(row.values())) or 0.0)
+
+
+# ───────────────────────────── live snapshot helpers (accounts_snapshot)
+
+def _sum_account_field_usd(cur, field: str) -> float:
+    sql = f"""
+        SELECT COALESCE(SUM({_convert_case(f"a.{field}", "a.currency", "ir")}), 0)::float AS v
+        FROM accounts_snapshot a
+        LEFT JOIN internal_rates ir ON ir.currency = a.currency
+        WHERE {_ACTIVE_ACCOUNT_FILTER}
+    """
+    return _scalar(cur, sql)
+
+
+def total_balance_usd(cur) -> float:
+    return _sum_account_field_usd(cur, "balance")
+
+
+def total_credit_usd(cur) -> float:
+    return _sum_account_field_usd(cur, "credit")
+
+
+def total_floating_usd(cur) -> float:
+    """Sum of accounts_snapshot.floating (= IMTAccount.Floating() = Profit + Storage)."""
+    return _sum_account_field_usd(cur, "floating")
+
+
+# ────────────────────────────────────────────────────────── WD Equity
+
+def wd_equity(cur) -> dict:
+    """WD Equity / WD Equity Z over live accounts_snapshot, external_rates,
+    bonuses cumulative through now."""
+    sql = f"""
+        WITH bonus_per_login AS (
+            SELECT login, COALESCE(SUM(amount), 0)::float AS bonus_native
+            FROM deposits_withdrawals
+            WHERE action = 2 AND comment ILIKE '%%bonus%%'
+            GROUP BY login
+        ),
+        account_with_bonus AS (
+            SELECT a.login, COALESCE(a.currency, 'USD') AS currency,
+                   a.equity, a.credit, COALESCE(b.bonus_native, 0) AS bonus_native
+            FROM accounts_snapshot a
+            LEFT JOIN bonus_per_login b ON b.login = a.login
+            WHERE {_ACTIVE_ACCOUNT_FILTER}
+        ),
+        converted AS (
+            SELECT awb.login,
+                   {_convert_case("awb.equity",       "awb.currency", "er")} AS equity_usd,
+                   {_convert_case("awb.credit",       "awb.currency", "er")} AS credit_usd,
+                   {_convert_case("awb.bonus_native", "awb.currency", "er")} AS bonus_usd,
+                   (er.currency IS NOT NULL OR awb.currency = 'USD') AS has_rate
+            FROM account_with_bonus awb
+            LEFT JOIN external_rates er ON er.currency = awb.currency
+        ),
+        per_login AS (
+            SELECT login, equity_usd - credit_usd - bonus_usd AS raw_wd_usd
+            FROM converted WHERE has_rate
+        )
+        SELECT
+            COALESCE(SUM(raw_wd_usd), 0)::float                AS wd_equity_usd,
+            COALESCE(SUM(GREATEST(raw_wd_usd, 0)), 0)::float   AS wd_equity_z_usd,
+            COUNT(*)::int                                      AS contributing_logins,
+            COUNT(*) FILTER (WHERE raw_wd_usd > 0)::int        AS positive_logins,
+            COUNT(*) FILTER (WHERE raw_wd_usd < 0)::int        AS negative_logins
+        FROM per_login;
+    """
+    cur.execute(sql)
+    row = cur.fetchone() or {}
+    return {
+        "wd_equity_usd": float(row.get("wd_equity_usd") or 0.0),
+        "wd_equity_z_usd": float(row.get("wd_equity_z_usd") or 0.0),
+        "contributing_logins": int(row.get("contributing_logins") or 0),
+        "positive_logins": int(row.get("positive_logins") or 0),
+        "negative_logins": int(row.get("negative_logins") or 0),
+    }
+
+
+# ─────────────────────────────────────────────────────────── Exposure
+
+def exposure(cur) -> dict:
+    """Net / Positive / Absolute exposure aggregates over exposure_snapshot."""
+    sql = """
+        SELECT
+            COALESCE(SUM(volume_net), 0)::float                  AS net_total_usd,
+            COALESCE(SUM(GREATEST(volume_net, 0)), 0)::float     AS positive_usd,
+            COALESCE(SUM(ABS(volume_net)), 0)::float             AS absolute_usd,
+            COUNT(*)::int                                        AS asset_count,
+            COUNT(*) FILTER (WHERE volume_net > 0)::int          AS long_assets,
+            COUNT(*) FILTER (WHERE volume_net < 0)::int          AS short_assets
+        FROM exposure_snapshot;
+    """
+    cur.execute(sql)
+    row = cur.fetchone() or {}
+    return {
+        "net_total_usd": float(row.get("net_total_usd") or 0.0),
+        "positive_usd": float(row.get("positive_usd") or 0.0),
+        "absolute_usd": float(row.get("absolute_usd") or 0.0),
+        "asset_count": int(row.get("asset_count") or 0),
+        "long_assets": int(row.get("long_assets") or 0),
+        "short_assets": int(row.get("short_assets") or 0),
+    }
+
+
+# ─────────────────────────── EOD-snapshot helpers (daily_reports)
+
+def _sum_daily_field_usd_eod(cur, field: str, eod_from_ts: int, eod_to_ts: int) -> float:
+    sql = f"""
+        SELECT COALESCE(SUM({_convert_case(f"d.{field}", "d.currency", "ir")}), 0)::float AS v
+        FROM daily_reports d
+        LEFT JOIN internal_rates ir ON ir.currency = d.currency
+        WHERE d.datetime >= %(from_ts)s AND d.datetime < %(to_ts)s
+          AND {_ACTIVE_DAILY_FILTER}
+    """
+    return _scalar(cur, sql, {"from_ts": eod_from_ts, "to_ts": eod_to_ts})
+
+
+def total_balance_usd_eod(cur, eod_from_ts: int, eod_to_ts: int) -> float:
+    return _sum_daily_field_usd_eod(cur, "balance", eod_from_ts, eod_to_ts)
+
+
+def total_credit_usd_eod(cur, eod_from_ts: int, eod_to_ts: int) -> float:
+    return _sum_daily_field_usd_eod(cur, "credit", eod_from_ts, eod_to_ts)
+
+
+def total_floating_usd_eod(cur, eod_from_ts: int, eod_to_ts: int) -> float:
+    """EOD floating = sum of (profit + profit_storage) from daily_reports for that day."""
+    sql = f"""
+        SELECT COALESCE(SUM({_convert_case('(d.profit + d.profit_storage)', 'd.currency', 'ir')}), 0)::float AS v
+        FROM daily_reports d
+        LEFT JOIN internal_rates ir ON ir.currency = d.currency
+        WHERE d.datetime >= %(from_ts)s AND d.datetime < %(to_ts)s
+          AND {_ACTIVE_DAILY_FILTER}
+    """
+    return _scalar(cur, sql, {"from_ts": eod_from_ts, "to_ts": eod_to_ts})
+
+
+def wd_equity_eod(cur, eod_from_ts: int, eod_to_ts: int) -> dict:
+    """WD Equity / WD Equity Z as of the given EOD. Uses daily_reports.profit_equity
+    + daily_reports.credit + bonus deals where time < eod_to_ts."""
+    sql = f"""
+        WITH bonus_per_login AS (
+            SELECT login, COALESCE(SUM(amount), 0)::float AS bonus_native
+            FROM deposits_withdrawals
+            WHERE action = 2 AND comment ILIKE '%%bonus%%' AND time < %(eod_to_ts)s
+            GROUP BY login
+        ),
+        daily_with_bonus AS (
+            SELECT d.login, COALESCE(NULLIF(d.currency, ''), 'USD') AS currency,
+                   d.profit_equity AS equity, d.credit AS credit,
+                   COALESCE(b.bonus_native, 0) AS bonus_native
+            FROM daily_reports d
+            LEFT JOIN bonus_per_login b ON b.login = d.login
+            WHERE d.datetime >= %(eod_from_ts)s AND d.datetime < %(eod_to_ts)s
+              AND {_ACTIVE_DAILY_FILTER}
+        ),
+        converted AS (
+            SELECT dwb.login,
+                   {_convert_case("dwb.equity",       "dwb.currency", "er")} AS equity_usd,
+                   {_convert_case("dwb.credit",       "dwb.currency", "er")} AS credit_usd,
+                   {_convert_case("dwb.bonus_native", "dwb.currency", "er")} AS bonus_usd,
+                   (er.currency IS NOT NULL OR dwb.currency = 'USD') AS has_rate
+            FROM daily_with_bonus dwb
+            LEFT JOIN external_rates er ON er.currency = dwb.currency
+        ),
+        per_login AS (
+            SELECT login, equity_usd - credit_usd - bonus_usd AS raw_wd_usd
+            FROM converted WHERE has_rate
+        )
+        SELECT
+            COALESCE(SUM(raw_wd_usd), 0)::float                AS wd_equity_usd,
+            COALESCE(SUM(GREATEST(raw_wd_usd, 0)), 0)::float   AS wd_equity_z_usd,
+            COUNT(*)::int                                      AS contributing_logins
+        FROM per_login;
+    """
+    cur.execute(sql, {"eod_from_ts": eod_from_ts, "eod_to_ts": eod_to_ts})
+    row = cur.fetchone() or {}
+    return {
+        "wd_equity_usd": float(row.get("wd_equity_usd") or 0.0),
+        "wd_equity_z_usd": float(row.get("wd_equity_z_usd") or 0.0),
+        "contributing_logins": int(row.get("contributing_logins") or 0),
+    }
+
+
+# ──────────────────────────────────────────── Closed / Net deps
+
+def closed_pnl_usd(cur, from_ts: int, to_ts: int) -> float:
+    """Sum of (profit + storage + commission + fee) over closing deals in [from, to).
+
+    Mid-rate conversion to match MT5 Manager (see _convert_case for rationale).
+    Falls back to deal.rate_profit if internal_rates is missing the currency.
+    """
+    sql = """
+        WITH deals AS (
+            SELECT cp.profit + cp.storage + cp.commission + cp.fee AS native_pnl,
+                   COALESCE(NULLIF(cp.currency, ''), 'USD') AS currency,
+                   cp.rate_profit
+            FROM closed_positions cp
+            WHERE cp.close_time >= %(from_ts)s AND cp.close_time < %(to_ts)s
+        )
+        SELECT COALESCE(SUM(
+            CASE WHEN d.native_pnl = 0 THEN 0
+                 WHEN d.currency = 'USD' THEN d.native_pnl
+                 WHEN ir.currency IS NOT NULL
+                      AND ir.bid > 0 AND ir.ask > 0 THEN
+                     d.native_pnl * (
+                         CASE WHEN ir.usd_base
+                              THEN 2.0::numeric / (ir.bid + ir.ask)
+                              ELSE (ir.bid + ir.ask) / 2.0::numeric
+                         END
+                     )
+                 WHEN d.rate_profit > 1.5 THEN d.native_pnl / d.rate_profit
+                 ELSE d.native_pnl
+            END
+        ), 0)::float AS v
+        FROM deals d
+        LEFT JOIN internal_rates ir ON ir.currency = d.currency
+    """
+    return _scalar(cur, sql, {"from_ts": from_ts, "to_ts": to_ts})
+
+
+def net_deposits_usd(cur, from_ts: int, to_ts: int) -> float:
+    """Sum of net deposits in [from, to) via external_rates. Excludes bonus / fees /
+    spread-charge comments per Mt5MonitorApiBundle.cs:8856-8862."""
+    sql = f"""
+        SELECT COALESCE(SUM({_convert_case('dw.amount', 'dw.currency', 'er')}), 0)::float AS v
+        FROM deposits_withdrawals dw
+        LEFT JOIN external_rates er ON er.currency = dw.currency
+        WHERE dw.action = 2
+          AND dw.time >= %(from_ts)s AND dw.time < %(to_ts)s
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%bonus%%'
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%fees placeholder%%'
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%spread charge%%'
+    """
+    return _scalar(cur, sql, {"from_ts": from_ts, "to_ts": to_ts})
+
+
+def cumulative_bonus_usd(cur, through_ts: int) -> float:
+    """Sum of all bonus deals up to `through_ts`, USD-converted via external_rates.
+
+    Mirrors the bonus subtraction inside WDZ, aggregated to a single number.
+    """
+    sql = f"""
+        SELECT COALESCE(SUM({_convert_case('dw.amount', 'dw.currency', 'er')}), 0)::float AS v
+        FROM deposits_withdrawals dw
+        LEFT JOIN external_rates er ON er.currency = dw.currency
+        WHERE dw.action = 2
+          AND dw.comment ILIKE '%%bonus%%'
+          AND dw.time < %(through_ts)s
+    """
+    return _scalar(cur, sql, {"through_ts": through_ts})
+
+
+def yesterday_floating_usd(cur, yesterday_start: int, today_start: int) -> float:
+    """Sum of daily_reports.(profit + profit_storage) for yesterday."""
+    sql = f"""
+        SELECT COALESCE(SUM({_convert_case('(d.profit + d.profit_storage)', 'd.currency', 'ir')}), 0)::float AS v
+        FROM daily_reports d
+        LEFT JOIN internal_rates ir ON ir.currency = d.currency
+        WHERE d.datetime >= %(from_ts)s AND d.datetime < %(to_ts)s
+          AND {_ACTIVE_DAILY_FILTER}
+    """
+    return _scalar(cur, sql, {"from_ts": yesterday_start, "to_ts": today_start})
+
+
+# ────────────────────────────────────────────── Public top-level
+
+def collect_all_metrics(cur) -> dict:
+    """Compute all three status sections in one call. Returns a dict ready
+    for JSON serialisation by the Flask handler."""
+    now_utc            = datetime.now(timezone.utc)
+    today_start        = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_start    = today_start - timedelta(days=1)
+    day_before_start   = today_start - timedelta(days=2)
+    month_start        = now_utc.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    prev_month_end     = month_start - timedelta(days=1)
+
+    today_start_ts     = int(today_start.timestamp())
+    yesterday_start_ts = int(yesterday_start.timestamp())
+    day_before_ts      = int(day_before_start.timestamp())
+    month_start_ts     = int(month_start.timestamp())
+    prev_month_end_ts  = int(prev_month_end.timestamp())
+    # `closed_positions.close_time` and `deposits_withdrawals.time` are stored
+    # in broker-local time treated as UTC seconds (Cyprus broker, UTC+3). Use
+    # end-of-day instead of "now" so the upper bound covers the broker's full
+    # day -- broker can't return future deals.
+    today_end_ts       = today_start_ts + 86400
+
+    # ── live aggregates
+    balance_today      = total_balance_usd(cur)
+    credit_today       = total_credit_usd(cur)
+    floating_today     = total_floating_usd(cur)
+    wd_t               = wd_equity(cur)
+    exp_t              = exposure(cur)
+
+    # ── yesterday EOD
+    balance_yest_eod   = total_balance_usd_eod(cur, yesterday_start_ts, today_start_ts)
+    credit_yest_eod    = total_credit_usd_eod(cur, yesterday_start_ts, today_start_ts)
+    floating_yest_eod  = total_floating_usd_eod(cur, yesterday_start_ts, today_start_ts)
+    wd_y               = wd_equity_eod(cur, yesterday_start_ts, today_start_ts)
+
+    # ── day-before-yesterday EOD (for yesterday's delta)
+    floating_dayb_eod  = total_floating_usd_eod(cur, day_before_ts, yesterday_start_ts)
+    wd_db              = wd_equity_eod(cur, day_before_ts, yesterday_start_ts)
+
+    # ── prev-month-end EOD (for MTD)
+    floating_month_st  = total_floating_usd_eod(cur, prev_month_end_ts, month_start_ts)
+    wd_pme             = wd_equity_eod(cur, prev_month_end_ts, month_start_ts)
+    balance_month_st   = total_balance_usd_eod(cur, prev_month_end_ts, month_start_ts)
+    credit_month_st    = total_credit_usd_eod(cur, prev_month_end_ts, month_start_ts)
+
+    # ── Cumulative Bonus (COB) per reference time
+    cob_today          = cumulative_bonus_usd(cur, today_end_ts)
+    cob_yesterday      = cumulative_bonus_usd(cur, today_start_ts)
+    cob_month_start    = cumulative_bonus_usd(cur, month_start_ts)
+
+    # ── Settled (closed P&L) per period
+    settled_today      = closed_pnl_usd(cur, today_start_ts, today_end_ts)
+    settled_yest       = closed_pnl_usd(cur, yesterday_start_ts, today_start_ts)
+    settled_mtd        = closed_pnl_usd(cur, month_start_ts, today_end_ts)
+
+    # ── Net Deposits per period
+    netdep_today       = net_deposits_usd(cur, today_start_ts, today_end_ts)
+    netdep_yest        = net_deposits_usd(cur, yesterday_start_ts, today_start_ts)
+    netdep_mtd         = net_deposits_usd(cur, month_start_ts, today_end_ts)
+
+    # ── Delta Floating per period
+    delta_today        = floating_today - yesterday_floating_usd(cur, yesterday_start_ts, today_start_ts)
+    delta_yest         = floating_yest_eod - floating_dayb_eod
+    delta_mtd          = floating_today - floating_month_st
+
+    # ── Daily / Monthly P&L (= Delta Floating + Settled)
+    daily_pnl_today    = delta_today + settled_today
+    daily_pnl_yest     = delta_yest + settled_yest
+    monthly_pnl        = delta_mtd + settled_mtd
+
+    # ── Delta WDZ + Daily P&L Cash (= Delta WDZ - Net Deposits)
+    delta_wdz_today    = wd_t["wd_equity_z_usd"] - wd_y["wd_equity_z_usd"]
+    delta_wdz_yest     = wd_y["wd_equity_z_usd"] - wd_db["wd_equity_z_usd"]
+    delta_wdz_mtd      = wd_t["wd_equity_z_usd"] - wd_pme["wd_equity_z_usd"]
+    pnl_cash_today     = delta_wdz_today - netdep_today
+    pnl_cash_yest      = delta_wdz_yest  - netdep_yest
+    pnl_cash_mtd       = delta_wdz_mtd   - netdep_mtd
+
+    return {
+        "as_of_utc": now_utc.isoformat(),
+        "today_label": today_start.strftime("%Y-%m-%d"),
+        "yesterday_label": yesterday_start.strftime("%Y-%m-%d"),
+        "month_start_label": month_start.strftime("%Y-%m-%d"),
+        "prev_month_end_label": prev_month_end.strftime("%Y-%m-%d"),
+
+        "today": {
+            "total_balance_usd": balance_today,
+            "total_credit_usd": credit_today,
+            "cumulative_bonus_usd": cob_today,
+            "floating_usd": floating_today,
+            "wd_equity_usd": wd_t["wd_equity_usd"],
+            "wd_equity_z_usd": wd_t["wd_equity_z_usd"],
+            "wd_logins": wd_t["contributing_logins"],
+            "wd_positive_logins": wd_t["positive_logins"],
+            "wd_negative_logins": wd_t["negative_logins"],
+            "exposure_net_usd": exp_t["net_total_usd"],
+            "exposure_positive_usd": exp_t["positive_usd"],
+            "exposure_absolute_usd": exp_t["absolute_usd"],
+            "exposure_assets": exp_t["asset_count"],
+            "exposure_long_assets": exp_t["long_assets"],
+            "exposure_short_assets": exp_t["short_assets"],
+            "settled_pnl_usd": settled_today,
+            "delta_floating_usd": delta_today,
+            "daily_pnl_usd": daily_pnl_today,
+            "net_deposits_usd": netdep_today,
+            "delta_wdz_usd": delta_wdz_today,
+            "daily_pnl_cash_usd": pnl_cash_today,
+        },
+        "yesterday": {
+            "total_balance_usd": balance_yest_eod,
+            "total_credit_usd": credit_yest_eod,
+            "cumulative_bonus_usd": cob_yesterday,
+            "floating_usd": floating_yest_eod,
+            "wd_equity_usd": wd_y["wd_equity_usd"],
+            "wd_equity_z_usd": wd_y["wd_equity_z_usd"],
+            "wd_logins": wd_y["contributing_logins"],
+            "settled_pnl_usd": settled_yest,
+            "delta_floating_usd": delta_yest,
+            "daily_pnl_usd": daily_pnl_yest,
+            "net_deposits_usd": netdep_yest,
+            "delta_wdz_usd": delta_wdz_yest,
+            "daily_pnl_cash_usd": pnl_cash_yest,
+        },
+        "monthly": {
+            "wd_equity_z_month_start_usd": wd_pme["wd_equity_z_usd"],
+            "monthly_pnl_usd": monthly_pnl,
+            "monthly_pnl_cash_usd": pnl_cash_mtd,
+            "total_balance_month_start_usd": balance_month_st,
+            "total_credit_month_start_usd": credit_month_st,
+            "cumulative_bonus_usd": cob_month_start,
+            "wd_equity_month_start_usd": wd_pme["wd_equity_usd"],
+            "floating_month_start_usd": floating_month_st,
+            "floating_today_usd": floating_today,
+            "delta_floating_usd": delta_mtd,
+            "settled_pnl_usd": settled_mtd,
+            "net_deposits_usd": netdep_mtd,
+            "delta_wdz_usd": delta_wdz_mtd,
+            "wd_equity_z_today_usd": wd_t["wd_equity_z_usd"],
+        },
+    }
