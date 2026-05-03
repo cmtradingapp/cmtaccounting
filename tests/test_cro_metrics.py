@@ -98,6 +98,20 @@ CREATE TABLE external_rates (
     ask      DOUBLE PRECISION NOT NULL,
     usd_base BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+-- `deals` mirrors the relevant subset of MT5-CRO-Backend's `Deal` model.
+-- Non-partitioned variant for tests; partitioning is irrelevant for SUM queries.
+CREATE TABLE deals (
+    ticket           BIGINT NOT NULL,
+    time             BIGINT NOT NULL,
+    login            BIGINT NOT NULL DEFAULT 0,
+    action           SMALLINT NOT NULL DEFAULT 0,
+    entry            SMALLINT NOT NULL DEFAULT 0,
+    symbol           TEXT NOT NULL DEFAULT '',
+    notional_usd     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    spread_cost_usd  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    PRIMARY KEY (ticket, time)
+);
 """
 
 
@@ -121,7 +135,7 @@ def conn():
     with c.cursor() as cur:
         cur.execute(
             "DROP TABLE IF EXISTS accounts_snapshot, deposits_withdrawals, "
-            "closed_positions, positions_snapshot, external_rates CASCADE"
+            "closed_positions, positions_snapshot, external_rates, deals CASCADE"
         )
     c.commit()
     c.close()
@@ -182,6 +196,15 @@ def _seed_position(cur, position_id, login, symbol="EURUSD"):
         "INSERT INTO positions_snapshot (position_id, login, symbol) "
         "VALUES (%s,%s,%s)",
         (position_id, login, symbol),
+    )
+
+
+def _seed_deal(cur, ticket, time, login=100, action=0, entry=1,
+               symbol="EURUSD", notional_usd=0.0, spread_cost_usd=0.0):
+    cur.execute(
+        "INSERT INTO deals (ticket, time, login, action, entry, symbol, "
+        "notional_usd, spread_cost_usd) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (ticket, time, login, action, entry, symbol, notional_usd, spread_cost_usd),
     )
 
 
@@ -408,7 +431,109 @@ class TestCollectAllMetricsShape:
         for section in ("today", "yesterday", "monthly"):
             assert section in data
             for k in ("n_traders", "n_active_traders", "n_depositors",
-                      "n_new_regs", "n_ftd", "ftd_amount_usd"):
+                      "n_new_regs", "n_ftd", "ftd_amount_usd",
+                      "volume_usd", "spread_usd"):
                 assert k in data[section], f"{section}.{k} missing"
                 # Empty DB → all counts/sums are 0
                 assert data[section][k] == 0 or data[section][k] == 0.0
+
+
+# ── Volume USD tests ────────────────────────────────────────────────────
+
+class TestVolumeUsd:
+
+    def test_sums_notional_usd_in_period(self, cur):
+        _seed_deal(cur, ticket=1, time=TODAY_START + 100, action=0, entry=0,
+                   notional_usd=500_000.0)
+        _seed_deal(cur, ticket=2, time=TODAY_START + 200, action=0, entry=1,
+                   notional_usd=500_000.0)
+        # outside window: ignored
+        _seed_deal(cur, ticket=3, time=YEST_START + 100, action=1, entry=1,
+                   notional_usd=999_999.0)
+        result = cro_metrics.volume_usd(cur, TODAY_START, TODAY_END)
+        assert result == pytest.approx(1_000_000.0)
+
+    def test_action_filter_only_buy_sell(self, cur):
+        # action=2 (DEAL_BALANCE) → must be filtered out even if notional_usd is set
+        _seed_deal(cur, ticket=1, time=TODAY_START + 100, action=2, entry=0,
+                   notional_usd=999_999.0)
+        _seed_deal(cur, ticket=2, time=TODAY_START + 200, action=0, entry=1,
+                   notional_usd=100_000.0)
+        result = cro_metrics.volume_usd(cur, TODAY_START, TODAY_END)
+        assert result == pytest.approx(100_000.0)
+
+    def test_excludes_zeroing_symbol(self, cur):
+        _seed_deal(cur, ticket=1, time=TODAY_START + 100, symbol="Zeroing_USD",
+                   action=0, notional_usd=999_999.0)
+        _seed_deal(cur, ticket=2, time=TODAY_START + 200, symbol="EURUSD",
+                   action=0, notional_usd=100_000.0)
+        result = cro_metrics.volume_usd(cur, TODAY_START, TODAY_END)
+        assert result == pytest.approx(100_000.0)
+
+    def test_excludes_inactivity_symbol(self, cur):
+        _seed_deal(cur, ticket=1, time=TODAY_START + 100, symbol="inactivity-fee",
+                   action=0, notional_usd=999_999.0)
+        _seed_deal(cur, ticket=2, time=TODAY_START + 200, symbol="EURUSD",
+                   action=0, notional_usd=100_000.0)
+        result = cro_metrics.volume_usd(cur, TODAY_START, TODAY_END)
+        assert result == pytest.approx(100_000.0)
+
+    def test_period_boundary_excludes_to_ts(self, cur):
+        _seed_deal(cur, ticket=1, time=TODAY_END, action=0, notional_usd=1_000_000.0)
+        result = cro_metrics.volume_usd(cur, TODAY_START, TODAY_END)
+        assert result == 0.0
+
+    def test_empty_period_returns_zero(self, cur):
+        result = cro_metrics.volume_usd(cur, TODAY_START, TODAY_END)
+        assert result == 0.0
+
+    def test_both_legs_counted(self, cur):
+        # One position, opening leg + closing leg both contribute
+        _seed_deal(cur, ticket=1, time=TODAY_START + 100, action=0, entry=0,
+                   notional_usd=500_000.0)
+        _seed_deal(cur, ticket=2, time=TODAY_START + 200, action=0, entry=1,
+                   notional_usd=505_000.0)
+        result = cro_metrics.volume_usd(cur, TODAY_START, TODAY_END)
+        assert result == pytest.approx(1_005_000.0)
+
+
+# ── Spread USD tests ────────────────────────────────────────────────────
+
+class TestSpreadUsd:
+
+    def test_sums_spread_cost_usd(self, cur):
+        _seed_deal(cur, ticket=1, time=TODAY_START + 100, action=0,
+                   spread_cost_usd=15.0)
+        _seed_deal(cur, ticket=2, time=TODAY_START + 200, action=1,
+                   spread_cost_usd=23.5)
+        result = cro_metrics.spread_usd(cur, TODAY_START, TODAY_END)
+        assert result == pytest.approx(38.5)
+
+    def test_action_filter_only_buy_sell(self, cur):
+        _seed_deal(cur, ticket=1, time=TODAY_START + 100, action=2,
+                   spread_cost_usd=999.0)
+        _seed_deal(cur, ticket=2, time=TODAY_START + 200, action=0,
+                   spread_cost_usd=12.0)
+        result = cro_metrics.spread_usd(cur, TODAY_START, TODAY_END)
+        assert result == pytest.approx(12.0)
+
+    def test_excludes_zeroing_inactivity(self, cur):
+        _seed_deal(cur, ticket=1, time=TODAY_START + 100, symbol="Zeroing_OUT",
+                   action=0, spread_cost_usd=99.0)
+        _seed_deal(cur, ticket=2, time=TODAY_START + 200, symbol="market-inactivity",
+                   action=0, spread_cost_usd=99.0)
+        _seed_deal(cur, ticket=3, time=TODAY_START + 300, symbol="EURUSD",
+                   action=0, spread_cost_usd=10.0)
+        result = cro_metrics.spread_usd(cur, TODAY_START, TODAY_END)
+        assert result == pytest.approx(10.0)
+
+    def test_period_boundary(self, cur):
+        _seed_deal(cur, ticket=1, time=YEST_START - 1000, action=0,
+                   spread_cost_usd=99.0)
+        _seed_deal(cur, ticket=2, time=YEST_START + 100, action=0,
+                   spread_cost_usd=10.0)
+        result = cro_metrics.spread_usd(cur, YEST_START, TODAY_START)
+        assert result == pytest.approx(10.0)
+
+    def test_empty_period(self, cur):
+        assert cro_metrics.spread_usd(cur, TODAY_START, TODAY_END) == 0.0

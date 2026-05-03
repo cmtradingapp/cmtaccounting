@@ -290,6 +290,33 @@ WHERE login ∈ today's FTD set
   AND comment NOT LIKE '%fees placeholder%'
   AND comment NOT LIKE '%spread charge%'`,
       sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
+
+    { key: "volume_usd", label: "Volume (USD)", formatter: "money", signed: false,
+      summary:
+`Gross notional turnover of all deal legs today. Both opening and closing
+legs counted (matches C# Mt5MonitorApiBundle.cs convention). USD-converted
+at ingest using broker-time-exact MarketBid/MarketAsk for symbols where
+the symbol IS the USD-cross pair, or RateProfit as fallback —
+deal-time-exact, no FX-time-skew.`,
+      formula:
+`SUM(deals.notional_usd) WHERE time IN [today_start, today_end)
+                          AND action IN (0,1)
+                          AND symbol NOT ILIKE 'Zeroing%' / '%inactivity%'
+  ↑ notional_usd computed at ingest as
+    |volume_lots × contract_size × price| → USD`,
+      sources: ["deals"], componentsOf: [] },
+
+    { key: "spread_usd", label: "Spread (USD)", formatter: "money", signed: true,
+      summary:
+`Gross spread cost across all deals today. Per-deal:
+volume_lots × contract_size × (MarketAsk − MarketBid), USD-converted
+with the same priority logic as notional. Bid/ask captured directly off
+the IMTDeal at trade time — exact, not period-averaged.`,
+      formula:
+`SUM(deals.spread_cost_usd) WHERE time IN [today_start, today_end)
+                              AND action IN (0,1)
+                              AND symbol NOT ILIKE 'Zeroing%' / '%inactivity%'`,
+      sources: ["deals"], componentsOf: [] },
   ],
 
   yesterday: [
@@ -491,6 +518,22 @@ WHERE first_time IN [yesterday, today)`,
 FROM deposits_withdrawals JOIN ftd_logins
 WHERE deposit window = yesterday, bonus/fees/spread excluded`,
       sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
+
+    { key: "volume_usd", label: "Volume (USD)", formatter: "money", signed: false,
+      summary: `Gross notional turnover for all deal legs yesterday (USD).`,
+      formula:
+`SUM(deals.notional_usd) WHERE time IN [yesterday, today)
+                          AND action IN (0,1)
+                          AND symbol NOT ILIKE 'Zeroing%' / '%inactivity%'`,
+      sources: ["deals"], componentsOf: [] },
+
+    { key: "spread_usd", label: "Spread (USD)", formatter: "money", signed: true,
+      summary: `Gross spread cost across all deals yesterday (USD).`,
+      formula:
+`SUM(deals.spread_cost_usd) WHERE time IN [yesterday, today)
+                              AND action IN (0,1)
+                              AND symbol NOT ILIKE 'Zeroing%' / '%inactivity%'`,
+      sources: ["deals"], componentsOf: [] },
   ],
 
   monthly: [
@@ -685,6 +728,22 @@ WHERE first_time IN [month_start, today_end)`,
 `SUM(amount → USD) FROM deposits_withdrawals JOIN ftd_logins
 WHERE deposit window = MTD, bonus/fees/spread excluded`,
       sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
+
+    { key: "volume_usd", label: "Volume (USD)", formatter: "money", signed: false,
+      summary: `Gross notional turnover MTD (USD). Both legs counted.`,
+      formula:
+`SUM(deals.notional_usd) WHERE time IN [month_start, today_end)
+                          AND action IN (0,1)
+                          AND symbol NOT ILIKE 'Zeroing%' / '%inactivity%'`,
+      sources: ["deals"], componentsOf: [] },
+
+    { key: "spread_usd", label: "Spread (USD)", formatter: "money", signed: true,
+      summary: `Gross spread cost MTD (USD).`,
+      formula:
+`SUM(deals.spread_cost_usd) WHERE time IN [month_start, today_end)
+                              AND action IN (0,1)
+                              AND symbol NOT ILIKE 'Zeroing%' / '%inactivity%'`,
+      sources: ["deals"], componentsOf: [] },
   ],
 };
 

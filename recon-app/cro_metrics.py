@@ -442,6 +442,42 @@ def n_ftd(cur, from_ts: int, to_ts: int) -> int:
     return int(row.get("v") or 0)
 
 
+def volume_usd(cur, from_ts: int, to_ts: int) -> float:
+    """Σ deals.notional_usd over [from, to). Both opening and closing legs
+    counted (matches C# Mt5MonitorApiBundle.cs convention).
+
+    `notional_usd` is computed once at ingest by MT5-CRO-Backend, using
+    broker-time-exact MarketBid/MarketAsk for symbols where the symbol IS
+    the USD-cross pair, and `rate_profit` as fallback. So this metric is
+    deal-time-exact USD with no FX-time-skew.
+    """
+    sql = """
+        SELECT COALESCE(SUM(notional_usd), 0)::float AS v
+        FROM deals
+        WHERE time >= %(from_ts)s AND time < %(to_ts)s
+          AND action IN (0, 1)
+          AND symbol NOT ILIKE 'Zeroing%%'
+          AND symbol NOT ILIKE '%%inactivity%%'
+    """
+    return _scalar(cur, sql, {"from_ts": from_ts, "to_ts": to_ts})
+
+
+def spread_usd(cur, from_ts: int, to_ts: int) -> float:
+    """Σ deals.spread_cost_usd over [from, to). Computed at ingest as
+    `volume_lots × contract_size × (MarketAsk − MarketBid)`, USD-converted
+    with the same priority logic as notional. Bid/ask captured directly
+    off the IMTDeal at trade time — exact, not period-averaged."""
+    sql = """
+        SELECT COALESCE(SUM(spread_cost_usd), 0)::float AS v
+        FROM deals
+        WHERE time >= %(from_ts)s AND time < %(to_ts)s
+          AND action IN (0, 1)
+          AND symbol NOT ILIKE 'Zeroing%%'
+          AND symbol NOT ILIKE '%%inactivity%%'
+    """
+    return _scalar(cur, sql, {"from_ts": from_ts, "to_ts": to_ts})
+
+
 def ftd_amount_usd(cur, from_ts: int, to_ts: int) -> float:
     """Sum of all positive deposits in [from, to) for FTD logins,
     USD-converted via external_rates (mid-rate per _convert_case).
@@ -580,6 +616,16 @@ def collect_all_metrics(cur) -> dict:
     ftd_amt_yest         = ftd_amount_usd(cur, yesterday_start_ts, today_start_ts)
     ftd_amt_mtd          = ftd_amount_usd(cur, month_start_ts, today_end_ts)
 
+    # Volume + Spread (read from the new `deals` table populated by
+    # MT5-CRO-Backend's store_deals stage).
+    volume_today         = volume_usd(cur, today_start_ts, today_end_ts)
+    volume_yest          = volume_usd(cur, yesterday_start_ts, today_start_ts)
+    volume_mtd           = volume_usd(cur, month_start_ts, today_end_ts)
+
+    spread_today         = spread_usd(cur, today_start_ts, today_end_ts)
+    spread_yest          = spread_usd(cur, yesterday_start_ts, today_start_ts)
+    spread_mtd           = spread_usd(cur, month_start_ts, today_end_ts)
+
     return {
         "as_of_utc": now_utc.isoformat(),
         "today_label": today_start.strftime("%Y-%m-%d"),
@@ -616,6 +662,8 @@ def collect_all_metrics(cur) -> dict:
             "n_new_regs": n_regs_today,
             "n_ftd": n_ftd_today,
             "ftd_amount_usd": ftd_amt_today,
+            "volume_usd": volume_today,
+            "spread_usd": spread_today,
         },
         "yesterday": {
             "total_balance_usd": balance_yest_eod,
@@ -638,6 +686,8 @@ def collect_all_metrics(cur) -> dict:
             "n_new_regs": n_regs_yest,
             "n_ftd": n_ftd_yest,
             "ftd_amount_usd": ftd_amt_yest,
+            "volume_usd": volume_yest,
+            "spread_usd": spread_yest,
         },
         "monthly": {
             "wd_equity_z_month_start_usd": wd_pme["wd_equity_z_usd"],
@@ -661,5 +711,7 @@ def collect_all_metrics(cur) -> dict:
             "n_new_regs": n_regs_mtd,
             "n_ftd": n_ftd_mtd,
             "ftd_amount_usd": ftd_amt_mtd,
+            "volume_usd": volume_mtd,
+            "spread_usd": spread_mtd,
         },
     }
