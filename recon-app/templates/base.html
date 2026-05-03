@@ -34,25 +34,27 @@
     }
 
     /* ── Header ──────────────────────────────────────────────── */
-    header {
+    /* Scoped to body > header so child templates (e.g. cro_dashboard's
+       card/panel <header> elements) don't inherit the top-bar styles. */
+    body > header {
       background: var(--surface); border-bottom: 1px solid var(--border);
       padding: 0 var(--sp-4); height: 56px;
       display: flex; align-items: center; gap: var(--sp-3);
     }
-    header .logo { font-size: 15px; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 0; }
-    header .logo .cmt   { font-weight: 800; color: var(--accent); }
-    header .logo .recon { font-weight: 600; color: var(--text); margin-left: 5px; }
-    header .logo .sep   { font-weight: 400; color: var(--muted); margin: 0 5px; font-size: 13px; }
-    header .logo .psps  { font-weight: 600; color: var(--text); }
-    nav { display: flex; gap: 4px; margin-left: 8px; }
-    nav a {
+    body > header .logo { font-size: 15px; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 0; }
+    body > header .logo .cmt   { font-weight: 800; color: var(--accent); }
+    body > header .logo .recon { font-weight: 600; color: var(--text); margin-left: 5px; }
+    body > header .logo .sep   { font-weight: 400; color: var(--muted); margin: 0 5px; font-size: 13px; }
+    body > header .logo .psps  { font-weight: 600; color: var(--text); }
+    body > header nav { display: flex; gap: 4px; margin-left: 8px; }
+    body > header nav a {
       color: var(--muted); text-decoration: none;
       padding: 5px 11px; border-radius: var(--radius-sm);
       font-size: 13px; font-weight: 500;
       transition: color .15s, background .15s;
     }
-    nav a:hover { color: var(--text); background: rgba(255,255,255,.05); }
-    nav a.active { color: var(--text); background: rgba(255,255,255,.07); }
+    body > header nav a:hover { color: var(--text); background: rgba(255,255,255,.05); }
+    body > header nav a.active { color: var(--text); background: rgba(255,255,255,.07); }
 
     /* ── Layout ──────────────────────────────────────────────── */
     main { max-width: 1400px; margin: 0 auto; padding: var(--sp-5) var(--sp-4); }
@@ -427,6 +429,7 @@
     }
     .entity-chip button:hover { color: var(--red); }
   </style>
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
   <header>

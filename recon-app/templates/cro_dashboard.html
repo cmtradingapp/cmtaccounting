@@ -1,103 +1,108 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MT5-CRO Dashboard</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='cro/styles.css') }}">
-</head>
-<body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="dot live"></span>
-      <span class="brand-name">MT5-CRO Dashboard</span>
-    </div>
-    <div class="controls">
-      <span id="freshness-pill" class="freshness-pill paused" title="Time since last successful poll">
-        <span class="freshness-dot"></span><span class="freshness-text">starting…</span>
-      </span>
-      <span class="separator">|</span>
-      <label class="cadence-label">refresh:</label>
-      <select id="cadence" class="cadence-select">
-        <option value="5000">5 s</option>
-        <option value="10000" selected>10 s</option>
-        <option value="30000">30 s</option>
-        <option value="60000">1 min</option>
-        <option value="0">paused</option>
-      </select>
-      <button id="manual-refresh" class="btn-refresh" title="Refresh now">⟳</button>
-    </div>
-  </header>
+{% extends "base.html" %}
+{% block title %} - CRO{% endblock %}
 
-  <main class="layout">
-    <!-- ─────────────── METRIC CARDS ─────────────── -->
-    <section class="cards">
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='cro/styles.css') }}">
+<style>
+  /* Override base.html main constraints so the CRO layout fills the page,
+     and keep the recon nav visible above the CRO sub-topbar (no `position:
+     sticky` collision with base.html's `<header>`). */
+  main { max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  .topbar { position: static !important; }
+</style>
+{% endblock %}
 
-      <article class="card section-today" data-section="today">
-        <header class="card-head">
-          <h2>Today's Status</h2>
-          <span class="card-sub" id="today-label">live snapshot</span>
-        </header>
-        <div class="metric-list" data-section-content="today"></div>
-      </article>
+{% block content %}
+<div class="topbar">
+  <div class="brand">
+    <span class="dot live"></span>
+    <span class="brand-name">MT5-CRO Dashboard</span>
+  </div>
+  <div class="controls">
+    <span id="freshness-pill" class="freshness-pill paused" title="Time since last successful poll">
+      <span class="freshness-dot"></span><span class="freshness-text">starting…</span>
+    </span>
+    <span class="separator">|</span>
+    <label class="cadence-label">refresh:</label>
+    <select id="cadence" class="cadence-select">
+      <option value="5000">5 s</option>
+      <option value="10000" selected>10 s</option>
+      <option value="30000">30 s</option>
+      <option value="60000">1 min</option>
+      <option value="0">paused</option>
+    </select>
+    <button id="manual-refresh" class="btn-refresh" title="Refresh now">⟳</button>
+  </div>
+</div>
 
-      <article class="card section-yesterday" data-section="yesterday">
-        <header class="card-head">
-          <h2>Yesterday's Status</h2>
-          <span class="card-sub" id="yesterday-label">end-of-day snapshot</span>
-        </header>
-        <div class="metric-list" data-section-content="yesterday"></div>
-      </article>
+<div class="layout">
+  <!-- ─────────────── METRIC CARDS ─────────────── -->
+  <section class="cards">
 
-      <article class="card section-monthly" data-section="monthly">
-        <header class="card-head">
-          <h2>Month-to-Date</h2>
-          <span class="card-sub" id="monthly-label">cumulative</span>
-        </header>
-        <div class="metric-list" data-section-content="monthly"></div>
-      </article>
-
-    </section>
-
-    <!-- ─────────────── FORMULA PANEL (right) ─────────────── -->
-    <aside class="formula-panel" id="formula-panel">
-      <header class="panel-head">
-        <h2>Formula &amp; Source</h2>
-        <p class="panel-sub">Click any metric on the left to see how it's calculated.</p>
+    <article class="card section-today" data-section="today">
+      <header class="card-head">
+        <h2>Today's Status</h2>
+        <span class="card-sub" id="today-label">live snapshot</span>
       </header>
-      <div class="panel-body" id="panel-body">
-        <div class="panel-placeholder">
-          <p>Each metric in this dashboard is derived from the live PostgreSQL replica that the
-          MT5-CRO-Backend keeps in sync with the MT5 Manager API.</p>
+      <div class="metric-list" data-section-content="today"></div>
+    </article>
 
-          <p>The three status sections share the same underlying formulas — only the time window
-          and data source change:</p>
+    <article class="card section-yesterday" data-section="yesterday">
+      <header class="card-head">
+        <h2>Yesterday's Status</h2>
+        <span class="card-sub" id="yesterday-label">end-of-day snapshot</span>
+      </header>
+      <div class="metric-list" data-section-content="yesterday"></div>
+    </article>
 
-          <ul>
-            <li><strong>Today's Status</strong> reads live <code>accounts_snapshot</code>,
-              <code>positions_snapshot</code>, and <code>exposure_snapshot</code> tables (refreshed
-              every slow cycle, ~60s).</li>
-            <li><strong>Yesterday's Status</strong> uses the prior UTC day's
-              <code>daily_reports</code> rows, plus deposits/withdrawals and bonuses cumulative
-              through yesterday end-of-day.</li>
-            <li><strong>Month-to-Date</strong> aggregates closed trades and floating P&amp;L
-              changes from the start of the current UTC month.</li>
-          </ul>
+    <article class="card section-monthly" data-section="monthly">
+      <header class="card-head">
+        <h2>Month-to-Date</h2>
+        <span class="card-sub" id="monthly-label">cumulative</span>
+      </header>
+      <div class="metric-list" data-section-content="monthly"></div>
+    </article>
 
-          <p class="panel-hint">↗ Click a metric for its specific formula.</p>
-        </div>
+  </section>
+
+  <!-- ─────────────── FORMULA PANEL (right) ─────────────── -->
+  <aside class="formula-panel" id="formula-panel">
+    <header class="panel-head">
+      <h2>Formula &amp; Source</h2>
+      <p class="panel-sub">Click any metric on the left to see how it's calculated.</p>
+    </header>
+    <div class="panel-body" id="panel-body">
+      <div class="panel-placeholder">
+        <p>Each metric in this dashboard is derived from the live PostgreSQL replica that the
+        MT5-CRO-Backend keeps in sync with the MT5 Manager API.</p>
+
+        <p>The three status sections share the same underlying formulas — only the time window
+        and data source change:</p>
+
+        <ul>
+          <li><strong>Today's Status</strong> reads live <code>accounts_snapshot</code>,
+            <code>positions_snapshot</code>, and <code>exposure_snapshot</code> tables (refreshed
+            every slow cycle, ~60s).</li>
+          <li><strong>Yesterday's Status</strong> uses the prior UTC day's
+            <code>daily_reports</code> rows, plus deposits/withdrawals and bonuses cumulative
+            through yesterday end-of-day.</li>
+          <li><strong>Month-to-Date</strong> aggregates closed trades and floating P&amp;L
+            changes from the start of the current UTC month.</li>
+        </ul>
+
+        <p class="panel-hint">↗ Click a metric for its specific formula.</p>
       </div>
-    </aside>
-  </main>
+    </div>
+  </aside>
+</div>
 
-  <footer class="footer">
-    <span>group=<code>CMV*</code></span>
-    <span>•</span>
-    <span>read-only view of MT5-CRO Postgres</span>
-    <span>•</span>
-    <span id="conn-status" class="conn-ok">connected</span>
-  </footer>
+<div class="footer">
+  <span>group=<code>CMV*</code></span>
+  <span>•</span>
+  <span>read-only view of MT5-CRO Postgres</span>
+  <span>•</span>
+  <span id="conn-status" class="conn-ok">connected</span>
+</div>
 
-  <script src="{{ url_for('static', filename='cro/app.js') }}"></script>
-</body>
-</html>
+<script src="{{ url_for('static', filename='cro/app.js') }}"></script>
+{% endblock %}
