@@ -17,6 +17,14 @@ jobs:
         with:
           fetch-depth: 2
 
+      # DB persistence guarantee:
+      # The cro_postgres / fees_postgres data lives in named Docker volumes
+      # (cro_pgdata, fees_pgdata) on the host at /var/lib/docker/volumes/,
+      # which rsync below does NOT touch — rsync only syncs files INTO
+      # /root/recon-app/. The "Restart or rebuild container" step also only
+      # operates on the recon service. So nothing in this workflow can wipe
+      # the Postgres volumes; only manual `docker volume rm` /
+      # `docker compose down -v` would. Do not change without thinking.
       - name: Rsync files to server
         env:
           SSHPASS: ${{ secrets.SERVER_PASS }}
@@ -86,14 +94,20 @@ jobs:
         env:
           SSHPASS: ${{ secrets.SERVER_PASS }}
         run: |
+          # `up -d` first ensures any newly-added or stopped service in the
+          # compose file (e.g. cro_postgres) is started without recreating
+          # already-running healthy services. Then we force-recreate ONLY
+          # the recon service so it picks up code/env changes from the
+          # rsync + secret-injection above. --no-deps keeps the postgres
+          # services untouched even if recon's depends_on widens later.
           if git diff HEAD~1 HEAD -- recon-app/requirements.txt | grep -q .; then
             echo "requirements.txt changed — full rebuild"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
               "cd /root/recon-app && docker compose up -d --build && docker compose ps"
           else
-            echo "Code-only change — force-recreate recon container"
+            echo "Code-only change — start any new services + force-recreate recon"
             sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 \
-              "cd /root/recon-app && docker compose up -d --force-recreate recon && sleep 3 && docker compose ps"
+              "cd /root/recon-app && docker compose up -d && docker compose up -d --force-recreate --no-deps recon && sleep 3 && docker compose ps"
           fi
 
       - name: Security check — verify all routes require authentication
