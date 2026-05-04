@@ -1227,7 +1227,20 @@ function renderExposureTable(rows) {
     return;
   }
   if (meta) meta.textContent = `${rows.length} symbols`;
-  tbody.innerHTML = rows.map(r => {
+
+  // Totals row first (gold)
+  const totClients  = rows.reduce((s, r) => s + r.volume_clients,  0);
+  const totCoverage = rows.reduce((s, r) => s + r.volume_coverage, 0);
+  const totNet      = rows.reduce((s, r) => s + r.volume_net,      0);
+  const totNetCls   = totNet > 0.005 ? "pos" : totNet < -0.005 ? "neg" : "";
+  const totalRow    = `<tr class="exp-total">
+    <td>TOTAL</td>
+    <td class="num-col">${formatMoney(totClients)}</td>
+    <td class="num-col">${formatMoney(totCoverage)}</td>
+    <td class="num-col ${totNetCls}">${formatMoney(totNet)}</td>
+  </tr>`;
+
+  tbody.innerHTML = totalRow + rows.map(r => {
     const net    = r.volume_net;
     const netCls = net > 0.005 ? "pos" : net < -0.005 ? "neg" : "";
     const cli    = r.volume_clients;

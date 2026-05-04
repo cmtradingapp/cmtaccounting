@@ -891,3 +891,10 @@ code {
   color: var(--text-mute);
   padding: 20px;
 }
+
+/* Totals row — gold, slightly heavier weight, subtle separator */
+.exposure-table tr.exp-total td {
+  color: #d4a853;
+  font-weight: 600;
+  border-bottom: 2px solid rgba(212, 168, 83, 0.25);
+}
