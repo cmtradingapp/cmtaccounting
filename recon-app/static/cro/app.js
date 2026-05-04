@@ -1215,6 +1215,32 @@ function setSubLabels(payload) {
   }
 }
 
+/* ─────────── Per-symbol exposure table ─────────── */
+
+function renderExposureTable(rows) {
+  const tbody = document.getElementById("exposure-tbody");
+  const meta  = document.getElementById("exposure-meta");
+  if (!tbody) return;
+  if (!rows || !rows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="exp-empty">No exposure data</td></tr>';
+    if (meta) meta.textContent = "";
+    return;
+  }
+  if (meta) meta.textContent = `${rows.length} symbols`;
+  tbody.innerHTML = rows.map(r => {
+    const net    = r.volume_net;
+    const netCls = net > 0.005 ? "pos" : net < -0.005 ? "neg" : "";
+    const cli    = r.volume_clients;
+    const cliCls = cli > 0.005 ? "pos" : cli < -0.005 ? "neg" : "";
+    return `<tr>
+      <td>${r.symbol}</td>
+      <td class="num-col ${cliCls}">${formatMoney(cli)}</td>
+      <td class="num-col">${formatMoney(r.volume_coverage)}</td>
+      <td class="num-col ${netCls}">${formatMoney(net)}</td>
+    </tr>`;
+  }).join("");
+}
+
 /* ─────────── Stale-while-revalidate cache (localStorage) ───────────
    We save every successful payload so the next page load can paint
    immediately from the last-known-good data while a fresh fetch runs
@@ -1269,6 +1295,7 @@ async function fetchMetrics({ manual = false } = {}) {
     renderSection("today",     data.today,     ranks);
     renderSection("yesterday", data.yesterday, ranks);
     renderSection("monthly",   data.monthly,   ranks);
+    renderExposureTable((data.today || {}).exposure_by_symbol || []);
     setSubLabels(data);
     lastSuccessfulPollAt = Date.now();
     tickFreshness();
@@ -1340,6 +1367,19 @@ function init() {
     refreshBtn.addEventListener("click", () => fetchMetrics({ manual: true }));
   }
 
+  // Wire up the exposure-by-symbol collapsible toggle.
+  const expToggle = document.getElementById("exposure-toggle");
+  if (expToggle) {
+    expToggle.addEventListener("click", () => {
+      const sec  = document.getElementById("exposure-section");
+      const body = document.getElementById("exposure-body");
+      sec.classList.toggle("collapsed");
+      const expanded = !sec.classList.contains("collapsed");
+      expToggle.setAttribute("aria-expanded", String(expanded));
+      body.hidden = !expanded;
+    });
+  }
+
   // Stale-while-revalidate: paint the last-known-good payload from
   // localStorage instantly so the page is never blank on load. The
   // freshness pill picks up the cache's savedAt and shows "Xs ago"
@@ -1351,6 +1391,7 @@ function init() {
     renderSection("today",     cached.payload.today,     ranks);
     renderSection("yesterday", cached.payload.yesterday, ranks);
     renderSection("monthly",   cached.payload.monthly,   ranks);
+    renderExposureTable((cached.payload.today || {}).exposure_by_symbol || []);
     setSubLabels(cached.payload);
     lastSuccessfulPollAt = cached.savedAt;
     tickFreshness();

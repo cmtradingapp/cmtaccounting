@@ -50,6 +50,8 @@ DROP TABLE IF EXISTS deposits_withdrawals CASCADE;
 DROP TABLE IF EXISTS closed_positions CASCADE;
 DROP TABLE IF EXISTS positions_snapshot CASCADE;
 DROP TABLE IF EXISTS external_rates CASCADE;
+DROP TABLE IF EXISTS exposure_snapshot CASCADE;
+DROP TABLE IF EXISTS deals CASCADE;
 
 CREATE TABLE accounts_snapshot (
     login        BIGINT PRIMARY KEY,
@@ -99,6 +101,13 @@ CREATE TABLE external_rates (
     usd_base BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+CREATE TABLE exposure_snapshot (
+    symbol          TEXT PRIMARY KEY,
+    volume_clients  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    volume_coverage DOUBLE PRECISION NOT NULL DEFAULT 0,
+    volume_net      DOUBLE PRECISION NOT NULL DEFAULT 0
+);
+
 -- `deals` mirrors the relevant subset of MT5-CRO-Backend's `Deal` model.
 -- Non-partitioned variant for tests; partitioning is irrelevant for SUM queries.
 CREATE TABLE deals (
@@ -135,7 +144,8 @@ def conn():
     with c.cursor() as cur:
         cur.execute(
             "DROP TABLE IF EXISTS accounts_snapshot, deposits_withdrawals, "
-            "closed_positions, positions_snapshot, external_rates, deals CASCADE"
+            "closed_positions, positions_snapshot, external_rates, deals, "
+            "exposure_snapshot CASCADE"
         )
     c.commit()
     c.close()
@@ -412,6 +422,8 @@ class TestCollectAllMetricsShape:
         # collect_all_metrics also needs daily_reports / internal_rates
         # / exposure_snapshot to exist (other queries hit them) — create
         # the missing tables for this integration test only.
+        # exposure_snapshot is now in _SCHEMA so it already exists.
+        # daily_reports / internal_rates are not in _SCHEMA — create them here.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS daily_reports (
                 login BIGINT, datetime BIGINT, currency TEXT DEFAULT 'USD',
@@ -424,8 +436,6 @@ class TestCollectAllMetricsShape:
             CREATE TABLE IF NOT EXISTS internal_rates (
                 currency TEXT PRIMARY KEY, bid DOUBLE PRECISION DEFAULT 0,
                 ask DOUBLE PRECISION DEFAULT 0, usd_base BOOLEAN DEFAULT FALSE);
-            CREATE TABLE IF NOT EXISTS exposure_snapshot (
-                volume_net DOUBLE PRECISION DEFAULT 0);
         """)
         data = cro_metrics.collect_all_metrics(cur)
         for section in ("today", "yesterday", "monthly"):
@@ -436,6 +446,60 @@ class TestCollectAllMetricsShape:
                 assert k in data[section], f"{section}.{k} missing"
                 # Empty DB → all counts/sums are 0
                 assert data[section][k] == 0 or data[section][k] == 0.0
+        # exposure_by_symbol only on today (not yesterday/monthly)
+        assert "exposure_by_symbol" in data["today"]
+        assert isinstance(data["today"]["exposure_by_symbol"], list)
+        assert "exposure_by_symbol" not in data["yesterday"]
+        assert "exposure_by_symbol" not in data["monthly"]
+
+
+# ── Exposure by symbol tests ────────────────────────────────────────────
+
+class TestExposureBySymbol:
+
+    def _seed(self, cur, symbol, clients, coverage, net):
+        cur.execute(
+            "INSERT INTO exposure_snapshot (symbol, volume_clients, volume_coverage, volume_net)"
+            " VALUES (%s,%s,%s,%s) ON CONFLICT (symbol) DO UPDATE"
+            " SET volume_clients=EXCLUDED.volume_clients,"
+            "     volume_coverage=EXCLUDED.volume_coverage,"
+            "     volume_net=EXCLUDED.volume_net",
+            (symbol, clients, coverage, net),
+        )
+
+    def test_sorted_by_abs_net_desc(self, cur):
+        self._seed(cur, "EURUSD",  100, -50,    50)
+        self._seed(cur, "XAUUSD", -500, 200,  -300)
+        self._seed(cur, "USDJPY",  200, -80,   120)
+        rows = cro_metrics.exposure_by_symbol(cur)
+        assert [r["symbol"] for r in rows] == ["XAUUSD", "USDJPY", "EURUSD"]
+
+    def test_empty_returns_empty_list(self, cur):
+        assert cro_metrics.exposure_by_symbol(cur) == []
+
+    def test_fields_correct_types(self, cur):
+        self._seed(cur, "BTCUSD", 1000.0, -500.0, 500.0)
+        rows = cro_metrics.exposure_by_symbol(cur)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["symbol"] == "BTCUSD"
+        assert isinstance(r["volume_clients"],  float)
+        assert isinstance(r["volume_coverage"], float)
+        assert isinstance(r["volume_net"],      float)
+        assert r["volume_net"] == 500.0
+
+    def test_negative_net_preserved(self, cur):
+        self._seed(cur, "USDJPY", 300.0, -100.0, -200.0)
+        rows = cro_metrics.exposure_by_symbol(cur)
+        assert rows[0]["volume_net"] == -200.0
+
+    def test_secondary_sort_by_symbol(self, cur):
+        # Two rows with same |net|, should sort alphabetically.
+        self._seed(cur, "ZZZSYM", 100, -50,  50)
+        self._seed(cur, "AAASYM", 100, -50,  50)
+        rows = cro_metrics.exposure_by_symbol(cur)
+        assert rows[0]["symbol"] == "AAASYM"
+        assert rows[1]["symbol"] == "ZZZSYM"
 
 
 # ── Volume USD tests ────────────────────────────────────────────────────

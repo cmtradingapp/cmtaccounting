@@ -806,3 +806,88 @@ code {
   border: 2px solid var(--bg-page);
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* ─────────── Exposure-by-symbol collapsible table ─────────── */
+
+.exposure-section {
+  margin: 0 0 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.exposure-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 20px;
+  background: var(--bg-card);
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  transition: background 0.15s;
+}
+.exposure-header:hover { background: var(--bg-card-2); }
+
+.exposure-title { flex: 1; }
+
+.exposure-meta {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-mute);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.exposure-chevron {
+  font-size: 12px;
+  color: var(--text-mute);
+  transition: transform 0.2s;
+}
+/* Rotate chevron when the section is open (i.e. not collapsed) */
+.exposure-section:not(.collapsed) .exposure-chevron { transform: rotate(180deg); }
+
+.exposure-body {
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+}
+
+.exposure-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.exposure-table thead th {
+  background: var(--bg-card-2);
+  padding: 8px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+.exposure-table thead th.num-col { text-align: right; }
+.exposure-table tbody tr {
+  border-top: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.exposure-table tbody tr:hover { background: rgba(255,255,255,.03); }
+.exposure-table tbody td {
+  padding: 8px 16px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.exposure-table tbody td.num-col { text-align: right; }
+.exposure-table td.exp-empty {
+  text-align: center;
+  color: var(--text-mute);
+  padding: 20px;
+}

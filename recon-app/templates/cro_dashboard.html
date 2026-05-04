@@ -96,6 +96,31 @@
   </aside>
 </div>
 
+<!-- ─────────── Exposure by Symbol (collapsible) ─────────── -->
+<div class="exposure-section collapsed" id="exposure-section">
+  <button class="exposure-header" id="exposure-toggle"
+          aria-expanded="false" aria-controls="exposure-body">
+    <span class="exposure-title">Exposure by Symbol</span>
+    <span class="exposure-meta" id="exposure-meta"></span>
+    <span class="exposure-chevron" aria-hidden="true">▾</span>
+  </button>
+  <div class="exposure-body" id="exposure-body" hidden>
+    <table class="exposure-table">
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th class="num-col">Clients (USD)</th>
+          <th class="num-col">Coverage (USD)</th>
+          <th class="num-col">Net (USD)</th>
+        </tr>
+      </thead>
+      <tbody id="exposure-tbody">
+        <tr><td colspan="4" class="exp-empty">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="footer">
   <span>group=<code>CMV*</code></span>
   <span>•</span>

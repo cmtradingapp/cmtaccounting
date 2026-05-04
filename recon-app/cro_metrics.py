@@ -164,6 +164,37 @@ def exposure(cur) -> dict:
     }
 
 
+def exposure_by_symbol(cur) -> list:
+    """Per-symbol rows from exposure_snapshot, sorted by ABS(volume_net) DESC.
+
+    SDK fields available per IMTExposure (MT5APIExposure.h):
+      Symbol()        → symbol      (displayed)
+      Digits()        → digits      (internal, not shown)
+      VolumeClients() → volume_clients   USD — client-side net position
+      VolumeCoverage()→ volume_coverage  USD — broker hedge/coverage
+      PriceRate()     → price_rate  (internal conversion factor, not shown)
+      VolumeNet()     → volume_net  USD — net broker risk = clients + coverage
+
+    Live snapshot only — exposure_snapshot is truncate-replaced every slow
+    cycle and has no history, so this only belongs under 'today'.
+    """
+    sql = """
+        SELECT symbol, volume_clients, volume_coverage, volume_net
+        FROM exposure_snapshot
+        ORDER BY ABS(volume_net) DESC, symbol
+    """
+    cur.execute(sql)
+    return [
+        {
+            "symbol":          r["symbol"],
+            "volume_clients":  float(r["volume_clients"]  or 0.0),
+            "volume_coverage": float(r["volume_coverage"] or 0.0),
+            "volume_net":      float(r["volume_net"]      or 0.0),
+        }
+        for r in (cur.fetchall() or [])
+    ]
+
+
 # ─────────────────────────── EOD-snapshot helpers (daily_reports)
 
 def _sum_daily_field_usd_eod(cur, field: str, eod_from_ts: int, eod_to_ts: int) -> float:
@@ -541,6 +572,7 @@ def collect_all_metrics(cur) -> dict:
     floating_today     = total_floating_usd(cur)
     wd_t               = wd_equity(cur)
     exp_t              = exposure(cur)
+    exp_rows           = exposure_by_symbol(cur)
 
     # ── yesterday EOD
     balance_yest_eod   = total_balance_usd_eod(cur, yesterday_start_ts, today_start_ts)
@@ -649,6 +681,7 @@ def collect_all_metrics(cur) -> dict:
             "exposure_assets": exp_t["asset_count"],
             "exposure_long_assets": exp_t["long_assets"],
             "exposure_short_assets": exp_t["short_assets"],
+            "exposure_by_symbol": exp_rows,
             "settled_pnl_usd": settled_today,
             "delta_floating_usd": delta_today,
             "daily_pnl_usd": daily_pnl_today,
