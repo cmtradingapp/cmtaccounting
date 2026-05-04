@@ -1215,6 +1215,38 @@ function setSubLabels(payload) {
   }
 }
 
+/* ─────────── Stale-while-revalidate cache (localStorage) ───────────
+   We save every successful payload so the next page load can paint
+   immediately from the last-known-good data while a fresh fetch runs
+   in the background. The freshness pill picks up the cache's savedAt
+   timestamp and naturally reads "stale" until the in-flight request
+   lands and replaces it. */
+
+const CACHE_KEY = "cro-metrics-cache:v1";
+
+function loadCachedPayload() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || !obj.payload) return null;
+    return obj;       // { savedAt, payload }
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveCachedPayload(payload) {
+  try {
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ savedAt: Date.now(), payload }),
+    );
+  } catch (e) {
+    /* quota exceeded / storage disabled — not fatal */
+  }
+}
+
 /* ─────────── Polling ─────────── */
 
 async function fetchMetrics({ manual = false } = {}) {
@@ -1231,6 +1263,7 @@ async function fetchMetrics({ manual = false } = {}) {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     lastPayload = data;
+    saveCachedPayload(data);
 
     const ranks = computeRanks(data);
     renderSection("today",     data.today,     ranks);
@@ -1305,6 +1338,22 @@ function init() {
   const refreshBtn = document.getElementById("manual-refresh");
   if (refreshBtn) {
     refreshBtn.addEventListener("click", () => fetchMetrics({ manual: true }));
+  }
+
+  // Stale-while-revalidate: paint the last-known-good payload from
+  // localStorage instantly so the page is never blank on load. The
+  // freshness pill picks up the cache's savedAt and shows "Xs ago"
+  // until the in-flight fetch below replaces the data.
+  const cached = loadCachedPayload();
+  if (cached && cached.payload) {
+    lastPayload = cached.payload;
+    const ranks = computeRanks(cached.payload);
+    renderSection("today",     cached.payload.today,     ranks);
+    renderSection("yesterday", cached.payload.yesterday, ranks);
+    renderSection("monthly",   cached.payload.monthly,   ranks);
+    setSubLabels(cached.payload);
+    lastSuccessfulPollAt = cached.savedAt;
+    tickFreshness();
   }
 
   fetchMetrics();
