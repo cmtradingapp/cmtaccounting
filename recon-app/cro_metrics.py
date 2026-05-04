@@ -164,17 +164,6 @@ def exposure(cur) -> dict:
     }
 
 
-# Approximate USD-per-unit fallback rates for currencies not yet in internal_rates.
-# Used when the backend hasn't polled the pair yet (bid/ask = 0 / row missing).
-# Once the backend provides live rates they take precedence; these are just
-# a safety net so the notional is at least in the right order of magnitude.
-# Values = (approx USD per 1 unit of that currency)
-_RATE_FALLBACKS = {
-    "HUF": 1.0 / 382.0,    # USDHUF ≈ 382 — added to backend config a988488
-    "HKD": 1.0 / 7.83,     # USDHKD ≈ 7.83
-    "NOK": 1.0 / 10.7,     # USDNOK ≈ 10.7
-}
-
 
 def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) -> list:
     """Per-symbol Volume Distribution: Buy/Sell/Net lots, ABS/signed Notional,
@@ -255,10 +244,8 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
         quote_ccy = p.get("quote_ccy") or "USD"
         if bid > 0 and ask > 0:
             fx = (2.0 / (bid + ask)) if usd_base else ((bid + ask) / 2.0)
-        elif quote_ccy in _RATE_FALLBACKS:
-            fx = _RATE_FALLBACKS[quote_ccy]   # approximate until backend provides live rate
         else:
-            fx = 1.0       # truly unknown — best effort
+            fx = 1.0       # rate not yet in internal_rates
         buy_lots  = float(p.get("buy_lots")  or 0)
         sell_lots = float(p.get("sell_lots") or 0)
         result.append({
