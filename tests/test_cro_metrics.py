@@ -544,16 +544,26 @@ class TestVolumeDistribution:
         assert r["monthly_pnl_usd"] == pytest.approx(100.0)
         assert r["daily_pnl_usd"]   == pytest.approx(0.0)
 
-    def test_floating_pnl_and_swaps_fx_converted(self, cur):
-        """floating_pnl and swaps_usd must be converted using the same fx factor
-        as the notional — they are in the symbol's native profit currency."""
+    def test_floating_pnl_and_swaps_use_account_currency(self, cur):
+        """floating_pnl and swaps_usd must be converted using the ACCOUNT's currency,
+        same as _sum_account_field_usd on the main cards, so the total matches MetaTrader.
+        A JPY account's positions' P&L is divided by the JPY mid-rate."""
+        # Seed JPY rate in internal_rates
         cur.execute(
             "INSERT INTO internal_rates (currency, bid, ask, usd_base)"
             " VALUES ('JPY', 156.0, 158.0, TRUE) ON CONFLICT (currency)"
             " DO UPDATE SET bid=EXCLUDED.bid, ask=EXCLUDED.ask, usd_base=EXCLUDED.usd_base",
         )
-        # USDJPY: profit = 157,000 JPY, storage = -31,400 JPY
-        # fx = 2/(156+158) = 1/157; 157000/157 ≈ 1000 USD; -31400/157 ≈ -200 USD
+        # Seed a JPY account for login 100 (balance non-zero so it passes active filter)
+        cur.execute(
+            "INSERT INTO accounts_snapshot (login, group_name, registration, balance, equity,"
+            "  credit, floating, currency) VALUES (100, 'CMV', 0, 1000.0, 1000.0, 0.0, 0.0, 'JPY')"
+            " ON CONFLICT (login) DO UPDATE SET currency=EXCLUDED.currency, balance=EXCLUDED.balance,"
+            "  equity=EXCLUDED.equity",
+        )
+        # USDJPY position: profit=157,000 JPY, storage=-31,400 JPY
+        # Account is JPY → account_ccy rate = 2/(156+158) = 1/157
+        # Expected: 157,000 / 157 ≈ 1,000 USD; -31,400 / 157 ≈ -200 USD
         self._pos(cur, 1, 100, "USDJPY",
                   volume_ext=100_000_000, contract_size=100_000.0, price=157.0,
                   profit=157_000.0, storage=-31_400.0)

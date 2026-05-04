@@ -195,9 +195,32 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
                 SUM(ps.volume_ext / 100000000.0 * ps.contract_size * ps.price_current) AS gross_native,
                 SUM((CASE WHEN ps.action = 1 THEN 1.0 ELSE -1.0 END)
                     * ps.volume_ext / 100000000.0 * ps.contract_size * ps.price_current) AS net_native,
-                SUM(ps.profit)  AS floating_pnl,
-                SUM(ps.storage) AS swaps_usd
+                -- Floating P&L and Swaps: convert using ACCOUNT currency (same as
+                -- _sum_account_field_usd on the main cards) so the total matches MetaTrader.
+                -- Non-USD accounts (KES/ZAR/NGN) have their floating stored by MT5 at the
+                -- broker's internal cross-rate; we must apply the same rate here.
+                SUM(
+                    ps.profit *
+                    CASE WHEN COALESCE(a.currency, 'USD') = 'USD' THEN 1.0
+                         WHEN ir_a.bid > 0 AND ir_a.ask > 0 THEN
+                           CASE WHEN ir_a.usd_base THEN 2.0/(ir_a.bid + ir_a.ask)
+                                ELSE (ir_a.bid + ir_a.ask) / 2.0 END
+                         ELSE 1.0 END
+                ) AS floating_pnl,
+                SUM(
+                    ps.storage *
+                    CASE WHEN COALESCE(a.currency, 'USD') = 'USD' THEN 1.0
+                         WHEN ir_a.bid > 0 AND ir_a.ask > 0 THEN
+                           CASE WHEN ir_a.usd_base THEN 2.0/(ir_a.bid + ir_a.ask)
+                                ELSE (ir_a.bid + ir_a.ask) / 2.0 END
+                         ELSE 1.0 END
+                ) AS swaps_usd
             FROM positions_snapshot ps
+            LEFT JOIN accounts_snapshot a
+                ON  a.login = ps.login
+                AND NOT (a.balance = 0 AND a.equity = 0)
+                AND a.group_name NOT ILIKE '%%test%%'
+            LEFT JOIN internal_rates ir_a ON ir_a.currency = COALESCE(a.currency, 'USD')
             WHERE ps.symbol NOT ILIKE 'Zeroing%%'
               AND ps.symbol NOT ILIKE '%%inactivity%%'
             GROUP BY ps.symbol
@@ -255,11 +278,11 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
             "net_lots":           sell_lots - buy_lots,   # broker perspective
             "abs_notional_usd":   abs(net_nat) * fx,   # ABS of net (long−short), matches Dealio
             "notional_usd":       net_nat * fx,           # signed, broker perspective
-            # Apply the same fx factor to floating P&L and swaps — they are in
-            # the symbol's NATIVE currency (JPY, HUF, etc.), same as the notional.
-            "floating_pnl_usd":   float(p.get("floating_pnl") or 0) * fx,
-            "swaps_usd":          float(p.get("swaps_usd")    or 0) * fx,
-            "total_floating_usd": (float(p.get("floating_pnl") or 0) + float(p.get("swaps_usd") or 0)) * fx,
+            # floating_pnl and swaps_usd are already USD-converted in the SQL
+            # (account-currency FX applied per position, matching MetaTrader's method)
+            "floating_pnl_usd":   float(p.get("floating_pnl") or 0),
+            "swaps_usd":          float(p.get("swaps_usd")    or 0),
+            "total_floating_usd": float(p.get("floating_pnl") or 0) + float(p.get("swaps_usd") or 0),
             "daily_pnl_usd":      float(c.get("daily_pnl")        or 0),
             "monthly_pnl_usd":    float(c.get("monthly_pnl")      or 0),
             "commission_usd":     float(c.get("commission_today")  or 0),
