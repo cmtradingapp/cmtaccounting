@@ -255,9 +255,11 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
             "net_lots":           sell_lots - buy_lots,   # broker perspective
             "abs_notional_usd":   abs(net_nat) * fx,   # ABS of net (long−short), matches Dealio
             "notional_usd":       net_nat * fx,           # signed, broker perspective
-            "floating_pnl_usd":   float(p.get("floating_pnl") or 0),
-            "swaps_usd":          float(p.get("swaps_usd")    or 0),
-            "total_floating_usd": float(p.get("floating_pnl") or 0) + float(p.get("swaps_usd") or 0),
+            # Apply the same fx factor to floating P&L and swaps — they are in
+            # the symbol's NATIVE currency (JPY, HUF, etc.), same as the notional.
+            "floating_pnl_usd":   float(p.get("floating_pnl") or 0) * fx,
+            "swaps_usd":          float(p.get("swaps_usd")    or 0) * fx,
+            "total_floating_usd": (float(p.get("floating_pnl") or 0) + float(p.get("swaps_usd") or 0)) * fx,
             "daily_pnl_usd":      float(c.get("daily_pnl")        or 0),
             "monthly_pnl_usd":    float(c.get("monthly_pnl")      or 0),
             "commission_usd":     float(c.get("commission_today")  or 0),
