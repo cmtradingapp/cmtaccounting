@@ -868,8 +868,8 @@ code {
   overflow-x: auto;
 }
 .vol-chart-wrap {
-  flex: 0 0 380px;
-  padding: 20px 24px;
+  flex: 0 0 320px;
+  padding: 16px 16px;
   border-left: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -879,13 +879,13 @@ code {
 .vol-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;          /* compact — fits all 11 cols without scroll */
+  font-size: 11px;
   table-layout: fixed;
 }
 .vol-table thead th {
   background: var(--bg-card-2);
-  padding: 6px 8px;
-  text-align: left;
+  padding: 5px 5px;
+  text-align: right;         /* all headers right-aligned */
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -897,19 +897,20 @@ code {
   position: sticky;
   top: 0;
 }
-.vol-table thead th.num-col { text-align: right; }
-/* Explicit column widths so table-layout:fixed can distribute space */
-.vol-table th:nth-child(1)  { width: 88px; }  /* Symbol */
-.vol-table th:nth-child(2)  { width: 9%; }    /* Daily PnL */
-.vol-table th:nth-child(3)  { width: 11%; }   /* ABS Notional */
-.vol-table th:nth-child(4)  { width: 9%; }    /* Monthly PnL */
-.vol-table th:nth-child(5)  { width: 6%; }    /* Buy Vol */
-.vol-table th:nth-child(6)  { width: 6%; }    /* Sell Vol */
-.vol-table th:nth-child(7)  { width: 6%; }    /* Net Vol */
-.vol-table th:nth-child(8)  { width: 11%; }   /* Notional */
-.vol-table th:nth-child(9)  { width: 9%; }    /* Swaps */
-.vol-table th:nth-child(10) { width: 6%; }    /* Comm */
-.vol-table th:nth-child(11) { width: 9%; }    /* Float PnL */
+.vol-table thead th:first-child { text-align: left; }
+
+/* Column widths: symbol narrow, large-number cols wider */
+.vol-table th:nth-child(1)  { width: 68px; }  /* Symbol */
+.vol-table th:nth-child(2)  { width: 8%; }    /* Daily PnL */
+.vol-table th:nth-child(3)  { width: 12%; }   /* ABS Notional — up to $46M */
+.vol-table th:nth-child(4)  { width: 8%; }    /* Monthly PnL */
+.vol-table th:nth-child(5)  { width: 5%; }    /* Buy Vol */
+.vol-table th:nth-child(6)  { width: 5%; }    /* Sell Vol */
+.vol-table th:nth-child(7)  { width: 5%; }    /* Net Vol */
+.vol-table th:nth-child(8)  { width: 12%; }   /* Notional — up to -$33M */
+.vol-table th:nth-child(9)  { width: 10%; }   /* Swaps */
+.vol-table th:nth-child(10) { width: 5%; }    /* Comm */
+.vol-table th:nth-child(11) { width: 11%; }   /* Float PnL — up to -$53M */
 
 .vol-table tbody tr {
   border-top: 1px solid var(--border);
@@ -917,13 +918,19 @@ code {
 }
 .vol-table tbody tr:hover { filter: brightness(1.15); }
 .vol-table tbody td {
-  padding: 5px 8px;
+  padding: 5px 5px;
   color: var(--text);
   white-space: nowrap;
+  text-align: right;         /* all cells right-aligned */
+  overflow: visible;         /* don't clip numbers */
+}
+/* Symbol column: left-aligned, ellipsis if too long */
+.vol-table tbody td:first-child {
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.vol-table tbody td.num-col { text-align: right; }
+.vol-table tbody td.num-col { text-align: right; } /* kept for compatibility */
 .vol-table td.vol-empty {
   text-align: center;
   color: var(--text-mute);
