@@ -813,7 +813,7 @@ code {
   margin: 0 0 24px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .vol-header {
@@ -875,7 +875,7 @@ code {
   align-items: center;
   justify-content: center;
   position: sticky;
-  top: 8px;              /* sticks 8px from viewport top as table rows scroll */
+  top: 78px;             /* below topbar — matches .formula-panel offset */
   align-self: flex-start; /* don't stretch to the table's full height */
 }
 
