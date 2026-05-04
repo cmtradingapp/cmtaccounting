@@ -247,11 +247,12 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
     for sym in all_symbols:
         p = pos_rows.get(sym, {})
         c = closed_map.get(sym, {})
-        bid      = float(p.get("bid")      or 0)
-        ask      = float(p.get("ask")      or 0)
-        usd_base = bool(p.get("usd_base"))
-        gross    = float(p.get("gross_native") or 0)
-        net_nat  = float(p.get("net_native")   or 0)
+        bid       = float(p.get("bid")       or 0)
+        ask       = float(p.get("ask")       or 0)
+        usd_base  = bool(p.get("usd_base"))
+        gross     = float(p.get("gross_native") or 0)
+        net_nat   = float(p.get("net_native")   or 0)
+        quote_ccy = p.get("quote_ccy") or "USD"
         if bid > 0 and ask > 0:
             fx = (2.0 / (bid + ask)) if usd_base else ((bid + ask) / 2.0)
         elif quote_ccy in _RATE_FALLBACKS:
