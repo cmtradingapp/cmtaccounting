@@ -2359,6 +2359,45 @@ def bank_purge(statement_id):
 # ── CRO All in One Dashboard ─────────────────────────────────────────────────
 # Reads directly from the MT5-CRO Postgres written by MT5-CRO-Backend.
 # Auth via @require_cro_auth (HTTP Basic, CRO_USER / CRO_PASS env vars).
+#
+# Server-side stale-while-revalidate cache for /cro/metrics:
+#   - All users share one in-process result cache so 100 concurrent
+#     pollers result in ~1 DB query per CRO_METRICS_TTL_S, not 100.
+#   - If the cached result is fresh (<TTL), return it instantly.
+#   - If it's stale (TTL .. STALE_TTL), return stale + kick off a
+#     background refresh (single-flight via _CRO_METRICS_REFRESHING flag).
+#   - If it's missing or too stale, block while we fetch.
+# Combined with the localStorage cache in cro/app.js this means: the
+# very first user of a fresh process pays the full DB-query latency
+# once; everyone else gets cached responses until the next refresh.
+
+_CRO_METRICS_TTL_S        = 5     # serve from cache without refresh below this age
+_CRO_METRICS_STALE_TTL_S  = 60    # serve stale + bg refresh up to this age; beyond → block
+_CRO_METRICS_CACHE        = {"data": None, "fetched_at": 0.0}
+_CRO_METRICS_LOCK         = _threading.Lock()
+_CRO_METRICS_REFRESHING   = _threading.Event()  # set ⇒ a background refresh is in flight
+
+
+def _refresh_cro_metrics_cache():
+    """Run collect_all_metrics and update the shared cache. Single-flight:
+    if a refresh is already in progress this no-ops. Failures leave the
+    existing cache untouched so users keep seeing the last-good values."""
+    if _CRO_METRICS_REFRESHING.is_set():
+        return
+    _CRO_METRICS_REFRESHING.set()
+    try:
+        with db.cro() as cur:
+            data = cro_metrics.collect_all_metrics(cur)
+        with _CRO_METRICS_LOCK:
+            _CRO_METRICS_CACHE["data"] = data
+            _CRO_METRICS_CACHE["fetched_at"] = time.time()
+    except Exception as exc:
+        # Don't poison the cache on transient DB errors — the next request
+        # will trigger another refresh attempt.
+        print(f"[cro/metrics] background refresh failed: {exc}", flush=True)
+    finally:
+        _CRO_METRICS_REFRESHING.clear()
+
 
 @app.route("/cro")
 @require_cro_auth
@@ -2372,14 +2411,47 @@ def cro_page():
 @app.route("/cro/metrics")
 @require_cro_auth
 def cro_metrics_route():
-    """Return the dashboard metrics bundle as JSON. Polled by the static UI."""
-    try:
-        with db.cro() as cur:
-            data = cro_metrics.collect_all_metrics(cur)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 502
-    resp = jsonify(data)
+    """Return the dashboard metrics bundle as JSON, with shared in-process
+    stale-while-revalidate caching to prevent thundering-herd queries."""
+    with _CRO_METRICS_LOCK:
+        cached_data = _CRO_METRICS_CACHE["data"]
+        cached_age  = time.time() - _CRO_METRICS_CACHE["fetched_at"]
+
+    # Path 1 — fresh cache: serve immediately.
+    if cached_data is not None and cached_age < _CRO_METRICS_TTL_S:
+        resp = jsonify(cached_data)
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        resp.headers["X-Cache"] = f"HIT, age={int(cached_age * 1000)}ms"
+        return resp
+
+    # Path 2 — stale-but-acceptable cache: serve stale + kick off bg refresh.
+    if cached_data is not None and cached_age < _CRO_METRICS_STALE_TTL_S:
+        if not _CRO_METRICS_REFRESHING.is_set():
+            _threading.Thread(target=_refresh_cro_metrics_cache, daemon=True).start()
+        resp = jsonify(cached_data)
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        resp.headers["X-Cache"] = f"STALE, age={int(cached_age * 1000)}ms, refreshing"
+        return resp
+
+    # Path 3 — no cache or too stale: block while we fetch. Single-flight
+    # so 100 concurrent first-visitors share one DB query.
+    if not _CRO_METRICS_REFRESHING.is_set():
+        _refresh_cro_metrics_cache()
+    else:
+        # Another thread is already fetching — wait briefly for it to land.
+        for _ in range(60):                       # up to ~6s at 100ms each
+            time.sleep(0.1)
+            if not _CRO_METRICS_REFRESHING.is_set():
+                break
+
+    with _CRO_METRICS_LOCK:
+        cached_data = _CRO_METRICS_CACHE["data"]
+
+    if cached_data is None:
+        return jsonify({"error": "cro_postgres unreachable"}), 502
+    resp = jsonify(cached_data)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["X-Cache"] = "MISS"
     return resp
 
 
