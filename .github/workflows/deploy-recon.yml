@@ -5,12 +5,52 @@ on:
     branches: [main]
     paths:
       - 'recon-app/**'
+      - 'tests/test_cro_metrics.py'
       - '.github/workflows/deploy-recon.yml'
   workflow_dispatch:
 
 jobs:
+  # Gate the deploy on cro_metrics tests passing. If anything fails here,
+  # the rsync/restart steps below are skipped — broken code never reaches
+  # the prod recon-app container.
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cro_db_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: |
+          pip install --quiet -r recon-app/requirements.txt
+          pip install --quiet pytest psycopg2-binary
+      - name: Run cro_metrics tests
+        env:
+          # The test fixture in tests/test_cro_metrics.py reads this env var
+          # to find Postgres. --noconftest bypasses the pandas-heavy MRS
+          # conftest at tests/conftest.py which is unrelated to cro_metrics.
+          CRO_METRICS_TEST_DB_URL: >-
+            host=localhost port=5432 dbname=cro_db_test
+            user=postgres password=postgres
+        run: pytest tests/test_cro_metrics.py -v --noconftest
+
   deploy:
     runs-on: ubuntu-latest
+    needs: test                       # ← gate on the test job above
     steps:
       - name: Checkout
         uses: actions/checkout@v4
