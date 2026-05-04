@@ -874,6 +874,9 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: sticky;
+  top: 8px;              /* sticks 8px from viewport top as table rows scroll */
+  align-self: flex-start; /* don't stretch to the table's full height */
 }
 
 .vol-table {
