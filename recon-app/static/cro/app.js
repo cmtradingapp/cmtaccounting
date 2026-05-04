@@ -1268,30 +1268,61 @@ function renderVolumeDistribution(rows) {
   renderVolumePie(rows, T.abs_notional_usd);
 }
 
+const _VOL_PALETTE = ["#4f8ef7","#10c891","#f59e0b","#e94560","#a78bfa",
+                      "#fb923c","#34d399","#60a5fa","#f472b6","#94a3b8"];
+
+function _volPiePlugin(totalFmtRef) {
+  return {
+    id: "vol-centre",
+    afterDraw(chart) {
+      const { ctx, chartArea: { left, top, right, bottom } } = chart;
+      const cx = (left + right) / 2, cy = (top + bottom) / 2;
+      ctx.save();
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "#d4a853"; ctx.font = "bold 15px -apple-system,sans-serif";
+      ctx.fillText(totalFmtRef.v, cx, cy - 9);
+      ctx.fillStyle = "#5a607a"; ctx.font = "10px -apple-system,sans-serif";
+      ctx.fillText("Total", cx, cy + 10);
+      ctx.restore();
+    },
+  };
+}
+
+// Mutable ref so the centre-text plugin can read the latest total without
+// re-registering on every data update.
+const _volTotalFmt = { v: "" };
+
 function renderVolumePie(rows, totalAbs) {
   const canvas = document.getElementById("vol-pie");
   if (!canvas || typeof Chart === "undefined") return;
-  if (_volChart) { _volChart.destroy(); _volChart = null; }
 
   const TOP    = 9;
   const sorted = [...rows].sort((a, b) => b.abs_notional_usd - a.abs_notional_usd);
   const top    = sorted.slice(0, TOP);
   const other  = sorted.slice(TOP).reduce((s, r) => s + (r.abs_notional_usd || 0), 0);
+  const labels = [...top.map(r => r.symbol), ...(other > 0 ? ["Other"] : [])];
+  const data   = [...top.map(r => r.abs_notional_usd), ...(other > 0 ? [other] : [])];
+  const colors = [..._VOL_PALETTE.slice(0, TOP), "#5a607a"];
 
-  const PALETTE = ["#4f8ef7","#10c891","#f59e0b","#e94560","#a78bfa",
-                   "#fb923c","#34d399","#60a5fa","#f472b6","#94a3b8"];
-  const labels  = [...top.map(r => r.symbol), ...(other > 0 ? ["Other"] : [])];
-  const data    = [...top.map(r => r.abs_notional_usd), ...(other > 0 ? [other] : [])];
-  const colors  = [...PALETTE.slice(0, TOP), "#5a607a"];
-  const totalFmt = formatMoney(totalAbs);
+  _volTotalFmt.v = formatMoney(totalAbs);
 
+  if (_volChart) {
+    // Data-only update — no animation, no flicker.
+    _volChart.data.labels                     = labels;
+    _volChart.data.datasets[0].data           = data;
+    _volChart.data.datasets[0].backgroundColor = colors;
+    _volChart.update("none");  // "none" mode = skip animation entirely
+    return;
+  }
+
+  // First render — create chart once with no animation.
   _volChart = new Chart(canvas.getContext("2d"), {
     type: "doughnut",
     data: { labels, datasets: [{ data, backgroundColor: colors,
                                   borderWidth: 1, borderColor: "rgba(0,0,0,.25)" }] },
     options: {
+      animation: false,    // no animation on initial draw or updates
       cutout: "65%",
-      animation: { duration: 400 },
       plugins: {
         legend: {
           position: "right",
@@ -1307,20 +1338,7 @@ function renderVolumePie(rows, totalAbs) {
         },
       },
     },
-    plugins: [{
-      id: "vol-centre",
-      afterDraw(chart) {
-        const { ctx, chartArea: { left, top, right, bottom } } = chart;
-        const cx = (left + right) / 2, cy = (top + bottom) / 2;
-        ctx.save();
-        ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillStyle = "#d4a853"; ctx.font = "bold 15px -apple-system,sans-serif";
-        ctx.fillText(totalFmt, cx, cy - 9);
-        ctx.fillStyle = "#5a607a"; ctx.font = "10px -apple-system,sans-serif";
-        ctx.fillText("Total", cx, cy + 10);
-        ctx.restore();
-      },
-    }],
+    plugins: [_volPiePlugin(_volTotalFmt)],
   });
 }
 

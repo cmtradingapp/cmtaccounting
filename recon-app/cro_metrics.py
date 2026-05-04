@@ -224,10 +224,11 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
     """, {"t": today_ts, "te": today_end_ts, "m": month_ts})
     closed_map = {r["symbol"]: r for r in (cur.fetchall() or [])}
 
-    # Step 3: merge, apply FX conversion, sort by ABS gross_native DESC
+    # Step 3: merge, apply FX conversion, sort by ABS net_native DESC
+    # (net = long minus short, same basis Dealio uses for ABS Notional)
     all_symbols = sorted(
         set(pos_rows) | set(closed_map),
-        key=lambda s: abs(float(pos_rows.get(s, {}).get("gross_native") or 0)),
+        key=lambda s: abs(float(pos_rows.get(s, {}).get("net_native") or 0)),
         reverse=True,
     )
     result = []
@@ -250,7 +251,7 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
             "buy_lots":           buy_lots,
             "sell_lots":          sell_lots,
             "net_lots":           sell_lots - buy_lots,   # broker perspective
-            "abs_notional_usd":   abs(gross) * fx,
+            "abs_notional_usd":   abs(net_nat) * fx,   # ABS of net (long−short), matches Dealio
             "notional_usd":       net_nat * fx,           # signed, broker perspective
             "floating_pnl_usd":   float(p.get("floating_pnl") or 0),
             "swaps_usd":          float(p.get("swaps_usd")    or 0),
