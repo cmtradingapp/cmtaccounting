@@ -164,35 +164,102 @@ def exposure(cur) -> dict:
     }
 
 
-def exposure_by_symbol(cur) -> list:
-    """Per-symbol rows from exposure_snapshot, sorted by ABS(volume_net) DESC.
+def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) -> list:
+    """Per-symbol Volume Distribution: Buy/Sell/Net lots, ABS/signed Notional,
+    Swaps, Total Floating PnL, Daily settled PnL, Monthly settled PnL, Commission.
 
-    SDK fields available per IMTExposure (MT5APIExposure.h):
-      Symbol()        → symbol      (displayed)
-      Digits()        → digits      (internal, not shown)
-      VolumeClients() → volume_clients   USD — client-side net position
-      VolumeCoverage()→ volume_coverage  USD — broker hedge/coverage
-      PriceRate()     → price_rate  (internal conversion factor, not shown)
-      VolumeNet()     → volume_net  USD — net broker risk = clients + coverage
+    Sources:
+      positions_snapshot — live open positions (buy & sell lots, floating PnL, swaps)
+      closed_positions   — settled PnL and commission per symbol for today + MTD
+      internal_rates     — mid-rate FX conversion for non-USD-quoted symbols
 
-    Live snapshot only — exposure_snapshot is truncate-replaced every slow
-    cycle and has no history, so this only belongs under 'today'.
+    Lot scale: volume_ext / 1e8 (validated on XAUUSD, EURUSD — matches
+    MT5 Manager display lots).
+
+    Net Volume is from the BROKER's perspective (negative = broker short),
+    mirroring the reference "Volume Distribution" panel.
     """
-    sql = """
-        SELECT symbol, volume_clients, volume_coverage, volume_net
-        FROM exposure_snapshot
-        ORDER BY ABS(volume_net) DESC, symbol
-    """
-    cur.execute(sql)
-    return [
-        {
-            "symbol":          r["symbol"],
-            "volume_clients":  float(r["volume_clients"]  or 0.0),
-            "volume_coverage": float(r["volume_coverage"] or 0.0),
-            "volume_net":      float(r["volume_net"]      or 0.0),
-        }
-        for r in (cur.fetchall() or [])
-    ]
+    # Step 1: aggregate live positions per symbol with FX meta
+    cur.execute("""
+        WITH pos AS (
+            SELECT
+                ps.symbol,
+                CASE WHEN length(ps.symbol) = 6
+                          AND right(ps.symbol, 3) ~ '^[A-Z]{3}$'
+                     THEN right(ps.symbol, 3)
+                     ELSE 'USD'
+                END AS quote_ccy,
+                SUM(CASE WHEN ps.action = 0 THEN ps.volume_ext / 100000000.0 ELSE 0 END) AS buy_lots,
+                SUM(CASE WHEN ps.action = 1 THEN ps.volume_ext / 100000000.0 ELSE 0 END) AS sell_lots,
+                SUM(ps.volume_ext / 100000000.0 * ps.contract_size * ps.price_current) AS gross_native,
+                SUM((CASE WHEN ps.action = 1 THEN 1.0 ELSE -1.0 END)
+                    * ps.volume_ext / 100000000.0 * ps.contract_size * ps.price_current) AS net_native,
+                SUM(ps.profit)  AS floating_pnl,
+                SUM(ps.storage) AS swaps_usd
+            FROM positions_snapshot ps
+            WHERE ps.symbol NOT ILIKE 'Zeroing%%'
+              AND ps.symbol NOT ILIKE '%%inactivity%%'
+            GROUP BY ps.symbol
+        )
+        SELECT pos.*, ir.bid, ir.ask, ir.usd_base
+        FROM pos
+        LEFT JOIN internal_rates ir ON ir.currency = pos.quote_ccy
+    """)
+    pos_rows = {r["symbol"]: r for r in (cur.fetchall() or [])}
+
+    # Step 2: settled PnL (today + MTD) from closed_positions
+    cur.execute("""
+        SELECT symbol,
+            SUM(CASE WHEN close_time >= %(t)s AND close_time < %(te)s
+                     THEN profit + storage + commission + fee ELSE 0 END) AS daily_pnl,
+            SUM(CASE WHEN close_time >= %(m)s AND close_time < %(te)s
+                     THEN profit + storage + commission + fee ELSE 0 END) AS monthly_pnl,
+            SUM(CASE WHEN close_time >= %(t)s AND close_time < %(te)s
+                     THEN commission ELSE 0 END) AS commission_today
+        FROM closed_positions
+        WHERE close_time >= %(m)s AND close_time < %(te)s
+          AND symbol NOT ILIKE 'Zeroing%%'
+          AND symbol NOT ILIKE '%%inactivity%%'
+        GROUP BY symbol
+    """, {"t": today_ts, "te": today_end_ts, "m": month_ts})
+    closed_map = {r["symbol"]: r for r in (cur.fetchall() or [])}
+
+    # Step 3: merge, apply FX conversion, sort by ABS gross_native DESC
+    all_symbols = sorted(
+        set(pos_rows) | set(closed_map),
+        key=lambda s: abs(float(pos_rows.get(s, {}).get("gross_native") or 0)),
+        reverse=True,
+    )
+    result = []
+    for sym in all_symbols:
+        p = pos_rows.get(sym, {})
+        c = closed_map.get(sym, {})
+        bid      = float(p.get("bid")      or 0)
+        ask      = float(p.get("ask")      or 0)
+        usd_base = bool(p.get("usd_base"))
+        gross    = float(p.get("gross_native") or 0)
+        net_nat  = float(p.get("net_native")   or 0)
+        if bid > 0 and ask > 0:
+            fx = (2.0 / (bid + ask)) if usd_base else ((bid + ask) / 2.0)
+        else:
+            fx = 1.0       # unknown quote ccy — pass through (may be inflated, e.g. HUF)
+        buy_lots  = float(p.get("buy_lots")  or 0)
+        sell_lots = float(p.get("sell_lots") or 0)
+        result.append({
+            "symbol":             sym,
+            "buy_lots":           buy_lots,
+            "sell_lots":          sell_lots,
+            "net_lots":           sell_lots - buy_lots,   # broker perspective
+            "abs_notional_usd":   abs(gross) * fx,
+            "notional_usd":       net_nat * fx,           # signed, broker perspective
+            "floating_pnl_usd":   float(p.get("floating_pnl") or 0),
+            "swaps_usd":          float(p.get("swaps_usd")    or 0),
+            "total_floating_usd": float(p.get("floating_pnl") or 0) + float(p.get("swaps_usd") or 0),
+            "daily_pnl_usd":      float(c.get("daily_pnl")        or 0),
+            "monthly_pnl_usd":    float(c.get("monthly_pnl")      or 0),
+            "commission_usd":     float(c.get("commission_today")  or 0),
+        })
+    return result
 
 
 # ─────────────────────────── EOD-snapshot helpers (daily_reports)
@@ -572,7 +639,7 @@ def collect_all_metrics(cur) -> dict:
     floating_today     = total_floating_usd(cur)
     wd_t               = wd_equity(cur)
     exp_t              = exposure(cur)
-    exp_rows           = exposure_by_symbol(cur)
+    vol_dist           = volume_distribution(cur, today_start_ts, today_end_ts, month_start_ts)
 
     # ── yesterday EOD
     balance_yest_eod   = total_balance_usd_eod(cur, yesterday_start_ts, today_start_ts)
@@ -665,6 +732,11 @@ def collect_all_metrics(cur) -> dict:
         "month_start_label": month_start.strftime("%Y-%m-%d"),
         "prev_month_end_label": prev_month_end.strftime("%Y-%m-%d"),
 
+        # Per-symbol volume breakdown (live positions + today/MTD settled PnL).
+        # Top-level (not under today/yesterday/monthly) because it blends
+        # live data with today-and-MTD windows simultaneously.
+        "volume_distribution": vol_dist,
+
         "today": {
             "total_balance_usd": balance_today,
             "total_credit_usd": credit_today,
@@ -681,7 +753,6 @@ def collect_all_metrics(cur) -> dict:
             "exposure_assets": exp_t["asset_count"],
             "exposure_long_assets": exp_t["long_assets"],
             "exposure_short_assets": exp_t["short_assets"],
-            "exposure_by_symbol": exp_rows,
             "settled_pnl_usd": settled_today,
             "delta_floating_usd": delta_today,
             "daily_pnl_usd": daily_pnl_today,

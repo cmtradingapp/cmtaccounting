@@ -3,6 +3,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='cro/styles.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4/dist/chart.umd.min.js"></script>
 <style>
   /* Override base.html main constraints so the CRO layout fills the page,
      and keep the recon nav visible above the CRO sub-topbar (no `position:
@@ -96,28 +97,42 @@
   </aside>
 </div>
 
-<!-- ─────────── Exposure by Symbol (collapsible) ─────────── -->
-<div class="exposure-section collapsed" id="exposure-section">
-  <button class="exposure-header" id="exposure-toggle"
-          aria-expanded="false" aria-controls="exposure-body">
-    <span class="exposure-title">Exposure by Symbol</span>
-    <span class="exposure-meta" id="exposure-meta"></span>
-    <span class="exposure-chevron" aria-hidden="true">▾</span>
+<!-- ─────────── Volume Distribution (collapsible) ─────────── -->
+<div class="vol-section collapsed" id="vol-section">
+  <button class="vol-header" id="vol-toggle"
+          aria-expanded="false" aria-controls="vol-body">
+    <span class="vol-title">Volume Distribution</span>
+    <span class="vol-meta" id="vol-meta"></span>
+    <span class="vol-chevron" aria-hidden="true">▾</span>
   </button>
-  <div class="exposure-body" id="exposure-body" hidden>
-    <table class="exposure-table">
-      <thead>
-        <tr>
-          <th>Symbol</th>
-          <th class="num-col">Clients (USD)</th>
-          <th class="num-col">Coverage (USD)</th>
-          <th class="num-col">Net (USD)</th>
-        </tr>
-      </thead>
-      <tbody id="exposure-tbody">
-        <tr><td colspan="4" class="exp-empty">Loading…</td></tr>
-      </tbody>
-    </table>
+  <div class="vol-body" id="vol-body" hidden>
+    <div class="vol-inner">
+      <div class="vol-table-wrap">
+        <table class="vol-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th class="num-col">Daily PnL</th>
+              <th class="num-col">ABS Notional ($)</th>
+              <th class="num-col">Monthly PnL</th>
+              <th class="num-col">Buy Vol</th>
+              <th class="num-col">Sell Vol</th>
+              <th class="num-col">Net Vol</th>
+              <th class="num-col">Notional ($)</th>
+              <th class="num-col">Swaps ($)</th>
+              <th class="num-col">Commission ($)</th>
+              <th class="num-col">Total Float PnL ($)</th>
+            </tr>
+          </thead>
+          <tbody id="vol-tbody">
+            <tr><td colspan="11" class="vol-empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="vol-chart-wrap">
+        <canvas id="vol-pie" width="340" height="340"></canvas>
+      </div>
+    </div>
   </div>
 </div>
 

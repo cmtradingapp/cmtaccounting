@@ -807,16 +807,16 @@ code {
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
-/* ─────────── Exposure-by-symbol collapsible table ─────────── */
+/* ─────────── Volume Distribution collapsible table + pie ─────────── */
 
-.exposure-section {
+.vol-section {
   margin: 0 0 24px;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
 }
 
-.exposure-header {
+.vol-header {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -833,11 +833,11 @@ code {
   text-align: left;
   transition: background 0.15s;
 }
-.exposure-header:hover { background: var(--bg-card-2); }
+.vol-header:hover { background: var(--bg-card-2); }
 
-.exposure-title { flex: 1; }
+.vol-title { flex: 1; }
 
-.exposure-meta {
+.vol-meta {
   font-size: 11px;
   font-weight: 400;
   color: var(--text-mute);
@@ -845,27 +845,45 @@ code {
   text-transform: none;
 }
 
-.exposure-chevron {
+.vol-chevron {
   font-size: 12px;
   color: var(--text-mute);
   transition: transform 0.2s;
 }
-/* Rotate chevron when the section is open (i.e. not collapsed) */
-.exposure-section:not(.collapsed) .exposure-chevron { transform: rotate(180deg); }
+.vol-section:not(.collapsed) .vol-chevron { transform: rotate(180deg); }
 
-.exposure-body {
-  overflow-x: auto;
+.vol-body {
   border-top: 1px solid var(--border);
 }
 
-.exposure-table {
+/* Side-by-side layout: table on left, pie chart on right */
+.vol-inner {
+  display: flex;
+  gap: 0;
+  align-items: flex-start;
+}
+.vol-table-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.vol-chart-wrap {
+  flex: 0 0 380px;
+  padding: 20px 24px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vol-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
-.exposure-table thead th {
+.vol-table thead th {
   background: var(--bg-card-2);
-  padding: 8px 16px;
+  padding: 8px 14px;
   text-align: left;
   font-size: 11px;
   font-weight: 600;
@@ -873,28 +891,36 @@ code {
   letter-spacing: 0.06em;
   color: var(--text-mute);
   white-space: nowrap;
+  position: sticky;
+  top: 0;
 }
-.exposure-table thead th.num-col { text-align: right; }
-.exposure-table tbody tr {
+.vol-table thead th.num-col { text-align: right; }
+.vol-table tbody tr {
   border-top: 1px solid var(--border);
   transition: background 0.1s;
 }
-.exposure-table tbody tr:hover { background: rgba(255,255,255,.03); }
-.exposure-table tbody td {
-  padding: 8px 16px;
+.vol-table tbody tr:hover { filter: brightness(1.15); }
+.vol-table tbody td {
+  padding: 7px 14px;
   color: var(--text);
   white-space: nowrap;
 }
-.exposure-table tbody td.num-col { text-align: right; }
-.exposure-table td.exp-empty {
+.vol-table tbody td.num-col { text-align: right; }
+.vol-table td.vol-empty {
   text-align: center;
   color: var(--text-mute);
   padding: 20px;
+  colspan: 11;
 }
 
-/* Totals row — gold, slightly heavier weight, subtle separator */
-.exposure-table tr.exp-total td {
+/* Row tinting: green = broker long (net_lots > 0), red = broker short */
+.vol-table tr.row-long  td { background: rgba(16, 200, 145, 0.06); }
+.vol-table tr.row-short td { background: rgba(233, 69, 96, 0.06);  }
+
+/* Totals row — gold */
+.vol-table tr.row-total td {
   color: #d4a853;
   font-weight: 600;
   border-bottom: 2px solid rgba(212, 168, 83, 0.25);
+  background: rgba(212, 168, 83, 0.04);
 }

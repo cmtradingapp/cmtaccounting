@@ -1215,43 +1215,113 @@ function setSubLabels(payload) {
   }
 }
 
-/* ─────────── Per-symbol exposure table ─────────── */
+/* ─────────── Volume Distribution table + donut pie chart ─────────── */
 
-function renderExposureTable(rows) {
-  const tbody = document.getElementById("exposure-tbody");
-  const meta  = document.getElementById("exposure-meta");
+let _volChart = null;
+
+function _cls(v) { return v > 0.005 ? "pos" : v < -0.005 ? "neg" : ""; }
+
+function _buildRow(sym, r, rowClass) {
+  return `<tr class="${rowClass}">
+    <td><strong>${sym != null ? sym : "TOTAL"}</strong></td>
+    <td class="num-col ${_cls(r.daily_pnl_usd)}">${formatMoney(r.daily_pnl_usd)}</td>
+    <td class="num-col">${formatMoney(r.abs_notional_usd)}</td>
+    <td class="num-col ${_cls(r.monthly_pnl_usd)}">${formatMoney(r.monthly_pnl_usd)}</td>
+    <td class="num-col">${(r.buy_lots  || 0).toFixed(2)}</td>
+    <td class="num-col">${(r.sell_lots || 0).toFixed(2)}</td>
+    <td class="num-col ${_cls(-(r.net_lots || 0))}">${(r.net_lots || 0).toFixed(2)}</td>
+    <td class="num-col ${_cls(r.notional_usd)}">${formatMoney(r.notional_usd)}</td>
+    <td class="num-col ${_cls(r.swaps_usd)}">${formatMoney(r.swaps_usd)}</td>
+    <td class="num-col">${formatMoney(r.commission_usd)}</td>
+    <td class="num-col ${_cls(r.total_floating_usd)}">${formatMoney(r.total_floating_usd)}</td>
+  </tr>`;
+}
+
+function renderVolumeDistribution(rows) {
+  const tbody = document.getElementById("vol-tbody");
+  const meta  = document.getElementById("vol-meta");
   if (!tbody) return;
   if (!rows || !rows.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="exp-empty">No exposure data</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="vol-empty">No data</td></tr>';
     if (meta) meta.textContent = "";
     return;
   }
   if (meta) meta.textContent = `${rows.length} symbols`;
 
-  // Totals row first (gold)
-  const totClients  = rows.reduce((s, r) => s + r.volume_clients,  0);
-  const totCoverage = rows.reduce((s, r) => s + r.volume_coverage, 0);
-  const totNet      = rows.reduce((s, r) => s + r.volume_net,      0);
-  const totNetCls   = totNet > 0.005 ? "pos" : totNet < -0.005 ? "neg" : "";
-  const totalRow    = `<tr class="exp-total">
-    <td>TOTAL</td>
-    <td class="num-col">${formatMoney(totClients)}</td>
-    <td class="num-col">${formatMoney(totCoverage)}</td>
-    <td class="num-col ${totNetCls}">${formatMoney(totNet)}</td>
-  </tr>`;
+  // Aggregate totals
+  const zero = {daily_pnl_usd:0, abs_notional_usd:0, monthly_pnl_usd:0,
+                buy_lots:0, sell_lots:0, net_lots:0, notional_usd:0,
+                swaps_usd:0, commission_usd:0, total_floating_usd:0};
+  const T = rows.reduce((acc, r) => {
+    for (const k of Object.keys(zero)) acc[k] += (r[k] || 0);
+    return acc;
+  }, {...zero});
 
-  tbody.innerHTML = totalRow + rows.map(r => {
-    const net    = r.volume_net;
-    const netCls = net > 0.005 ? "pos" : net < -0.005 ? "neg" : "";
-    const cli    = r.volume_clients;
-    const cliCls = cli > 0.005 ? "pos" : cli < -0.005 ? "neg" : "";
-    return `<tr>
-      <td>${r.symbol}</td>
-      <td class="num-col ${cliCls}">${formatMoney(cli)}</td>
-      <td class="num-col">${formatMoney(r.volume_coverage)}</td>
-      <td class="num-col ${netCls}">${formatMoney(net)}</td>
-    </tr>`;
-  }).join("");
+  tbody.innerHTML =
+    _buildRow(null, T, "row-total") +
+    rows.map(r => _buildRow(
+      r.symbol, r,
+      (r.net_lots || 0) > 0.001 ? "row-long" :
+      (r.net_lots || 0) < -0.001 ? "row-short" : ""
+    )).join("");
+
+  renderVolumePie(rows, T.abs_notional_usd);
+}
+
+function renderVolumePie(rows, totalAbs) {
+  const canvas = document.getElementById("vol-pie");
+  if (!canvas || typeof Chart === "undefined") return;
+  if (_volChart) { _volChart.destroy(); _volChart = null; }
+
+  const TOP    = 9;
+  const sorted = [...rows].sort((a, b) => b.abs_notional_usd - a.abs_notional_usd);
+  const top    = sorted.slice(0, TOP);
+  const other  = sorted.slice(TOP).reduce((s, r) => s + (r.abs_notional_usd || 0), 0);
+
+  const PALETTE = ["#4f8ef7","#10c891","#f59e0b","#e94560","#a78bfa",
+                   "#fb923c","#34d399","#60a5fa","#f472b6","#94a3b8"];
+  const labels  = [...top.map(r => r.symbol), ...(other > 0 ? ["Other"] : [])];
+  const data    = [...top.map(r => r.abs_notional_usd), ...(other > 0 ? [other] : [])];
+  const colors  = [...PALETTE.slice(0, TOP), "#5a607a"];
+  const totalFmt = formatMoney(totalAbs);
+
+  _volChart = new Chart(canvas.getContext("2d"), {
+    type: "doughnut",
+    data: { labels, datasets: [{ data, backgroundColor: colors,
+                                  borderWidth: 1, borderColor: "rgba(0,0,0,.25)" }] },
+    options: {
+      cutout: "65%",
+      animation: { duration: 400 },
+      plugins: {
+        legend: {
+          position: "right",
+          labels: { color: "#a8aebc", boxWidth: 12, padding: 8, font: { size: 11 } },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const pct = totalAbs > 0 ? ((ctx.raw / totalAbs) * 100).toFixed(1) : "0.0";
+              return ` ${ctx.label}: ${pct}%`;
+            },
+          },
+        },
+      },
+    },
+    plugins: [{
+      id: "vol-centre",
+      afterDraw(chart) {
+        const { ctx, chartArea: { left, top, right, bottom } } = chart;
+        const cx = (left + right) / 2, cy = (top + bottom) / 2;
+        ctx.save();
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillStyle = "#d4a853"; ctx.font = "bold 15px -apple-system,sans-serif";
+        ctx.fillText(totalFmt, cx, cy - 9);
+        ctx.fillStyle = "#5a607a"; ctx.font = "10px -apple-system,sans-serif";
+        ctx.fillText("Total", cx, cy + 10);
+        ctx.restore();
+      },
+    }],
+  });
 }
 
 /* ─────────── Stale-while-revalidate cache (localStorage) ───────────
@@ -1308,7 +1378,7 @@ async function fetchMetrics({ manual = false } = {}) {
     renderSection("today",     data.today,     ranks);
     renderSection("yesterday", data.yesterday, ranks);
     renderSection("monthly",   data.monthly,   ranks);
-    renderExposureTable((data.today || {}).exposure_by_symbol || []);
+    renderVolumeDistribution(data.volume_distribution || []);
     setSubLabels(data);
     lastSuccessfulPollAt = Date.now();
     tickFreshness();
@@ -1380,15 +1450,15 @@ function init() {
     refreshBtn.addEventListener("click", () => fetchMetrics({ manual: true }));
   }
 
-  // Wire up the exposure-by-symbol collapsible toggle.
-  const expToggle = document.getElementById("exposure-toggle");
-  if (expToggle) {
-    expToggle.addEventListener("click", () => {
-      const sec  = document.getElementById("exposure-section");
-      const body = document.getElementById("exposure-body");
+  // Wire up the Volume Distribution collapsible toggle.
+  const volToggle = document.getElementById("vol-toggle");
+  if (volToggle) {
+    volToggle.addEventListener("click", () => {
+      const sec  = document.getElementById("vol-section");
+      const body = document.getElementById("vol-body");
       sec.classList.toggle("collapsed");
       const expanded = !sec.classList.contains("collapsed");
-      expToggle.setAttribute("aria-expanded", String(expanded));
+      volToggle.setAttribute("aria-expanded", String(expanded));
       body.hidden = !expanded;
     });
   }
@@ -1404,7 +1474,7 @@ function init() {
     renderSection("today",     cached.payload.today,     ranks);
     renderSection("yesterday", cached.payload.yesterday, ranks);
     renderSection("monthly",   cached.payload.monthly,   ranks);
-    renderExposureTable((cached.payload.today || {}).exposure_by_symbol || []);
+    renderVolumeDistribution(cached.payload.volume_distribution || []);
     setSubLabels(cached.payload);
     lastSuccessfulPollAt = cached.savedAt;
     tickFreshness();

@@ -52,6 +52,7 @@ DROP TABLE IF EXISTS positions_snapshot CASCADE;
 DROP TABLE IF EXISTS external_rates CASCADE;
 DROP TABLE IF EXISTS exposure_snapshot CASCADE;
 DROP TABLE IF EXISTS deals CASCADE;
+DROP TABLE IF EXISTS internal_rates CASCADE;
 
 CREATE TABLE accounts_snapshot (
     login        BIGINT PRIMARY KEY,
@@ -89,15 +90,29 @@ CREATE TABLE closed_positions (
 );
 
 CREATE TABLE positions_snapshot (
-    position_id BIGINT PRIMARY KEY,
-    login       BIGINT NOT NULL,
-    symbol      TEXT NOT NULL
+    position_id   BIGINT PRIMARY KEY,
+    login         BIGINT NOT NULL,
+    symbol        TEXT NOT NULL,
+    action        SMALLINT NOT NULL DEFAULT 0,   -- 0=BUY 1=SELL
+    volume_ext    BIGINT NOT NULL DEFAULT 0,
+    contract_size DOUBLE PRECISION NOT NULL DEFAULT 1,
+    price_current DOUBLE PRECISION NOT NULL DEFAULT 0,
+    profit        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    storage       DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
 CREATE TABLE external_rates (
     currency TEXT PRIMARY KEY,
     bid      DOUBLE PRECISION NOT NULL,
     ask      DOUBLE PRECISION NOT NULL,
+    usd_base BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+-- Minimal internal_rates stub (cro_metrics only reads currency, bid, ask, usd_base)
+CREATE TABLE internal_rates (
+    currency TEXT PRIMARY KEY,
+    bid      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ask      DOUBLE PRECISION NOT NULL DEFAULT 0,
     usd_base BOOLEAN NOT NULL DEFAULT FALSE
 );
 
@@ -145,7 +160,7 @@ def conn():
         cur.execute(
             "DROP TABLE IF EXISTS accounts_snapshot, deposits_withdrawals, "
             "closed_positions, positions_snapshot, external_rates, deals, "
-            "exposure_snapshot CASCADE"
+            "exposure_snapshot, internal_rates CASCADE"
         )
     c.commit()
     c.close()
@@ -201,11 +216,16 @@ def _seed_closed(cur, ticket, login, symbol, open_time, close_time):
     )
 
 
-def _seed_position(cur, position_id, login, symbol="EURUSD"):
+def _seed_position(cur, position_id, login, symbol="EURUSD",
+                   action=0, volume_ext=100_000_000, contract_size=1.0,
+                   price_current=1.0, profit=0.0, storage=0.0):
     cur.execute(
-        "INSERT INTO positions_snapshot (position_id, login, symbol) "
-        "VALUES (%s,%s,%s)",
-        (position_id, login, symbol),
+        "INSERT INTO positions_snapshot"
+        " (position_id, login, symbol, action, volume_ext,"
+        "  contract_size, price_current, profit, storage)"
+        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (position_id, login, symbol, action, volume_ext,
+         contract_size, price_current, profit, storage),
     )
 
 
@@ -446,60 +466,113 @@ class TestCollectAllMetricsShape:
                 assert k in data[section], f"{section}.{k} missing"
                 # Empty DB → all counts/sums are 0
                 assert data[section][k] == 0 or data[section][k] == 0.0
-        # exposure_by_symbol only on today (not yesterday/monthly)
-        assert "exposure_by_symbol" in data["today"]
-        assert isinstance(data["today"]["exposure_by_symbol"], list)
-        assert "exposure_by_symbol" not in data["yesterday"]
-        assert "exposure_by_symbol" not in data["monthly"]
+        # volume_distribution is a top-level key (blends live + daily + MTD)
+        assert "volume_distribution" in data
+        assert isinstance(data["volume_distribution"], list)
+        assert "volume_distribution" not in data["today"]
+        assert "volume_distribution" not in data["yesterday"]
+        assert "volume_distribution" not in data["monthly"]
 
 
 # ── Exposure by symbol tests ────────────────────────────────────────────
 
-class TestExposureBySymbol:
+class TestVolumeDistribution:
+    """Tests for the 11-column volume_distribution query.
+    volume_ext / 1e8 = lots; positions_snapshot columns match the expanded _SCHEMA."""
 
-    def _seed(self, cur, symbol, clients, coverage, net):
+    def _pos(self, cur, pid, login, symbol, action=0,
+             volume_ext=100_000_000, contract_size=1.0,
+             price=1.0, profit=0.0, storage=0.0):
         cur.execute(
-            "INSERT INTO exposure_snapshot (symbol, volume_clients, volume_coverage, volume_net)"
-            " VALUES (%s,%s,%s,%s) ON CONFLICT (symbol) DO UPDATE"
-            " SET volume_clients=EXCLUDED.volume_clients,"
-            "     volume_coverage=EXCLUDED.volume_coverage,"
-            "     volume_net=EXCLUDED.volume_net",
-            (symbol, clients, coverage, net),
+            "INSERT INTO positions_snapshot"
+            " (position_id, login, symbol, action, volume_ext,"
+            "  contract_size, price_current, profit, storage)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (pid, login, symbol, action, volume_ext,
+             contract_size, price, profit, storage),
         )
 
-    def test_sorted_by_abs_net_desc(self, cur):
-        self._seed(cur, "EURUSD",  100, -50,    50)
-        self._seed(cur, "XAUUSD", -500, 200,  -300)
-        self._seed(cur, "USDJPY",  200, -80,   120)
-        rows = cro_metrics.exposure_by_symbol(cur)
-        assert [r["symbol"] for r in rows] == ["XAUUSD", "USDJPY", "EURUSD"]
+    def _closed(self, cur, ticket, login, symbol, close_time,
+                profit=0.0, commission=0.0, storage=0.0, fee=0.0):
+        cur.execute(
+            "INSERT INTO closed_positions"
+            " (ticket, login, symbol, open_time, close_time,"
+            "  profit, storage, commission, fee)"
+            " VALUES (%s,%s,%s,0,%s,%s,%s,%s,%s)",
+            (ticket, login, symbol, close_time, profit, storage, commission, fee),
+        )
 
-    def test_empty_returns_empty_list(self, cur):
-        assert cro_metrics.exposure_by_symbol(cur) == []
+    def test_buy_sell_lots(self, cur):
+        self._pos(cur, 1, 100, "EURUSD", action=0, volume_ext=100_000_000)  # 1.0 lot buy
+        self._pos(cur, 2, 101, "EURUSD", action=1, volume_ext=50_000_000)   # 0.5 lot sell
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
+        r = next(x for x in rows if x["symbol"] == "EURUSD")
+        assert r["buy_lots"]  == pytest.approx(1.0)
+        assert r["sell_lots"] == pytest.approx(0.5)
 
-    def test_fields_correct_types(self, cur):
-        self._seed(cur, "BTCUSD", 1000.0, -500.0, 500.0)
-        rows = cro_metrics.exposure_by_symbol(cur)
+    def test_net_lots_broker_perspective(self, cur):
+        # Net = sell - buy (broker's perspective)
+        self._pos(cur, 1, 100, "XAUUSD", action=0, volume_ext=200_000_000)  # 2 lots buy
+        self._pos(cur, 2, 101, "XAUUSD", action=1, volume_ext=300_000_000)  # 3 lots sell
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
+        r = next(x for x in rows if x["symbol"] == "XAUUSD")
+        assert r["net_lots"] == pytest.approx(1.0)   # sell(3) - buy(2) = 1 → broker net long
+
+    def test_floating_pnl_and_swaps(self, cur):
+        self._pos(cur, 1, 100, "USDJPY", profit=500.0, storage=-50.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
+        r = next(x for x in rows if x["symbol"] == "USDJPY")
+        assert r["floating_pnl_usd"]   == pytest.approx(500.0)
+        assert r["swaps_usd"]          == pytest.approx(-50.0)
+        assert r["total_floating_usd"] == pytest.approx(450.0)
+
+    def test_daily_pnl_from_closed_positions(self, cur):
+        self._closed(cur, 1, 100, "GBPUSD", close_time=TODAY_START + 100,
+                     profit=200.0, commission=-5.0)
+        # Today-window closed PnL = 200 - 5 = 195
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
+        r = next((x for x in rows if x["symbol"] == "GBPUSD"), None)
+        assert r is not None
+        assert r["daily_pnl_usd"] == pytest.approx(195.0)
+
+    def test_monthly_pnl_includes_outside_today(self, cur):
+        # A closed position from yesterday counts in monthly but not daily
+        self._closed(cur, 1, 100, "EURUSD", close_time=YEST_START + 100, profit=100.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
+        r = next((x for x in rows if x["symbol"] == "EURUSD"), None)
+        assert r is not None
+        assert r["monthly_pnl_usd"] == pytest.approx(100.0)
+        assert r["daily_pnl_usd"]   == pytest.approx(0.0)
+
+    def test_fx_conversion_via_internal_rates(self, cur):
+        # USDJPY quote_ccy = "JPY"; seed IR with mid ~157
+        cur.execute(
+            "INSERT INTO internal_rates (currency, bid, ask, usd_base)"
+            " VALUES ('JPY', 156.0, 158.0, TRUE) ON CONFLICT (currency)"
+            " DO UPDATE SET bid=EXCLUDED.bid, ask=EXCLUDED.ask, usd_base=EXCLUDED.usd_base",
+        )
+        # 1 lot (volume_ext=1e8), contract_size=100000, price=157 → gross_native=15.7M JPY
+        # fx = 2/(156+158) = 0.00637; abs_notional_usd ≈ 15.7M × 0.00637 ≈ 100k USD
+        self._pos(cur, 1, 100, "USDJPY",
+                  volume_ext=100_000_000, contract_size=100_000.0, price=157.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
+        r = next(x for x in rows if x["symbol"] == "USDJPY")
+        assert r["abs_notional_usd"] == pytest.approx(100_000, rel=0.01)
+
+    def test_empty_returns_empty(self, cur):
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
+        assert rows == []
+
+    def test_all_keys_present(self, cur):
+        self._pos(cur, 1, 100, "BTCUSD")
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
         assert len(rows) == 1
         r = rows[0]
-        assert r["symbol"] == "BTCUSD"
-        assert isinstance(r["volume_clients"],  float)
-        assert isinstance(r["volume_coverage"], float)
-        assert isinstance(r["volume_net"],      float)
-        assert r["volume_net"] == 500.0
-
-    def test_negative_net_preserved(self, cur):
-        self._seed(cur, "USDJPY", 300.0, -100.0, -200.0)
-        rows = cro_metrics.exposure_by_symbol(cur)
-        assert rows[0]["volume_net"] == -200.0
-
-    def test_secondary_sort_by_symbol(self, cur):
-        # Two rows with same |net|, should sort alphabetically.
-        self._seed(cur, "ZZZSYM", 100, -50,  50)
-        self._seed(cur, "AAASYM", 100, -50,  50)
-        rows = cro_metrics.exposure_by_symbol(cur)
-        assert rows[0]["symbol"] == "AAASYM"
-        assert rows[1]["symbol"] == "ZZZSYM"
+        for k in ("symbol", "buy_lots", "sell_lots", "net_lots",
+                  "abs_notional_usd", "notional_usd", "floating_pnl_usd",
+                  "swaps_usd", "total_floating_usd",
+                  "daily_pnl_usd", "monthly_pnl_usd", "commission_usd"):
+            assert k in r, f"missing key: {k}"
 
 
 # ── Volume USD tests ────────────────────────────────────────────────────
