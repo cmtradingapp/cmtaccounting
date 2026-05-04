@@ -544,6 +544,25 @@ class TestVolumeDistribution:
         assert r["monthly_pnl_usd"] == pytest.approx(100.0)
         assert r["daily_pnl_usd"]   == pytest.approx(0.0)
 
+    def test_floating_pnl_and_swaps_fx_converted(self, cur):
+        """floating_pnl and swaps_usd must be converted using the same fx factor
+        as the notional — they are in the symbol's native profit currency."""
+        cur.execute(
+            "INSERT INTO internal_rates (currency, bid, ask, usd_base)"
+            " VALUES ('JPY', 156.0, 158.0, TRUE) ON CONFLICT (currency)"
+            " DO UPDATE SET bid=EXCLUDED.bid, ask=EXCLUDED.ask, usd_base=EXCLUDED.usd_base",
+        )
+        # USDJPY: profit = 157,000 JPY, storage = -31,400 JPY
+        # fx = 2/(156+158) = 1/157; 157000/157 ≈ 1000 USD; -31400/157 ≈ -200 USD
+        self._pos(cur, 1, 100, "USDJPY",
+                  volume_ext=100_000_000, contract_size=100_000.0, price=157.0,
+                  profit=157_000.0, storage=-31_400.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
+        r = next(x for x in rows if x["symbol"] == "USDJPY")
+        assert r["floating_pnl_usd"]   == pytest.approx(1000.0, rel=0.01)
+        assert r["swaps_usd"]          == pytest.approx(-200.0, rel=0.01)
+        assert r["total_floating_usd"] == pytest.approx(800.0,  rel=0.01)
+
     def test_fx_conversion_via_internal_rates(self, cur):
         # USDJPY quote_ccy = "JPY"; seed IR with mid ~157
         cur.execute(
