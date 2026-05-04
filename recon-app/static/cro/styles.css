@@ -879,31 +879,49 @@ code {
 .vol-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 11px;          /* compact — fits all 11 cols without scroll */
+  table-layout: fixed;
 }
 .vol-table thead th {
   background: var(--bg-card-2);
-  padding: 8px 14px;
+  padding: 6px 8px;
   text-align: left;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--text-mute);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   position: sticky;
   top: 0;
 }
 .vol-table thead th.num-col { text-align: right; }
+/* Explicit column widths so table-layout:fixed can distribute space */
+.vol-table th:nth-child(1)  { width: 88px; }  /* Symbol */
+.vol-table th:nth-child(2)  { width: 9%; }    /* Daily PnL */
+.vol-table th:nth-child(3)  { width: 11%; }   /* ABS Notional */
+.vol-table th:nth-child(4)  { width: 9%; }    /* Monthly PnL */
+.vol-table th:nth-child(5)  { width: 6%; }    /* Buy Vol */
+.vol-table th:nth-child(6)  { width: 6%; }    /* Sell Vol */
+.vol-table th:nth-child(7)  { width: 6%; }    /* Net Vol */
+.vol-table th:nth-child(8)  { width: 11%; }   /* Notional */
+.vol-table th:nth-child(9)  { width: 9%; }    /* Swaps */
+.vol-table th:nth-child(10) { width: 6%; }    /* Comm */
+.vol-table th:nth-child(11) { width: 9%; }    /* Float PnL */
+
 .vol-table tbody tr {
   border-top: 1px solid var(--border);
   transition: background 0.1s;
 }
 .vol-table tbody tr:hover { filter: brightness(1.15); }
 .vol-table tbody td {
-  padding: 7px 14px;
+  padding: 5px 8px;
   color: var(--text);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .vol-table tbody td.num-col { text-align: right; }
 .vol-table td.vol-empty {

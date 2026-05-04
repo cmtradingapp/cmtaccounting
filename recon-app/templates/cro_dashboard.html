@@ -97,15 +97,15 @@
   </aside>
 </div>
 
-<!-- ─────────── Volume Distribution (collapsible) ─────────── -->
-<div class="vol-section collapsed" id="vol-section">
+<!-- ─────────── Volume Distribution (collapsible, open by default) ─────────── -->
+<div class="vol-section" id="vol-section">
   <button class="vol-header" id="vol-toggle"
-          aria-expanded="false" aria-controls="vol-body">
+          aria-expanded="true" aria-controls="vol-body">
     <span class="vol-title">Volume Distribution</span>
     <span class="vol-meta" id="vol-meta"></span>
     <span class="vol-chevron" aria-hidden="true">▾</span>
   </button>
-  <div class="vol-body" id="vol-body" hidden>
+  <div class="vol-body" id="vol-body">
     <div class="vol-inner">
       <div class="vol-table-wrap">
         <table class="vol-table">
@@ -113,15 +113,15 @@
             <tr>
               <th>Symbol</th>
               <th class="num-col">Daily PnL</th>
-              <th class="num-col">ABS Notional ($)</th>
+              <th class="num-col">ABS Notional</th>
               <th class="num-col">Monthly PnL</th>
               <th class="num-col">Buy Vol</th>
               <th class="num-col">Sell Vol</th>
               <th class="num-col">Net Vol</th>
               <th class="num-col">Notional ($)</th>
               <th class="num-col">Swaps ($)</th>
-              <th class="num-col">Commission ($)</th>
-              <th class="num-col">Total Float PnL ($)</th>
+              <th class="num-col">Comm.</th>
+              <th class="num-col">Float PnL</th>
             </tr>
           </thead>
           <tbody id="vol-tbody">
@@ -130,7 +130,7 @@
         </table>
       </div>
       <div class="vol-chart-wrap">
-        <canvas id="vol-pie" width="340" height="340"></canvas>
+        <canvas id="vol-pie" width="300" height="300"></canvas>
       </div>
     </div>
   </div>
