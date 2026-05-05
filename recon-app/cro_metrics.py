@@ -303,9 +303,10 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
             fx = 1.0       # rate not yet in internal_rates
         buy_lots      = float(p.get("buy_lots")  or 0)
         sell_lots     = float(p.get("sell_lots") or 0)
-        # Include storage (swaps) so the delta matches the card's convention:
-        # accounts_snapshot.floating = profit + storage.
-        current_float = float(p.get("floating_pnl") or 0) + float(p.get("swaps_usd") or 0)
+        floating_pnl = float(p.get("floating_pnl") or 0)
+        swaps        = float(p.get("swaps_usd")    or 0)
+        # Delta uses profit+storage to match accounts_snapshot.floating (card convention).
+        current_float = floating_pnl + swaps
 
         # Delta floating: current minus SOD.  When no SOD snapshot exists for
         # the date (new deployment, first day) the symbol won't be in the map →
@@ -326,9 +327,9 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
             "net_lots":           sell_lots - buy_lots,   # broker perspective
             "abs_notional_usd":   abs(net_nat) * fx,
             "notional_usd":       net_nat * fx,
-            "floating_pnl_usd":   current_float,
-            "swaps_usd":          float(p.get("swaps_usd") or 0),
-            "total_floating_usd": current_float + float(p.get("swaps_usd") or 0),
+            "floating_pnl_usd":   floating_pnl,
+            "swaps_usd":          swaps,
+            "total_floating_usd": current_float,  # = floating_pnl + swaps
             "daily_pnl_usd":   -(float(c.get("daily_pnl")   or 0) + delta_daily),
             "monthly_pnl_usd": -(float(c.get("monthly_pnl") or 0) + delta_monthly),
             "commission_usd":     float(c.get("commission_today") or 0),
