@@ -65,7 +65,7 @@ Exposure tab; the team alias is "Total ABS Exposure".`,
 
     { key: "daily_pnl_usd",         label: "Daily P&L USD",         formatter: "money", signed: true, composite: true,
       summary:
-`Today's broker P&L so far. Two pieces:
+`Today's P&L so far (positive = clients profitable). Two pieces:
   • Δ Floating — change in unrealized P&L since yesterday's close.
   • Settled P&L — realized P&L on deals that closed today.
 Matches the C# bundle's "daily pnl = delta included" formulation.`,
@@ -78,12 +78,11 @@ Matches the C# bundle's "daily pnl = delta included" formulation.`,
 
     { key: "daily_pnl_cash_usd",    label: "Daily P&L Cash USD",    formatter: "money", signed: true, composite: true,
       summary:
-`Today's actual cash gain — how much the broker's withdrawable book grew, after
-subtracting customer deposits/withdrawals. The "real" money made today, not
-just paper P&L. Per-login WDZ clamping (vs. the C# aggregate clamp).`,
+`Change in withdrawable book today, after subtracting customer deposits/withdrawals.
+"Real" cash P&L vs paper P&L. Per-login WDZ clamping (vs. the C# aggregate clamp).`,
       formula:
 `Δ WDZ − Net Deposits
-  ↑ "withdrawable cash gain" the broker generated today
+  ↑ withdrawable cash change today
   WDZ-consistent (per-login clamping) — see plan
   vs. C# aggregate clamp at Mt5MonitorApiBundle.cs:9032-44 (we do per-login)`,
       sources: ["accounts_snapshot", "deposits_withdrawals", "external_rates"],
@@ -185,7 +184,7 @@ WHERE action = 2                            -- DEAL_BALANCE
     { key: "delta_wdz_usd",         label: "Δ WDZ",                 formatter: "money", signed: true,
       summary:
 `Change in withdrawable cash since yesterday's end-of-day. The "real cash"
-delta — pair with Net Deposits to get Daily P&L Cash (the broker-side gain).`,
+delta — pair with Net Deposits to get Daily P&L Cash.`,
       formula:
 `wd_equity_z_today − wd_equity_z_yest_EOD
   ↑ change in withdrawable cash since yesterday EOD`,
@@ -343,7 +342,7 @@ Today's card for the current value.`,
 
     { key: "daily_pnl_usd",         label: "Daily P&L USD",         formatter: "money", signed: true, composite: true,
       summary:
-`Yesterday's full-day broker P&L: Δ Floating + Settled P&L over the whole
+`Yesterday's full-day P&L: Δ Floating + Settled P&L over the whole
 yesterday window.`,
       formula:
 `Δ Floating + Settled P&L          (full yesterday window)`,
@@ -558,7 +557,7 @@ Today's card for the current value.`,
 
     { key: "monthly_pnl_usd",            label: "Monthly P&L USD",   formatter: "money", signed: true, composite: true,
       summary:
-`Month-to-date broker P&L: ΔFloating since month-start + sum of all deals
+`Month-to-date P&L: ΔFloating since month-start + sum of all deals
 closed during the month. Matches the C# bundle's CalculateMonthlyPnl card.`,
       formula:
 `Δ Floating (MTD) + MTD Settled P&L
@@ -568,8 +567,8 @@ closed during the month. Matches the C# bundle's CalculateMonthlyPnl card.`,
 
     { key: "monthly_pnl_cash_usd",       label: "Monthly P&L Cash USD", formatter: "money", signed: true, composite: true,
       summary:
-`Month-to-date cash gain: change in withdrawable cash since month-start, minus
-net customer deposits over the month. The actual cash made by the broker MTD.`,
+`Month-to-date cash P&L: change in withdrawable cash since month-start, minus
+net customer deposits over the month.`,
       formula:
 `Δ WDZ (MTD) − Net Deposits (MTD)
   WDZ-consistent (per-login clamping)`,
