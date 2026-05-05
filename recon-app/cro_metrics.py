@@ -13,7 +13,7 @@ Conversion conventions (matches the MT5-CRO-Backend convention):
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 
 _ACTIVE_ACCOUNT_FILTER = (
@@ -248,6 +248,38 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
     """, {"t": today_ts, "te": today_end_ts, "m": month_ts})
     closed_map = {r["symbol"]: r for r in (cur.fetchall() or [])}
 
+    # Steps 2a/2b: SOD floating per symbol for daily-delta and MTD-delta.
+    # Uses account-currency FX (same as the live floating query above) so
+    # delta = current_floating - sod_floating is a clean USD difference.
+    # If no snapshot exists for a date the dict is empty → delta = 0 (fallback).
+    _SOD_SQL = """
+        SELECT ps.symbol,
+               SUM(
+                   ps.profit *
+                   CASE WHEN COALESCE(a.currency, 'USD') = 'USD' THEN 1.0
+                        WHEN ir_a.bid > 0 AND ir_a.ask > 0 THEN
+                          CASE WHEN ir_a.usd_base THEN 2.0/(ir_a.bid + ir_a.ask)
+                               ELSE (ir_a.bid + ir_a.ask) / 2.0 END
+                        ELSE 1.0 END
+               ) AS sod_floating
+        FROM positions_sod ps
+        LEFT JOIN accounts_snapshot a
+            ON  a.login = ps.login
+            AND NOT (a.balance = 0 AND a.equity = 0)
+            AND a.group_name NOT ILIKE '%%%%test%%%%'
+        LEFT JOIN internal_rates ir_a ON ir_a.currency = COALESCE(a.currency, 'USD')
+        WHERE ps.snapshot_date = %(snap_date)s
+          AND ps.symbol NOT ILIKE 'Zeroing%%%%'
+          AND ps.symbol NOT ILIKE '%%%%inactivity%%%%'
+        GROUP BY ps.symbol
+    """
+    today_date       = datetime.fromtimestamp(today_ts, tz=timezone.utc).date()
+    month_start_date = datetime.fromtimestamp(month_ts, tz=timezone.utc).date()
+    cur.execute(_SOD_SQL, {"snap_date": today_date})
+    sod_today_map = {r["symbol"]: r for r in (cur.fetchall() or [])}
+    cur.execute(_SOD_SQL, {"snap_date": month_start_date})
+    sod_month_map = {r["symbol"]: r for r in (cur.fetchall() or [])}
+
     # Step 3: merge, apply FX conversion, sort by ABS net_native DESC
     # (net = long minus short, same basis Dealio uses for ABS Notional)
     all_symbols = sorted(
@@ -269,23 +301,35 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
             fx = (2.0 / (bid + ask)) if usd_base else ((bid + ask) / 2.0)
         else:
             fx = 1.0       # rate not yet in internal_rates
-        buy_lots  = float(p.get("buy_lots")  or 0)
-        sell_lots = float(p.get("sell_lots") or 0)
+        buy_lots      = float(p.get("buy_lots")  or 0)
+        sell_lots     = float(p.get("sell_lots") or 0)
+        current_float = float(p.get("floating_pnl") or 0)
+
+        # Delta floating: current minus SOD.  When no SOD snapshot exists for
+        # the date (new deployment, first day) the symbol won't be in the map →
+        # delta = 0 → falls back to settled-only (existing behaviour).
+        if sym in sod_today_map:
+            delta_daily = current_float - float(sod_today_map[sym].get("sod_floating") or 0)
+        else:
+            delta_daily = 0.0
+        if sym in sod_month_map:
+            delta_monthly = current_float - float(sod_month_map[sym].get("sod_floating") or 0)
+        else:
+            delta_monthly = 0.0
+
         result.append({
             "symbol":             sym,
             "buy_lots":           buy_lots,
             "sell_lots":          sell_lots,
             "net_lots":           sell_lots - buy_lots,   # broker perspective
-            "abs_notional_usd":   abs(net_nat) * fx,   # ABS of net (long−short), matches Dealio
-            "notional_usd":       net_nat * fx,           # signed, broker perspective
-            # floating_pnl and swaps_usd are already USD-converted in the SQL
-            # (account-currency FX applied per position, matching MetaTrader's method)
-            "floating_pnl_usd":   float(p.get("floating_pnl") or 0),
-            "swaps_usd":          float(p.get("swaps_usd")    or 0),
-            "total_floating_usd": float(p.get("floating_pnl") or 0) + float(p.get("swaps_usd") or 0),
-            "daily_pnl_usd":      float(c.get("daily_pnl")        or 0),
-            "monthly_pnl_usd":    float(c.get("monthly_pnl")      or 0),
-            "commission_usd":     float(c.get("commission_today")  or 0),
+            "abs_notional_usd":   abs(net_nat) * fx,
+            "notional_usd":       net_nat * fx,
+            "floating_pnl_usd":   current_float,
+            "swaps_usd":          float(p.get("swaps_usd") or 0),
+            "total_floating_usd": current_float + float(p.get("swaps_usd") or 0),
+            "daily_pnl_usd":      float(c.get("daily_pnl")       or 0) + delta_daily,
+            "monthly_pnl_usd":    float(c.get("monthly_pnl")     or 0) + delta_monthly,
+            "commission_usd":     float(c.get("commission_today") or 0),
         })
     return result
 

@@ -14,6 +14,7 @@ Run: pytest cmtaccounting/tests/test_cro_metrics.py -v
 """
 from __future__ import annotations
 
+import datetime as _dt
 import os
 import sys
 import pytest
@@ -49,6 +50,7 @@ DROP TABLE IF EXISTS accounts_snapshot CASCADE;
 DROP TABLE IF EXISTS deposits_withdrawals CASCADE;
 DROP TABLE IF EXISTS closed_positions CASCADE;
 DROP TABLE IF EXISTS positions_snapshot CASCADE;
+DROP TABLE IF EXISTS positions_sod CASCADE;
 DROP TABLE IF EXISTS external_rates CASCADE;
 DROP TABLE IF EXISTS exposure_snapshot CASCADE;
 DROP TABLE IF EXISTS deals CASCADE;
@@ -123,6 +125,16 @@ CREATE TABLE exposure_snapshot (
     volume_net      DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
+CREATE TABLE positions_sod (
+    snapshot_date  DATE NOT NULL,
+    position_id    BIGINT NOT NULL,
+    login          BIGINT NOT NULL,
+    symbol         TEXT NOT NULL,
+    profit         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    storage        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    PRIMARY KEY (snapshot_date, position_id)
+);
+
 -- `deals` mirrors the relevant subset of MT5-CRO-Backend's `Deal` model.
 -- Non-partitioned variant for tests; partitioning is irrelevant for SUM queries.
 CREATE TABLE deals (
@@ -159,7 +171,7 @@ def conn():
     with c.cursor() as cur:
         cur.execute(
             "DROP TABLE IF EXISTS accounts_snapshot, deposits_withdrawals, "
-            "closed_positions, positions_snapshot, external_rates, deals, "
+            "closed_positions, positions_snapshot, positions_sod, external_rates, deals, "
             "exposure_snapshot, internal_rates CASCADE"
         )
     c.commit()
@@ -189,6 +201,10 @@ YEST_START       = TODAY_START - DAY
 DAY_BEFORE_START = TODAY_START - 2 * DAY
 LAST_MONTH_TIME  = TODAY_START - 30 * DAY
 TODAY_END        = TODAY_START + DAY
+
+# Date objects matching the epoch anchors above (UTC).
+TODAY_DATE       = _dt.datetime.fromtimestamp(TODAY_START, tz=_dt.timezone.utc).date()
+MONTH_START_DATE = _dt.datetime.fromtimestamp(TODAY_START - 30 * DAY, tz=_dt.timezone.utc).date()
 
 
 def _seed_dw(cur, ticket, login, action, time, amount,
@@ -703,3 +719,157 @@ class TestSpreadUsd:
 
     def test_empty_period(self, cur):
         assert cro_metrics.spread_usd(cur, TODAY_START, TODAY_END) == 0.0
+
+
+# ── SOD seed helper ──────────────────────────────────────────────────────────
+
+def _seed_sod(cur, position_id, login, symbol, profit, storage=0.0,
+              snapshot_date=None):
+    d = snapshot_date if snapshot_date is not None else TODAY_DATE
+    cur.execute(
+        "INSERT INTO positions_sod"
+        " (snapshot_date, position_id, login, symbol, profit, storage)"
+        " VALUES (%s,%s,%s,%s,%s,%s)",
+        (d, position_id, login, symbol, profit, storage),
+    )
+
+
+# ── SOD delta-floating tests ──────────────────────────────────────────────────
+
+class TestVolumeDistributionWithSOD:
+    """Tests for the delta-floating component of daily_pnl_usd / monthly_pnl_usd.
+
+    The formula under test:
+        daily_pnl  = closed_today  + (current_floating - sod_today_floating)
+        monthly_pnl = closed_mtd   + (current_floating - sod_month_floating)
+
+    When no SOD snapshot exists for a date the delta is 0 (fallback).
+    """
+
+    def _pos(self, cur, pid, login, symbol, action=0,
+             volume_ext=100_000_000, contract_size=1.0,
+             price=1.0, profit=0.0, storage=0.0):
+        cur.execute(
+            "INSERT INTO positions_snapshot"
+            " (position_id, login, symbol, action, volume_ext,"
+            "  contract_size, price_current, profit, storage)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (pid, login, symbol, action, volume_ext,
+             contract_size, price, profit, storage),
+        )
+
+    def _closed(self, cur, ticket, login, symbol, close_time,
+                profit=0.0, commission=0.0, storage=0.0, fee=0.0):
+        cur.execute(
+            "INSERT INTO closed_positions"
+            " (ticket, login, symbol, open_time, close_time,"
+            "  profit, storage, commission, fee)"
+            " VALUES (%s,%s,%s,0,%s,%s,%s,%s,%s)",
+            (ticket, login, symbol, close_time, profit, storage, commission, fee),
+        )
+
+    def test_daily_pnl_settled_plus_delta_floating(self, cur):
+        """current_float(150) - sod_float(100) = +50 delta; no closed → daily = +50."""
+        self._pos(cur, 1, 100, "EURUSD", profit=150.0)
+        _seed_sod(cur,  1, 100, "EURUSD", profit=100.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
+        r = next(x for x in rows if x["symbol"] == "EURUSD")
+        assert r["daily_pnl_usd"] == pytest.approx(50.0)
+
+    def test_daily_pnl_closed_position_incremental(self, cur):
+        """Position open at SOD (sod_float=100), closed today (settled=160).
+        delta = 0 (not in positions_snapshot) - 100 = -100
+        daily = 160 + (-100) = 60  (broker earned the incremental 60 today)."""
+        # Position is NOT in positions_snapshot (already closed)
+        _seed_sod(cur,   1, 100, "GBPUSD", profit=100.0)
+        self._closed(cur, 1, 100, "GBPUSD", close_time=TODAY_START + 100, profit=160.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
+        r = next(x for x in rows if x["symbol"] == "GBPUSD")
+        assert r["daily_pnl_usd"] == pytest.approx(60.0)
+
+    def test_daily_pnl_no_sod_fallback_settled_only(self, cur):
+        """No positions_sod rows → delta = 0 → daily_pnl = settled only."""
+        self._pos(cur, 1, 100, "USDJPY", profit=500.0)
+        self._closed(cur, 1, 100, "USDJPY", close_time=TODAY_START + 100, profit=200.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
+        r = next(x for x in rows if x["symbol"] == "USDJPY")
+        # No SOD → delta = 0, daily = settled = 200
+        assert r["daily_pnl_usd"] == pytest.approx(200.0)
+
+    def test_daily_pnl_new_position_opened_today(self, cur):
+        """Position opened today: not in SOD, but symbol has OTHER SOD entries.
+        The new position's full current float should add to the delta."""
+        # At SOD: position 1 had profit=100 on XAUUSD
+        _seed_sod(cur,   1, 100, "XAUUSD", profit=100.0)
+        # Now: position 1 still open at 130, PLUS position 2 opened today at 80
+        self._pos(cur, 1, 100, "XAUUSD", profit=130.0)
+        self._pos(cur, 2, 101, "XAUUSD", profit=80.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
+        r = next(x for x in rows if x["symbol"] == "XAUUSD")
+        # current_float = 130 + 80 = 210; sod_float = 100; delta = 110; settled = 0
+        assert r["daily_pnl_usd"] == pytest.approx(110.0)
+
+    def test_monthly_pnl_uses_month_start_date(self, cur):
+        """daily uses TODAY_DATE snapshot; monthly uses MONTH_START_DATE snapshot."""
+        self._pos(cur, 1, 100, "EURUSD", profit=150.0)
+        _seed_sod(cur,  1, 100, "EURUSD", profit=100.0)                      # today SOD
+        _seed_sod(cur,  1, 100, "EURUSD", profit=200.0,                       # month-start SOD
+                  snapshot_date=MONTH_START_DATE)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
+        r = next(x for x in rows if x["symbol"] == "EURUSD")
+        # daily: 150 - 100 = +50
+        assert r["daily_pnl_usd"]   == pytest.approx(50.0)
+        # monthly: 150 - 200 = -50
+        assert r["monthly_pnl_usd"] == pytest.approx(-50.0)
+
+    def test_monthly_pnl_no_month_sod_fallback(self, cur):
+        """Month-start SOD absent → monthly delta = 0 (settled only)."""
+        self._pos(cur, 1, 100, "EURUSD", profit=150.0)
+        _seed_sod(cur,  1, 100, "EURUSD", profit=100.0)   # only today SOD
+        self._closed(cur, 1, 100, "EURUSD", close_time=LAST_MONTH_TIME + 100, profit=300.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
+        r = next(x for x in rows if x["symbol"] == "EURUSD")
+        # daily delta = 150-100 = 50; monthly has no SOD → delta = 0, settled = 300
+        assert r["daily_pnl_usd"]   == pytest.approx(50.0)
+        assert r["monthly_pnl_usd"] == pytest.approx(300.0)
+
+    def test_sod_fx_conversion_account_currency(self, cur):
+        """SOD profit for a JPY account must be divided by the JPY mid-rate,
+        same as the live floating query, so the delta is a clean USD difference."""
+        # Seed JPY rate: mid = 2/(156+158) = 1/157
+        cur.execute(
+            "INSERT INTO internal_rates (currency, bid, ask, usd_base)"
+            " VALUES ('JPY', 156.0, 158.0, TRUE) ON CONFLICT (currency)"
+            " DO UPDATE SET bid=EXCLUDED.bid, ask=EXCLUDED.ask, usd_base=EXCLUDED.usd_base",
+        )
+        cur.execute(
+            "INSERT INTO accounts_snapshot"
+            " (login, group_name, registration, balance, equity, credit, floating, currency)"
+            " VALUES (100, 'CMV', 0, 1000.0, 1000.0, 0.0, 0.0, 'JPY')"
+            " ON CONFLICT (login) DO UPDATE SET currency=EXCLUDED.currency,"
+            "  balance=EXCLUDED.balance, equity=EXCLUDED.equity",
+        )
+        # Current floating: 314,000 JPY ÷ 157 ≈ 2,000 USD
+        self._pos(cur, 1, 100, "USDJPY",
+                  volume_ext=100_000_000, contract_size=100_000.0, price=157.0,
+                  profit=314_000.0)
+        # SOD floating: 157,000 JPY ÷ 157 = 1,000 USD
+        _seed_sod(cur, 1, 100, "USDJPY", profit=157_000.0)
+
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
+        r = next(x for x in rows if x["symbol"] == "USDJPY")
+        # delta = 2000 - 1000 = 1000 USD; no settled → daily = 1000
+        assert r["daily_pnl_usd"] == pytest.approx(1000.0, rel=0.01)
+
+    def test_all_keys_still_present_with_sod(self, cur):
+        """SOD feature must not remove any existing keys from the result dict."""
+        self._pos(cur, 1, 100, "BTCUSD")
+        _seed_sod(cur, 1, 100, "BTCUSD", profit=0.0)
+        rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
+        assert len(rows) == 1
+        r = rows[0]
+        for k in ("symbol", "buy_lots", "sell_lots", "net_lots",
+                  "abs_notional_usd", "notional_usd", "floating_pnl_usd",
+                  "swaps_usd", "total_floating_usd",
+                  "daily_pnl_usd", "monthly_pnl_usd", "commission_usd"):
+            assert k in r, f"missing key: {k}"
