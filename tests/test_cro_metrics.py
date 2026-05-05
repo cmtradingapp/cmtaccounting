@@ -549,7 +549,7 @@ class TestVolumeDistribution:
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
         r = next((x for x in rows if x["symbol"] == "GBPUSD"), None)
         assert r is not None
-        assert r["daily_pnl_usd"] == pytest.approx(195.0)
+        assert r["daily_pnl_usd"] == pytest.approx(-195.0)
 
     def test_monthly_pnl_includes_outside_today(self, cur):
         # A closed position from yesterday counts in monthly but not daily
@@ -557,7 +557,7 @@ class TestVolumeDistribution:
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, YEST_START)
         r = next((x for x in rows if x["symbol"] == "EURUSD"), None)
         assert r is not None
-        assert r["monthly_pnl_usd"] == pytest.approx(100.0)
+        assert r["monthly_pnl_usd"] == pytest.approx(-100.0)
         assert r["daily_pnl_usd"]   == pytest.approx(0.0)
 
     def test_floating_pnl_and_swaps_use_account_currency(self, cur):
@@ -774,7 +774,7 @@ class TestVolumeDistributionWithSOD:
         _seed_sod(cur,  1, 100, "EURUSD", profit=100.0)
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
         r = next(x for x in rows if x["symbol"] == "EURUSD")
-        assert r["daily_pnl_usd"] == pytest.approx(50.0)
+        assert r["daily_pnl_usd"] == pytest.approx(-50.0)
 
     def test_daily_pnl_closed_position_incremental(self, cur):
         """Position open at SOD (sod_float=100), closed today (settled=160).
@@ -785,7 +785,7 @@ class TestVolumeDistributionWithSOD:
         self._closed(cur, 1, 100, "GBPUSD", close_time=TODAY_START + 100, profit=160.0)
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
         r = next(x for x in rows if x["symbol"] == "GBPUSD")
-        assert r["daily_pnl_usd"] == pytest.approx(60.0)
+        assert r["daily_pnl_usd"] == pytest.approx(-60.0)
 
     def test_daily_pnl_no_sod_fallback_settled_only(self, cur):
         """No positions_sod rows → delta = 0 → daily_pnl = settled only."""
@@ -793,8 +793,8 @@ class TestVolumeDistributionWithSOD:
         self._closed(cur, 1, 100, "USDJPY", close_time=TODAY_START + 100, profit=200.0)
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
         r = next(x for x in rows if x["symbol"] == "USDJPY")
-        # No SOD → delta = 0, daily = settled = 200
-        assert r["daily_pnl_usd"] == pytest.approx(200.0)
+        # No SOD → delta = 0, daily = -settled = -200 (broker view)
+        assert r["daily_pnl_usd"] == pytest.approx(-200.0)
 
     def test_daily_pnl_new_position_opened_today(self, cur):
         """Position opened today: not in SOD, but symbol has OTHER SOD entries.
@@ -807,7 +807,7 @@ class TestVolumeDistributionWithSOD:
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
         r = next(x for x in rows if x["symbol"] == "XAUUSD")
         # current_float = 130 + 80 = 210; sod_float = 100; delta = 110; settled = 0
-        assert r["daily_pnl_usd"] == pytest.approx(110.0)
+        assert r["daily_pnl_usd"] == pytest.approx(-110.0)
 
     def test_monthly_pnl_uses_month_start_date(self, cur):
         """daily uses TODAY_DATE snapshot; monthly uses MONTH_START_DATE snapshot."""
@@ -817,10 +817,10 @@ class TestVolumeDistributionWithSOD:
                   snapshot_date=MONTH_START_DATE)
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
         r = next(x for x in rows if x["symbol"] == "EURUSD")
-        # daily: 150 - 100 = +50
-        assert r["daily_pnl_usd"]   == pytest.approx(50.0)
-        # monthly: 150 - 200 = -50
-        assert r["monthly_pnl_usd"] == pytest.approx(-50.0)
+        # daily broker: -(150-100) = -50
+        assert r["daily_pnl_usd"]   == pytest.approx(-50.0)
+        # monthly broker: -(150-200) = +50
+        assert r["monthly_pnl_usd"] == pytest.approx(50.0)
 
     def test_monthly_pnl_no_month_sod_fallback(self, cur):
         """Month-start SOD absent → monthly delta = 0 (settled only)."""
@@ -829,9 +829,9 @@ class TestVolumeDistributionWithSOD:
         self._closed(cur, 1, 100, "EURUSD", close_time=LAST_MONTH_TIME + 100, profit=300.0)
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
         r = next(x for x in rows if x["symbol"] == "EURUSD")
-        # daily delta = 150-100 = 50; monthly has no SOD → delta = 0, settled = 300
-        assert r["daily_pnl_usd"]   == pytest.approx(50.0)
-        assert r["monthly_pnl_usd"] == pytest.approx(300.0)
+        # daily broker: -(150-100) = -50; monthly no SOD → broker: -settled = -300
+        assert r["daily_pnl_usd"]   == pytest.approx(-50.0)
+        assert r["monthly_pnl_usd"] == pytest.approx(-300.0)
 
     def test_sod_fx_conversion_account_currency(self, cur):
         """SOD profit for a JPY account must be divided by the JPY mid-rate,
@@ -858,8 +858,8 @@ class TestVolumeDistributionWithSOD:
 
         rows = cro_metrics.volume_distribution(cur, TODAY_START, TODAY_END, LAST_MONTH_TIME)
         r = next(x for x in rows if x["symbol"] == "USDJPY")
-        # delta = 2000 - 1000 = 1000 USD; no settled → daily = 1000
-        assert r["daily_pnl_usd"] == pytest.approx(1000.0, rel=0.01)
+        # delta = 2000 - 1000 = 1000 USD client; broker = -1000
+        assert r["daily_pnl_usd"] == pytest.approx(-1000.0, rel=0.01)
 
     def test_all_keys_still_present_with_sod(self, cur):
         """SOD feature must not remove any existing keys from the result dict."""
