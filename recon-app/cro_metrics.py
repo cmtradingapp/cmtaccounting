@@ -255,7 +255,7 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
     _SOD_SQL = """
         SELECT ps.symbol,
                SUM(
-                   ps.profit *
+                   (ps.profit + ps.storage) *
                    CASE WHEN COALESCE(a.currency, 'USD') = 'USD' THEN 1.0
                         WHEN ir_a.bid > 0 AND ir_a.ask > 0 THEN
                           CASE WHEN ir_a.usd_base THEN 2.0/(ir_a.bid + ir_a.ask)
@@ -303,7 +303,9 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
             fx = 1.0       # rate not yet in internal_rates
         buy_lots      = float(p.get("buy_lots")  or 0)
         sell_lots     = float(p.get("sell_lots") or 0)
-        current_float = float(p.get("floating_pnl") or 0)
+        # Include storage (swaps) so the delta matches the card's convention:
+        # accounts_snapshot.floating = profit + storage.
+        current_float = float(p.get("floating_pnl") or 0) + float(p.get("swaps_usd") or 0)
 
         # Delta floating: current minus SOD.  When no SOD snapshot exists for
         # the date (new deployment, first day) the symbol won't be in the map →
