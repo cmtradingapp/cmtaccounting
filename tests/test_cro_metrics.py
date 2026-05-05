@@ -51,6 +51,7 @@ DROP TABLE IF EXISTS deposits_withdrawals CASCADE;
 DROP TABLE IF EXISTS closed_positions CASCADE;
 DROP TABLE IF EXISTS positions_snapshot CASCADE;
 DROP TABLE IF EXISTS positions_sod CASCADE;
+DROP TABLE IF EXISTS daily_reports CASCADE;
 DROP TABLE IF EXISTS external_rates CASCADE;
 DROP TABLE IF EXISTS exposure_snapshot CASCADE;
 DROP TABLE IF EXISTS deals CASCADE;
@@ -125,6 +126,18 @@ CREATE TABLE exposure_snapshot (
     volume_net      DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
+CREATE TABLE daily_reports (
+    login          BIGINT NOT NULL DEFAULT 0,
+    datetime       BIGINT NOT NULL DEFAULT 0,
+    currency       TEXT NOT NULL DEFAULT 'USD',
+    balance        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    credit         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    profit         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    profit_storage DOUBLE PRECISION NOT NULL DEFAULT 0,
+    profit_equity  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    group_name     TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE positions_sod (
     snapshot_date  DATE NOT NULL,
     position_id    BIGINT NOT NULL,
@@ -171,8 +184,8 @@ def conn():
     with c.cursor() as cur:
         cur.execute(
             "DROP TABLE IF EXISTS accounts_snapshot, deposits_withdrawals, "
-            "closed_positions, positions_snapshot, positions_sod, external_rates, deals, "
-            "exposure_snapshot, internal_rates CASCADE"
+            "closed_positions, positions_snapshot, positions_sod, daily_reports, "
+            "external_rates, deals, exposure_snapshot, internal_rates CASCADE"
         )
     c.commit()
     c.close()
@@ -461,14 +474,6 @@ class TestCollectAllMetricsShape:
         # exposure_snapshot is now in _SCHEMA so it already exists.
         # daily_reports / internal_rates are not in _SCHEMA — create them here.
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS daily_reports (
-                login BIGINT, datetime BIGINT, currency TEXT DEFAULT 'USD',
-                balance DOUBLE PRECISION DEFAULT 0,
-                credit DOUBLE PRECISION DEFAULT 0,
-                profit DOUBLE PRECISION DEFAULT 0,
-                profit_storage DOUBLE PRECISION DEFAULT 0,
-                profit_equity DOUBLE PRECISION DEFAULT 0,
-                group_name TEXT DEFAULT '');
             CREATE TABLE IF NOT EXISTS internal_rates (
                 currency TEXT PRIMARY KEY, bid DOUBLE PRECISION DEFAULT 0,
                 ask DOUBLE PRECISION DEFAULT 0, usd_base BOOLEAN DEFAULT FALSE);

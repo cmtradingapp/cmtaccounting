@@ -249,9 +249,10 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
     closed_map = {r["symbol"]: r for r in (cur.fetchall() or [])}
 
     # Steps 2a/2b: SOD floating per symbol for daily-delta and MTD-delta.
-    # Uses account-currency FX (same as the live floating query above) so
-    # delta = current_floating - sod_floating is a clean USD difference.
-    # If no snapshot exists for a date the dict is empty → delta = 0 (fallback).
+    # Uses account-currency FX so delta = current_floating - sod_floating is USD.
+    # If no snapshot exists the dict is empty → delta = 0 (fallback).
+
+    # Today's SOD: captured from live positions_snapshot — no scaling needed.
     _SOD_SQL = """
         SELECT ps.symbol,
                SUM(
@@ -273,11 +274,71 @@ def volume_distribution(cur, today_ts: int, today_end_ts: int, month_ts: int) ->
           AND ps.symbol NOT ILIKE '%%%%inactivity%%%%'
         GROUP BY ps.symbol
     """
+
+    # Month-start SOD: may be a ChartRequest backfill (1-min bar close ≠ MT5
+    # bid/ask tick → systematic price error).  Scale each position's profit by
+    # (daily_reports.actual_float / positions_sod.computed_float) per login so
+    # the baseline matches daily_reports exactly.  When scale can't be computed
+    # (no DR record or sod_native=0) the raw ChartRequest value is kept.
+    _SOD_SCALED_SQL = """
+        WITH dr_float AS (
+            SELECT login, SUM(profit + profit_storage) AS dr_native
+            FROM daily_reports
+            WHERE datetime >= %(prev_month_ts)s AND datetime < %(month_ts)s
+              AND group_name NOT ILIKE '%%%%test%%%%'
+              AND NOT (balance = 0 AND profit_equity = 0)
+            GROUP BY login
+        ),
+        sod_per_login AS (
+            SELECT login, SUM(profit + storage) AS sod_native
+            FROM positions_sod
+            WHERE snapshot_date = %(snap_date)s
+              AND symbol NOT ILIKE 'Zeroing%%%%'
+              AND symbol NOT ILIKE '%%%%inactivity%%%%'
+            GROUP BY login
+        ),
+        scaling AS (
+            SELECT s.login,
+                   CASE WHEN d.dr_native IS NOT NULL AND s.sod_native != 0
+                        THEN d.dr_native::float / s.sod_native::float
+                        ELSE 1.0 END AS scale_factor
+            FROM sod_per_login s
+            LEFT JOIN dr_float d ON d.login = s.login
+        )
+        SELECT ps.symbol,
+               SUM(
+                   (ps.profit + ps.storage) * sc.scale_factor *
+                   CASE WHEN COALESCE(a.currency, 'USD') = 'USD' THEN 1.0
+                        WHEN ir_a.bid > 0 AND ir_a.ask > 0 THEN
+                          CASE WHEN ir_a.usd_base THEN 2.0/(ir_a.bid + ir_a.ask)
+                               ELSE (ir_a.bid + ir_a.ask) / 2.0 END
+                        ELSE 1.0 END
+               ) AS sod_floating
+        FROM positions_sod ps
+        JOIN scaling sc ON sc.login = ps.login
+        LEFT JOIN accounts_snapshot a
+            ON  a.login = ps.login
+            AND NOT (a.balance = 0 AND a.equity = 0)
+            AND a.group_name NOT ILIKE '%%%%test%%%%'
+        LEFT JOIN internal_rates ir_a ON ir_a.currency = COALESCE(a.currency, 'USD')
+        WHERE ps.snapshot_date = %(snap_date)s
+          AND ps.symbol NOT ILIKE 'Zeroing%%%%'
+          AND ps.symbol NOT ILIKE '%%%%inactivity%%%%'
+        GROUP BY ps.symbol
+    """
+
     today_date       = datetime.fromtimestamp(today_ts, tz=timezone.utc).date()
     month_start_date = datetime.fromtimestamp(month_ts, tz=timezone.utc).date()
+    # prev_month_end: last day of previous month (for the daily_reports window)
+    prev_month_end_ts = month_ts - 86400
+
     cur.execute(_SOD_SQL, {"snap_date": today_date})
     sod_today_map = {r["symbol"]: r for r in (cur.fetchall() or [])}
-    cur.execute(_SOD_SQL, {"snap_date": month_start_date})
+    cur.execute(_SOD_SCALED_SQL, {
+        "snap_date": month_start_date,
+        "prev_month_ts": prev_month_end_ts,
+        "month_ts": month_ts,
+    })
     sod_month_map = {r["symbol"]: r for r in (cur.fetchall() or [])}
 
     # Step 3: merge, apply FX conversion, sort by ABS net_native DESC
