@@ -226,13 +226,20 @@ WHERE close_time IN [today_start, today_end)
 
     { key: "n_active_traders", label: "#Active Traders", formatter: "int",
       summary:
-`Distinct logins currently holding open positions in the live book
-(positions_snapshot, refreshed each slow cycle).`,
+`Distinct CRM users who OPENED a new position today.
+Counts positions that were opened today and are either still open
+(positions_snapshot.time_create) or already closed (closed_positions.open_time).
+Deduplicates across multiple MT5 accounts via accounts_snapshot.comment (CRM user ID).`,
       formula:
-`COUNT(DISTINCT login)
-FROM positions_snapshot
-WHERE symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
-      sources: ["positions_snapshot"], componentsOf: [] },
+`COUNT(DISTINCT crm_user_id) WHERE crm_user_id =
+  CASE WHEN comment != '' THEN comment ELSE login::text END
+FROM (
+  SELECT login FROM positions_snapshot WHERE time_create IN window
+  UNION
+  SELECT login FROM closed_positions WHERE open_time IN window
+) opened
+LEFT JOIN accounts_snapshot USING (login)`,
+      sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",
       summary:
@@ -474,14 +481,20 @@ WHERE close_time IN [yesterday_start, today_start)
 
     { key: "n_active_traders", label: "#Active Traders", formatter: "int",
       summary:
-`Distinct logins that opened OR closed positions during yesterday's
-window. Approximates "logins with new opens yesterday" — see plan note.`,
+`Distinct CRM users who OPENED a new position yesterday.
+Same logic as today's card: positions_snapshot.time_create (still open)
+UNION closed_positions.open_time (opened and closed same day).
+CRM deduplication via accounts_snapshot.comment.`,
       formula:
-`COUNT(DISTINCT login)
-FROM closed_positions
-WHERE (open_time IN window OR close_time IN window)
-  AND symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
-      sources: ["closed_positions"], componentsOf: [] },
+`COUNT(DISTINCT crm_user_id) WHERE crm_user_id =
+  CASE WHEN comment != '' THEN comment ELSE login::text END
+FROM (
+  SELECT login FROM positions_snapshot WHERE time_create IN yesterday_window
+  UNION
+  SELECT login FROM closed_positions WHERE open_time IN yesterday_window
+) opened
+LEFT JOIN accounts_snapshot USING (login)`,
+      sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",
       summary: `Distinct logins with positive deposits yesterday.`,
@@ -686,13 +699,20 @@ WHERE close_time IN [month_start, today_end)
       sources: ["closed_positions"], componentsOf: [] },
 
     { key: "n_active_traders", label: "#Active Traders", formatter: "int",
-      summary: `Distinct logins that opened OR closed positions during MTD.`,
+      summary:
+`Distinct CRM users who opened any position since month-start.
+positions_snapshot.time_create UNION closed_positions.open_time,
+deduplicated by CRM user ID (accounts_snapshot.comment).`,
       formula:
-`COUNT(DISTINCT login)
-FROM closed_positions
-WHERE (open_time IN window OR close_time IN window)
-  AND symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
-      sources: ["closed_positions"], componentsOf: [] },
+`COUNT(DISTINCT crm_user_id) WHERE crm_user_id =
+  CASE WHEN comment != '' THEN comment ELSE login::text END
+FROM (
+  SELECT login FROM positions_snapshot WHERE time_create IN mtd_window
+  UNION
+  SELECT login FROM closed_positions WHERE open_time IN mtd_window
+) opened
+LEFT JOIN accounts_snapshot USING (login)`,
+      sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",
       summary: `Distinct logins with positive deposits MTD.`,
