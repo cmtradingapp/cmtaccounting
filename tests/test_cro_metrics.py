@@ -65,7 +65,8 @@ CREATE TABLE accounts_snapshot (
     equity       DOUBLE PRECISION NOT NULL DEFAULT 0,
     credit       DOUBLE PRECISION NOT NULL DEFAULT 0,
     floating     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    currency     TEXT NOT NULL DEFAULT 'USD'
+    currency     TEXT NOT NULL DEFAULT 'USD',
+    comment      TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE deposits_withdrawals (
@@ -101,7 +102,8 @@ CREATE TABLE positions_snapshot (
     contract_size DOUBLE PRECISION NOT NULL DEFAULT 1,
     price_current DOUBLE PRECISION NOT NULL DEFAULT 0,
     profit        DOUBLE PRECISION NOT NULL DEFAULT 0,
-    storage       DOUBLE PRECISION NOT NULL DEFAULT 0
+    storage       DOUBLE PRECISION NOT NULL DEFAULT 0,
+    time_create   BIGINT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE external_rates (
@@ -229,11 +231,11 @@ def _seed_dw(cur, ticket, login, action, time, amount,
     )
 
 
-def _seed_acct(cur, login, registration, group_name="CMV\\real"):
+def _seed_acct(cur, login, registration, group_name="CMV\\real", comment=""):
     cur.execute(
-        "INSERT INTO accounts_snapshot (login, group_name, registration) "
-        "VALUES (%s,%s,%s)",
-        (login, group_name, registration),
+        "INSERT INTO accounts_snapshot (login, group_name, registration, comment) "
+        "VALUES (%s,%s,%s,%s)",
+        (login, group_name, registration, comment),
     )
 
 
@@ -247,14 +249,15 @@ def _seed_closed(cur, ticket, login, symbol, open_time, close_time):
 
 def _seed_position(cur, position_id, login, symbol="EURUSD",
                    action=0, volume_ext=100_000_000, contract_size=1.0,
-                   price_current=1.0, profit=0.0, storage=0.0):
+                   price_current=1.0, profit=0.0, storage=0.0,
+                   time_create=0):
     cur.execute(
         "INSERT INTO positions_snapshot"
         " (position_id, login, symbol, action, volume_ext,"
-        "  contract_size, price_current, profit, storage)"
-        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "  contract_size, price_current, profit, storage, time_create)"
+        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (position_id, login, symbol, action, volume_ext,
-         contract_size, price_current, profit, storage),
+         contract_size, price_current, profit, storage, time_create),
     )
 
 
@@ -317,28 +320,51 @@ class TestNTraders:
 
 class TestNActiveTraders:
 
-    def test_live_distinct_logins(self, cur):
-        _seed_position(cur, 1, login=100)
-        _seed_position(cur, 2, login=100)            # same login, different positions
-        _seed_position(cur, 3, login=200)
-        assert cro_metrics.n_active_traders_live(cur) == 2
+    def test_opened_today_from_positions_snapshot(self, cur):
+        _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
+        _seed_position(cur, 2, login=100, time_create=TODAY_START + 200)  # same login
+        _seed_position(cur, 3, login=200, time_create=TODAY_START + 300)
+        # 2 distinct logins, no CRM comment → fallback login::text → 2
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 2
 
-    def test_live_excludes_zeroing(self, cur):
-        _seed_position(cur, 1, login=100, symbol="Zeroing_EURUSD")
-        _seed_position(cur, 2, login=200, symbol="EURUSD")
-        assert cro_metrics.n_active_traders_live(cur) == 1
+    def test_opened_before_window_not_counted(self, cur):
+        _seed_position(cur, 1, login=100, time_create=YEST_START)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 0
 
-    def test_period_union_open_or_close(self, cur):
-        # opened in window, closes later: counts (via open_time)
-        _seed_closed(cur, 1, login=100, symbol="EURUSD",
-                     open_time=TODAY_START + 1000, close_time=TODAY_END + 500)
-        # opened earlier, closed in window: counts (via close_time)
-        _seed_closed(cur, 2, login=200, symbol="EURUSD",
-                     open_time=DAY_BEFORE_START, close_time=TODAY_START + 2000)
-        # entirely outside the window: doesn't count
-        _seed_closed(cur, 3, login=300, symbol="EURUSD",
-                     open_time=DAY_BEFORE_START, close_time=YEST_START + 100)
-        assert cro_metrics.n_active_traders_period(cur, TODAY_START, TODAY_END) == 2
+    def test_opened_and_closed_today_from_closed_positions(self, cur):
+        _seed_closed(cur, 1, login=300, symbol="EURUSD",
+                     open_time=TODAY_START + 100, close_time=TODAY_START + 500)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 1
+
+    def test_crm_deduplication(self, cur):
+        # Two logins share the same CRM comment → count as 1 CRM user
+        cur.execute(
+            "INSERT INTO accounts_snapshot"
+            " (login, group_name, registration, balance, equity,"
+            "  credit, floating, currency, comment)"
+            " VALUES (100,'CMV',0,1,1,0,0,'USD','CRM_999'),"
+            "        (200,'CMV',0,1,1,0,0,'USD','CRM_999')"
+        )
+        _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
+        _seed_position(cur, 2, login=200, time_create=TODAY_START + 200)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 1
+
+    def test_union_both_sources(self, cur):
+        # One login via snapshot, another via closed_positions
+        _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
+        _seed_closed(cur, 1, login=200, symbol="EURUSD",
+                     open_time=TODAY_START + 50, close_time=TODAY_START + 200)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 2
+
+    def test_excludes_zeroing(self, cur):
+        _seed_position(cur, 1, login=100, symbol="Zeroing_X",
+                       time_create=TODAY_START + 100)
+        _seed_position(cur, 2, login=200, symbol="EURUSD",
+                       time_create=TODAY_START + 200)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 1
+
+    def test_empty_returns_zero(self, cur):
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 0
 
 
 # ── #Depositors tests ───────────────────────────────────────────────────

@@ -588,30 +588,36 @@ def n_traders(cur, from_ts: int, to_ts: int) -> int:
     return int(row.get("v") or 0)
 
 
-def n_active_traders_live(cur) -> int:
-    """Distinct logins currently holding open positions (live snapshot)."""
-    sql = f"""
-        SELECT COUNT(DISTINCT login)::int AS v
-        FROM positions_snapshot
-        WHERE {_TRADER_SYMBOL_FILTER}
-    """
-    cur.execute(sql)
-    row = cur.fetchone() or {}
-    return int(row.get("v") or 0)
+def n_active_traders_opened(cur, from_ts: int, to_ts: int) -> int:
+    """Distinct CRM users who opened any position in [from_ts, to_ts).
 
+    Sources:
+      positions_snapshot — time_create in window (currently-open positions)
+      closed_positions   — open_time   in window (opened and closed same period)
 
-def n_active_traders_period(cur, from_ts: int, to_ts: int) -> int:
-    """Historical (yesterday / monthly): distinct logins who opened OR
-    closed positions within the window. Approximates the C# definition
-    (logins with opening-leg deals) — see plan note 2 on tradeoff."""
-    sql = f"""
-        SELECT COUNT(DISTINCT login)::int AS v
-        FROM closed_positions
-        WHERE {_TRADER_SYMBOL_FILTER}
-          AND ((open_time  >= %(from_ts)s AND open_time  < %(to_ts)s)
-            OR (close_time >= %(from_ts)s AND close_time < %(to_ts)s))
+    CRM deduplication via accounts_snapshot.comment (numeric CRM user ID,
+    e.g. '27072047').  Falls back to login::text for the ~3% of accounts
+    with no CRM comment.
     """
-    cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
+    sql = """
+        WITH opened AS (
+            SELECT DISTINCT login FROM positions_snapshot
+            WHERE time_create >= %(t)s AND time_create < %(te)s
+              AND symbol NOT ILIKE 'Zeroing%%' AND symbol NOT ILIKE '%%inactivity%%'
+            UNION
+            SELECT DISTINCT login FROM closed_positions
+            WHERE open_time >= %(t)s AND open_time < %(te)s
+              AND symbol NOT ILIKE 'Zeroing%%' AND symbol NOT ILIKE '%%inactivity%%'
+        )
+        SELECT COUNT(DISTINCT
+            CASE WHEN a.comment IS NOT NULL AND a.comment != '' AND a.comment != '0'
+                 THEN a.comment
+                 ELSE o.login::text END
+        )::int AS v
+        FROM opened o
+        LEFT JOIN accounts_snapshot a ON a.login = o.login
+    """
+    cur.execute(sql, {"t": from_ts, "te": to_ts})
     row = cur.fetchone() or {}
     return int(row.get("v") or 0)
 
@@ -831,9 +837,9 @@ def collect_all_metrics(cur) -> dict:
     n_traders_yest       = n_traders(cur, yesterday_start_ts, today_start_ts)
     n_traders_mtd        = n_traders(cur, month_start_ts, today_end_ts)
 
-    n_active_today       = n_active_traders_live(cur)
-    n_active_yest        = n_active_traders_period(cur, yesterday_start_ts, today_start_ts)
-    n_active_mtd         = n_active_traders_period(cur, month_start_ts, today_end_ts)
+    n_active_today       = n_active_traders_opened(cur, today_start_ts,     today_end_ts)
+    n_active_yest        = n_active_traders_opened(cur, yesterday_start_ts, today_start_ts)
+    n_active_mtd         = n_active_traders_opened(cur, month_start_ts,     today_end_ts)
 
     n_dep_today          = n_depositors(cur, today_start_ts, today_end_ts)
     n_dep_yest           = n_depositors(cur, yesterday_start_ts, today_start_ts)
