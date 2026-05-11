@@ -473,6 +473,30 @@ class TestNDepositors:
         _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 200, amount=300)
         assert cro_metrics.n_depositors(cur, TODAY_START, TODAY_END) == 1
 
+    def test_crm_deduplication(self, cur):
+        # One CRM user, two logins, both deposit positively today → 1 depositor.
+        _seed_acct(cur, 100, registration=0, comment="CRM_42")
+        _seed_acct(cur, 200, registration=0, comment="CRM_42")
+        _seed_dw(cur, 1, login=100, action=2, time=TODAY_START + 100, amount=500)
+        _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 200, amount=300)
+        assert cro_metrics.n_depositors(cur, TODAY_START, TODAY_END) == 1
+
+    def test_name_deduplication(self, cur):
+        # No CRM, same name on both logins → 1 depositor (name-fallback path).
+        _seed_acct(cur, 100, registration=0, name="Peter Otengo Omusula")
+        _seed_acct(cur, 200, registration=0, name="Peter Otengo Omusula")
+        _seed_dw(cur, 1, login=100, action=2, time=TODAY_START + 100, amount=500)
+        _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 200, amount=300)
+        assert cro_metrics.n_depositors(cur, TODAY_START, TODAY_END) == 1
+
+    def test_crm_beats_name(self, cur):
+        # Same name but different CRM IDs → 2 depositors (CRM takes precedence).
+        _seed_acct(cur, 100, registration=0, comment="CRM_A", name="John Smith")
+        _seed_acct(cur, 200, registration=0, comment="CRM_B", name="John Smith")
+        _seed_dw(cur, 1, login=100, action=2, time=TODAY_START + 100, amount=500)
+        _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 200, amount=300)
+        assert cro_metrics.n_depositors(cur, TODAY_START, TODAY_END) == 2
+
 
 # ── #New Acc Regs tests ─────────────────────────────────────────────────
 

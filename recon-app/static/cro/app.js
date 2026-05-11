@@ -260,16 +260,23 @@ LEFT JOIN accounts_snapshot a USING (login)
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",
       summary:
-`Distinct logins that made at least one positive deposit today.
-Excludes bonus / fees-placeholder / spread-charge comments.`,
+`Distinct CRM users who made at least one positive deposit today.
+Multiple MT5 logins from the same CRM user collapse via CRM ID
+(accounts_snapshot.comment), then by name (case-insensitive, trimmed)
+when CRM is missing. Excludes bonus / fees-placeholder / spread-charge
+comments.`,
       formula:
-`COUNT(DISTINCT login)
-FROM deposits_withdrawals
+`COUNT(DISTINCT dedup_key)
+FROM deposits_withdrawals dw
+LEFT JOIN accounts_snapshot a USING (login)
 WHERE action = 2 AND amount > 0 AND time IN [today_start, today_end)
   AND comment NOT LIKE '%bonus%'
   AND comment NOT LIKE '%fees placeholder%'
-  AND comment NOT LIKE '%spread charge%'`,
-      sources: ["deposits_withdrawals"], componentsOf: [] },
+  AND comment NOT LIKE '%spread charge%'
+  dedup_key = CASE WHEN comment THEN 'CRM:'||comment
+                   WHEN name    THEN 'NAME:'||lower(trim(name))
+                   ELSE              'LOGIN:'||login END`,
+      sources: ["deposits_withdrawals", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
       summary:
@@ -534,15 +541,18 @@ LEFT JOIN accounts_snapshot a USING (login)
       sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",
-      summary: `Distinct logins with positive deposits yesterday.`,
+      summary:
+`Distinct CRM users with positive deposits yesterday (CRM ID → name →
+login dedup; same logic as today's card).`,
       formula:
-`COUNT(DISTINCT login)
-FROM deposits_withdrawals
+`COUNT(DISTINCT dedup_key)
+FROM deposits_withdrawals dw
+LEFT JOIN accounts_snapshot a USING (login)
 WHERE action = 2 AND amount > 0 AND time IN [yesterday, today)
   AND comment NOT LIKE '%bonus%'
   AND comment NOT LIKE '%fees placeholder%'
   AND comment NOT LIKE '%spread charge%'`,
-      sources: ["deposits_withdrawals"], componentsOf: [] },
+      sources: ["deposits_withdrawals", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
       summary:
@@ -773,15 +783,18 @@ LEFT JOIN accounts_snapshot a USING (login)
       sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",
-      summary: `Distinct logins with positive deposits MTD.`,
+      summary:
+`Distinct CRM users with positive deposits month-to-date (CRM ID →
+name → login dedup; same logic as today's card).`,
       formula:
-`COUNT(DISTINCT login)
-FROM deposits_withdrawals
+`COUNT(DISTINCT dedup_key)
+FROM deposits_withdrawals dw
+LEFT JOIN accounts_snapshot a USING (login)
 WHERE action = 2 AND amount > 0 AND time IN [month_start, today_end)
   AND comment NOT LIKE '%bonus%'
   AND comment NOT LIKE '%fees placeholder%'
   AND comment NOT LIKE '%spread charge%'`,
-      sources: ["deposits_withdrawals"], componentsOf: [] },
+      sources: ["deposits_withdrawals", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
       summary:

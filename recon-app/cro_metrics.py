@@ -667,16 +667,22 @@ def n_active_traders_opened(cur, from_ts: int, to_ts: int) -> int:
 
 
 def n_depositors(cur, from_ts: int, to_ts: int) -> int:
-    """Distinct logins with positive deposits in [from, to). Excludes
-    bonus / fees-placeholder / spread-charge comments per Mt5MonitorApiBundle.cs."""
-    sql = """
-        SELECT COUNT(DISTINCT login)::int AS v
-        FROM deposits_withdrawals
-        WHERE action = 2 AND amount > 0
-          AND time >= %(from_ts)s AND time < %(to_ts)s
-          AND COALESCE(lower(comment), '') NOT LIKE '%%bonus%%'
-          AND COALESCE(lower(comment), '') NOT LIKE '%%fees placeholder%%'
-          AND COALESCE(lower(comment), '') NOT LIKE '%%spread charge%%'
+    """Distinct CRM users with at least one positive deposit in [from, to).
+    Dedup via `_dedup_key`: CRM ID → name → login fallback, so a user who
+    deposits on two MT5 logins counts once.
+
+    Excludes bonus / fees-placeholder / spread-charge comments per
+    Mt5MonitorApiBundle.cs.
+    """
+    sql = f"""
+        SELECT COUNT(DISTINCT {_dedup_key('dw.login')})::int AS v
+        FROM deposits_withdrawals dw
+        LEFT JOIN accounts_snapshot a ON a.login = dw.login
+        WHERE dw.action = 2 AND dw.amount > 0
+          AND dw.time >= %(from_ts)s AND dw.time < %(to_ts)s
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%bonus%%'
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%fees placeholder%%'
+          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%spread charge%%'
     """
     cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
     row = cur.fetchone() or {}
