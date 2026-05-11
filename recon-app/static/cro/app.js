@@ -214,8 +214,8 @@ position size regardless of direction.`,
     // ── ACTIVITY & COUNTS (mirrors Mt5MonitorApiBundle.cs)
     { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
       summary:
-`Distinct humans who OPENED or CLOSED at least one position today.
-Multiple MT5 logins belonging to the same human are collapsed via CRM ID
+`Distinct CRM users who OPENED or CLOSED at least one position today.
+Multiple MT5 logins belonging to the same CRM user are collapsed via CRM ID
 (accounts_snapshot.comment), then by name (case-insensitive, trimmed) when
 CRM is missing — falling back to per-login only if both are absent.
 Synthetic "Zeroing*" / "*inactivity*" symbols are excluded (per the C# bundle).`,
@@ -238,7 +238,7 @@ LEFT JOIN accounts_snapshot a USING (login)
 
     { key: "n_active_traders", label: "#Active Traders", formatter: "int",
       summary:
-`Distinct humans who OPENED a new position today. Closes alone don't count.
+`Distinct CRM users who OPENED a new position today. Closes alone don't count.
 Sources: positions_snapshot.time_create (still open) UNION closed_positions.open_time
 (opened and closed in the same window). Dedupe across MT5 logins by CRM ID
 (accounts_snapshot.comment), then by name (case-insensitive, trimmed) when CRM is
@@ -273,46 +273,60 @@ WHERE action = 2 AND amount > 0 AND time IN [today_start, today_end)
 
     { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
       summary:
-`Accounts whose IMTUser.Registration timestamp falls within today.
-Test groups excluded.`,
+`Distinct CRM users whose account registration timestamp lands today.
+Multiple MT5 logins from the same CRM user collapse via CRM ID
+(accounts_snapshot.comment), then by name (case-insensitive, trimmed)
+when CRM is missing. Test groups excluded.`,
       formula:
-`COUNT(*) FROM accounts_snapshot
+`COUNT(DISTINCT dedup_key)
+FROM accounts_snapshot
 WHERE registration IN [today_start, today_end)
-  AND group_name NOT ILIKE '%test%'`,
+  AND group_name NOT ILIKE '%test%'
+  dedup_key = CASE WHEN comment THEN 'CRM:'||comment
+                   WHEN name    THEN 'NAME:'||lower(trim(name))
+                   ELSE              'LOGIN:'||login END`,
       sources: ["accounts_snapshot"], componentsOf: [] },
 
     { key: "n_ftd", label: "#FTD", formatter: "int",
       summary:
-`First-Time Depositors: accounts whose FIRST-EVER positive deposit
-landed today. Bonus deposits do count toward "first deposit" candidacy
-(matches C# CollectFirstValidDepositDates), only fees-placeholder /
-spread-charge are filtered out at the candidacy stage.`,
+`First-Time Depositors: distinct CRM users whose FIRST-EVER positive
+deposit (MIN(time) across ALL their MT5 logins) lands today. Bonus
+deposits CAN anchor the first deposit (matches C# CollectFirstValid-
+DepositDates); only fees-placeholder / spread-charge rows are filtered
+out at the candidacy stage. Dedup via CRM ID, then name.`,
       formula:
 `WITH first_dep AS (
-  SELECT login, MIN(time) AS first_time
-  FROM deposits_withdrawals
+  SELECT dedup_key, MIN(time) AS first_time
+  FROM deposits_withdrawals dw
+  LEFT JOIN accounts_snapshot a USING (login)
   WHERE action = 2 AND amount > 0
     AND comment NOT LIKE '%fees placeholder%'
     AND comment NOT LIKE '%spread charge%'
-  GROUP BY login)
+  GROUP BY dedup_key)
 SELECT COUNT(*) FROM first_dep
-WHERE first_time IN [today_start, today_end)`,
-      sources: ["deposits_withdrawals"], componentsOf: [] },
+WHERE first_time IN [today_start, today_end)
+  dedup_key = CASE WHEN comment THEN 'CRM:'||comment
+                   WHEN name    THEN 'NAME:'||lower(trim(name))
+                   ELSE              'LOGIN:'||login END`,
+      sources: ["deposits_withdrawals", "accounts_snapshot"], componentsOf: [] },
 
     { key: "ftd_amount_usd", label: "FTD Amount", formatter: "money", signed: false,
       summary:
-`Total deposits made TODAY by FTD logins (USD-converted via external_rates
-mid-rate). Bonus deposits are excluded from the AMOUNT sum (unlike the
-FTD-login set itself), so this represents real cash brought in.`,
+`Total deposits made TODAY by today-FTD CRM users (USD-converted via
+external_rates mid-rate). A CRM user is included iff their earliest
+deposit across all logins lands today; once included, ALL of today's
+deposits across ALL their logins count. Bonus excluded from the amount
+sum (cash only), matching C# parity.`,
       formula:
 `SUM(amount → USD via mid-rate)
-FROM deposits_withdrawals
-WHERE login ∈ today's FTD set
-  AND action = 2 AND amount > 0 AND time IN [today_start, today_end)
+FROM deposits_withdrawals dw
+JOIN ftd_users USING (dedup_key)       -- today-FTD CRM users only
+WHERE dw.time IN [today_start, today_end)
+  AND action = 2 AND amount > 0
   AND comment NOT LIKE '%bonus%'
   AND comment NOT LIKE '%fees placeholder%'
   AND comment NOT LIKE '%spread charge%'`,
-      sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
+      sources: ["deposits_withdrawals", "external_rates", "accounts_snapshot"], componentsOf: [] },
 
     { key: "volume_usd", label: "Volume (USD)", formatter: "money", signed: false,
       summary:
@@ -488,7 +502,7 @@ See Today's card for the current value.`,
     // ── ACTIVITY & COUNTS (yesterday window)
     { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
       summary:
-`Distinct humans who OPENED or CLOSED at least one position yesterday.
+`Distinct CRM users who OPENED or CLOSED at least one position yesterday.
 Dedupe across MT5 logins by CRM ID (accounts_snapshot.comment), then by
 name (case-insensitive, trimmed) when CRM is missing.`,
       formula:
@@ -506,7 +520,7 @@ LEFT JOIN accounts_snapshot a USING (login)
 
     { key: "n_active_traders", label: "#Active Traders", formatter: "int",
       summary:
-`Distinct humans who OPENED a new position yesterday.
+`Distinct CRM users who OPENED a new position yesterday.
 Same dedup chain as today's card: CRM ID → name → login fallback.`,
       formula:
 `COUNT(DISTINCT dedup_key)
@@ -531,28 +545,42 @@ WHERE action = 2 AND amount > 0 AND time IN [yesterday, today)
       sources: ["deposits_withdrawals"], componentsOf: [] },
 
     { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
-      summary: `Accounts registered yesterday (test groups excluded).`,
+      summary:
+`Distinct CRM users registered yesterday (CRM ID → name → login dedup;
+test groups excluded). Same logic as today's card.`,
       formula:
-`COUNT(*) FROM accounts_snapshot
+`COUNT(DISTINCT dedup_key)
+FROM accounts_snapshot
 WHERE registration IN [yesterday, today)
   AND group_name NOT ILIKE '%test%'`,
       sources: ["accounts_snapshot"], componentsOf: [] },
 
     { key: "n_ftd", label: "#FTD", formatter: "int",
-      summary: `Logins whose first-ever positive deposit landed yesterday.`,
+      summary:
+`Distinct CRM users whose first-EVER positive deposit (across all their
+logins) landed yesterday. Same dedup chain as today's card.`,
       formula:
-`WITH first_dep AS (... per login MIN(time)...)
+`WITH first_dep AS (
+  SELECT dedup_key, MIN(time) AS first_time FROM deposits_withdrawals
+  LEFT JOIN accounts_snapshot USING (login)
+  WHERE action = 2 AND amount > 0
+    AND comment NOT LIKE '%fees placeholder%'
+    AND comment NOT LIKE '%spread charge%'
+  GROUP BY dedup_key)
 SELECT COUNT(*) FROM first_dep
 WHERE first_time IN [yesterday, today)`,
-      sources: ["deposits_withdrawals"], componentsOf: [] },
+      sources: ["deposits_withdrawals", "accounts_snapshot"], componentsOf: [] },
 
     { key: "ftd_amount_usd", label: "FTD Amount", formatter: "money", signed: false,
-      summary: `Cash deposit total for yesterday's FTD logins (USD).`,
+      summary:
+`Cash deposit total for yesterday's FTD CRM users (USD). Sum spans all
+logins of qualifying users; bonus excluded from the amount.`,
       formula:
 `SUM(amount → USD)
-FROM deposits_withdrawals JOIN ftd_logins
+FROM deposits_withdrawals dw
+JOIN ftd_users USING (dedup_key)
 WHERE deposit window = yesterday, bonus/fees/spread excluded`,
-      sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
+      sources: ["deposits_withdrawals", "external_rates", "accounts_snapshot"], componentsOf: [] },
 
     { key: "volume_usd", label: "Volume (USD)", formatter: "money", signed: false,
       summary: `Gross notional turnover for all deal legs yesterday (USD).`,
@@ -713,7 +741,7 @@ See Today's card for the current value.`,
     // ── ACTIVITY & COUNTS (MTD window)
     { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
       summary:
-`Distinct humans who OPENED or CLOSED at least one position month-to-date.
+`Distinct CRM users who OPENED or CLOSED at least one position month-to-date.
 Dedupe across MT5 logins by CRM ID (accounts_snapshot.comment), then by
 name (case-insensitive, trimmed) when CRM is missing.`,
       formula:
@@ -731,7 +759,7 @@ LEFT JOIN accounts_snapshot a USING (login)
 
     { key: "n_active_traders", label: "#Active Traders", formatter: "int",
       summary:
-`Distinct humans who opened any position since month-start.
+`Distinct CRM users who opened any position since month-start.
 Dedupe chain: CRM ID → name → login fallback.`,
       formula:
 `COUNT(DISTINCT dedup_key)
@@ -756,27 +784,42 @@ WHERE action = 2 AND amount > 0 AND time IN [month_start, today_end)
       sources: ["deposits_withdrawals"], componentsOf: [] },
 
     { key: "n_new_regs", label: "#New Acc Regs", formatter: "int",
-      summary: `Accounts registered MTD (test groups excluded).`,
+      summary:
+`Distinct CRM users registered month-to-date (CRM ID → name → login
+dedup; test groups excluded).`,
       formula:
-`COUNT(*) FROM accounts_snapshot
+`COUNT(DISTINCT dedup_key)
+FROM accounts_snapshot
 WHERE registration IN [month_start, today_end)
   AND group_name NOT ILIKE '%test%'`,
       sources: ["accounts_snapshot"], componentsOf: [] },
 
     { key: "n_ftd", label: "#FTD", formatter: "int",
-      summary: `Logins whose first-ever positive deposit fell in MTD.`,
+      summary:
+`Distinct CRM users whose first-EVER positive deposit (across all their
+logins) fell month-to-date. Same dedup chain as today's card.`,
       formula:
-`WITH first_dep AS (... per login MIN(time)...)
+`WITH first_dep AS (
+  SELECT dedup_key, MIN(time) AS first_time FROM deposits_withdrawals
+  LEFT JOIN accounts_snapshot USING (login)
+  WHERE action = 2 AND amount > 0
+    AND comment NOT LIKE '%fees placeholder%'
+    AND comment NOT LIKE '%spread charge%'
+  GROUP BY dedup_key)
 SELECT COUNT(*) FROM first_dep
 WHERE first_time IN [month_start, today_end)`,
-      sources: ["deposits_withdrawals"], componentsOf: [] },
+      sources: ["deposits_withdrawals", "accounts_snapshot"], componentsOf: [] },
 
     { key: "ftd_amount_usd", label: "FTD Amount", formatter: "money", signed: false,
-      summary: `Cash deposit total for MTD FTD logins (USD).`,
+      summary:
+`Cash deposit total for MTD FTD CRM users (USD). Sum spans all logins
+of qualifying users; bonus excluded from the amount.`,
       formula:
-`SUM(amount → USD) FROM deposits_withdrawals JOIN ftd_logins
+`SUM(amount → USD)
+FROM deposits_withdrawals dw
+JOIN ftd_users USING (dedup_key)
 WHERE deposit window = MTD, bonus/fees/spread excluded`,
-      sources: ["deposits_withdrawals", "external_rates"], componentsOf: [] },
+      sources: ["deposits_withdrawals", "external_rates", "accounts_snapshot"], componentsOf: [] },
 
     { key: "volume_usd", label: "Volume (USD)", formatter: "money", signed: false,
       summary: `Gross notional turnover MTD (USD). Both legs counted.`,

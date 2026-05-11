@@ -573,9 +573,9 @@ _TRADER_SYMBOL_FILTER = (
     "symbol NOT ILIKE 'Zeroing%%' AND symbol NOT ILIKE '%%inactivity%%'"
 )
 
-# Dedup chain for "distinct human" trader counts. The same CRM user often
-# holds multiple MT5 logins; we collapse them so a single human contributes
-# 1 to the count regardless of how many accounts they trade on.
+# Dedup chain for "distinct CRM user" counts. The same CRM user often holds
+# multiple MT5 logins; we collapse them so a single user contributes 1 to
+# the count regardless of how many accounts they trade on.
 #   1. CRM ID via accounts_snapshot.comment (~97% coverage on CMV*)
 #   2. Lowercased+trimmed name (100% coverage; closes the CRM-missing tail —
 #      e.g. logins {140376499, 140443929, 140744882, 140805200} all belong
@@ -583,27 +583,35 @@ _TRADER_SYMBOL_FILTER = (
 #   3. login::text safety net for the (currently empty) name-also-missing case
 # Bucket prefixes ('CRM:', 'NAME:', 'LOGIN:') prevent cross-bucket collisions
 # (a CRM ID can't accidentally match a login number in another bucket).
-# Requires the surrounding query to LEFT JOIN accounts_snapshot a ON a.login = o.login.
-_TRADER_DEDUP_KEY = """
-    CASE
-        WHEN a.comment IS NOT NULL AND a.comment != '' AND a.comment != '0'
-             THEN 'CRM:'   || a.comment
-        WHEN NULLIF(TRIM(a.name), '') IS NOT NULL
-             THEN 'NAME:'  || LOWER(TRIM(a.name))
-        ELSE 'LOGIN:' || o.login::text
-    END
-"""
+def _dedup_key(login_expr: str) -> str:
+    """SQL CASE expression collapsing rows by 'same CRM user'.
+
+    The surrounding query must have `accounts_snapshot a` in scope (via
+    LEFT JOIN by login, or directly as the FROM table). `login_expr` is
+    the SQL expression for the login column in the surrounding query — e.g.
+    `'o.login'` for the trader CTEs, `'a.login'` when reading accounts_snapshot
+    directly, or `'dw.login'` for deposit-side reads.
+    """
+    return f"""
+        CASE
+            WHEN a.comment IS NOT NULL AND a.comment != '' AND a.comment != '0'
+                 THEN 'CRM:'   || a.comment
+            WHEN NULLIF(TRIM(a.name), '') IS NOT NULL
+                 THEN 'NAME:'  || LOWER(TRIM(a.name))
+            ELSE 'LOGIN:' || ({login_expr})::text
+        END
+    """
 
 
 def n_traders(cur, from_ts: int, to_ts: int) -> int:
-    """Distinct humans with any position OPENED OR CLOSED in [from_ts, to_ts).
+    """Distinct CRM users with any position OPENED OR CLOSED in [from_ts, to_ts).
 
     Sources:
       positions_snapshot — time_create in window (newly opened, still open)
       closed_positions   — open_time   in window (opened in window, since closed)
       closed_positions   — close_time  in window (closed in window)
 
-    Dedup via `_TRADER_DEDUP_KEY`: CRM ID → name → login fallback. Excludes
+    Dedup via `_dedup_key`: CRM ID → name → login fallback. Excludes
     Zeroing* and *inactivity* synthetic symbols (matches C# bundle).
     """
     sql = f"""
@@ -620,7 +628,7 @@ def n_traders(cur, from_ts: int, to_ts: int) -> int:
             WHERE close_time >= %(t)s AND close_time < %(te)s
               AND {_TRADER_SYMBOL_FILTER}
         )
-        SELECT COUNT(DISTINCT {_TRADER_DEDUP_KEY})::int AS v
+        SELECT COUNT(DISTINCT {_dedup_key('o.login')})::int AS v
         FROM touched o
         LEFT JOIN accounts_snapshot a ON a.login = o.login
     """
@@ -630,14 +638,14 @@ def n_traders(cur, from_ts: int, to_ts: int) -> int:
 
 
 def n_active_traders_opened(cur, from_ts: int, to_ts: int) -> int:
-    """Distinct humans who OPENED any position in [from_ts, to_ts). Closes
+    """Distinct CRM users who OPENED any position in [from_ts, to_ts). Closes
     alone do not count — pair with `n_traders` for the opens-or-closes view.
 
     Sources:
       positions_snapshot — time_create in window (still-open positions)
       closed_positions   — open_time   in window (opened and closed in period)
 
-    Dedup via `_TRADER_DEDUP_KEY`: CRM ID → name → login fallback.
+    Dedup via `_dedup_key`: CRM ID → name → login fallback.
     """
     sql = f"""
         WITH opened AS (
@@ -649,7 +657,7 @@ def n_active_traders_opened(cur, from_ts: int, to_ts: int) -> int:
             WHERE open_time >= %(t)s AND open_time < %(te)s
               AND {_TRADER_SYMBOL_FILTER}
         )
-        SELECT COUNT(DISTINCT {_TRADER_DEDUP_KEY})::int AS v
+        SELECT COUNT(DISTINCT {_dedup_key('o.login')})::int AS v
         FROM opened o
         LEFT JOIN accounts_snapshot a ON a.login = o.login
     """
@@ -676,17 +684,20 @@ def n_depositors(cur, from_ts: int, to_ts: int) -> int:
 
 
 def n_new_registrations(cur, from_ts: int, to_ts: int) -> int:
-    """Accounts whose IMTUser.Registration timestamp falls in [from, to).
+    """Distinct CRM users whose account registration timestamp lands in
+    [from, to). Dedup via `_dedup_key`: CRM ID → name → login fallback,
+    so one CRM user opening multiple MT5 logins on the same day counts
+    once. Test groups excluded.
 
     Note: Mt5MonitorApiBundle.cs uses broker-local-Cyprus date for the
     period match. We use UTC to stay consistent with the rest of the
-    dashboard's windowing (small drift at day boundaries; see plan).
+    dashboard's windowing (small drift at day boundaries).
     """
-    sql = """
-        SELECT COUNT(*)::int AS v
-        FROM accounts_snapshot
-        WHERE registration >= %(from_ts)s AND registration < %(to_ts)s
-          AND group_name NOT ILIKE '%%test%%'
+    sql = f"""
+        SELECT COUNT(DISTINCT {_dedup_key('a.login')})::int AS v
+        FROM accounts_snapshot a
+        WHERE a.registration >= %(from_ts)s AND a.registration < %(to_ts)s
+          AND a.group_name NOT ILIKE '%%test%%'
     """
     cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
     row = cur.fetchone() or {}
@@ -694,20 +705,27 @@ def n_new_registrations(cur, from_ts: int, to_ts: int) -> int:
 
 
 def n_ftd(cur, from_ts: int, to_ts: int) -> int:
-    """Count of logins whose first-EVER positive deposit falls in [from, to).
+    """Distinct CRM users whose first-EVER positive deposit lands in
+    [from, to). 'First' is MIN(time) across ALL logins belonging to the
+    same CRM user — so a user who already deposited on login A last week
+    is NOT a today-FTD just because login B deposited today.
 
-    Matches Mt5MonitorApiBundle.cs CollectFirstValidDepositDates: bonus
-    deposits ARE candidates for first-deposit (NOT excluded here), only
-    fees-placeholder + spread-charge comments are excluded.
+    Dedup via `_dedup_key`: CRM ID → name → login fallback.
+
+    Candidacy filters match Mt5MonitorApiBundle.cs CollectFirstValidDeposit-
+    Dates: bonus deposits ARE candidates for first-deposit anchor (NOT
+    excluded), only fees-placeholder + spread-charge comments are filtered.
     """
-    sql = """
+    sql = f"""
         WITH first_dep AS (
-            SELECT login, MIN(time) AS first_time
-            FROM deposits_withdrawals
-            WHERE action = 2 AND amount > 0
-              AND COALESCE(lower(comment), '') NOT LIKE '%%fees placeholder%%'
-              AND COALESCE(lower(comment), '') NOT LIKE '%%spread charge%%'
-            GROUP BY login
+            SELECT {_dedup_key('dw.login')} AS dedup_key,
+                   MIN(dw.time)             AS first_time
+            FROM deposits_withdrawals dw
+            LEFT JOIN accounts_snapshot a ON a.login = dw.login
+            WHERE dw.action = 2 AND dw.amount > 0
+              AND COALESCE(lower(dw.comment), '') NOT LIKE '%%fees placeholder%%'
+              AND COALESCE(lower(dw.comment), '') NOT LIKE '%%spread charge%%'
+            GROUP BY 1
         )
         SELECT COUNT(*)::int AS v
         FROM first_dep
@@ -755,35 +773,43 @@ def spread_usd(cur, from_ts: int, to_ts: int) -> float:
 
 
 def ftd_amount_usd(cur, from_ts: int, to_ts: int) -> float:
-    """Sum of all positive deposits in [from, to) for FTD logins,
+    """Sum of in-window positive deposits attributable to CRM users whose
+    first-EVER deposit (MIN across all their MT5 logins) lands in [from, to).
     USD-converted via external_rates (mid-rate per _convert_case).
 
+    Once a CRM user qualifies as an FTD for the window, ALL their in-window
+    deposits across ALL their logins contribute to the amount. Dedup chain
+    matches `n_ftd` so the metric set stays consistent.
+
     Mt5MonitorApiBundle.cs: bonus IS excluded for the *amount* sum (unlike
-    the FTD-login set itself), to match dashboard semantics that "FTD
-    Amount" represents real cash deposit value the trader brought in.
+    the FTD-user set itself), to match dashboard semantics that "FTD Amount"
+    represents real cash deposit value the trader brought in.
     """
     sql = f"""
-        WITH first_dep AS (
-            SELECT login, MIN(time) AS first_time
-            FROM deposits_withdrawals
-            WHERE action = 2 AND amount > 0
-              AND COALESCE(lower(comment), '') NOT LIKE '%%fees placeholder%%'
-              AND COALESCE(lower(comment), '') NOT LIKE '%%spread charge%%'
-            GROUP BY login
+        WITH dw_keyed AS (
+            SELECT dw.time, dw.login, dw.amount, dw.currency, dw.comment,
+                   {_dedup_key('dw.login')} AS dedup_key
+            FROM deposits_withdrawals dw
+            LEFT JOIN accounts_snapshot a ON a.login = dw.login
+            WHERE dw.action = 2 AND dw.amount > 0
+              AND COALESCE(lower(dw.comment), '') NOT LIKE '%%fees placeholder%%'
+              AND COALESCE(lower(dw.comment), '') NOT LIKE '%%spread charge%%'
         ),
-        ftd AS (
-            SELECT login FROM first_dep
+        first_dep AS (
+            SELECT dedup_key, MIN(time) AS first_time
+            FROM dw_keyed
+            GROUP BY dedup_key
+        ),
+        ftd_users AS (
+            SELECT dedup_key FROM first_dep
             WHERE first_time >= %(from_ts)s AND first_time < %(to_ts)s
         )
         SELECT COALESCE(SUM({_convert_case('dw.amount', 'dw.currency', 'er')}), 0)::float AS v
-        FROM deposits_withdrawals dw
-        JOIN ftd USING (login)
+        FROM dw_keyed dw
+        JOIN ftd_users USING (dedup_key)
         LEFT JOIN external_rates er ON er.currency = dw.currency
-        WHERE dw.action = 2 AND dw.amount > 0
-          AND dw.time >= %(from_ts)s AND dw.time < %(to_ts)s
+        WHERE dw.time >= %(from_ts)s AND dw.time < %(to_ts)s
           AND COALESCE(lower(dw.comment), '') NOT LIKE '%%bonus%%'
-          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%fees placeholder%%'
-          AND COALESCE(lower(dw.comment), '') NOT LIKE '%%spread charge%%'
     """
     return _scalar(cur, sql, {"from_ts": from_ts, "to_ts": to_ts})
 

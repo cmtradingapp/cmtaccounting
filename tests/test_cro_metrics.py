@@ -329,7 +329,7 @@ class TestNTraders:
         assert cro_metrics.n_traders(cur, TODAY_START, TODAY_END) == 1
 
     def test_name_deduplication(self, cur):
-        # Two logins, no CRM comment, same human name → 1 trader.
+        # Two logins, no CRM comment, same name → 1 trader.
         _seed_acct(cur, login=100, registration=0, name="Peter Otengo Omusula")
         _seed_acct(cur, login=200, registration=0, name="Peter Otengo Omusula")
         _seed_closed(cur, 1, login=100, symbol="EURUSD",
@@ -339,7 +339,7 @@ class TestNTraders:
         assert cro_metrics.n_traders(cur, TODAY_START, TODAY_END) == 1
 
     def test_crm_beats_name(self, cur):
-        # Same name but different CRM IDs → 2 humans (CRM wins over name).
+        # Same name but different CRM IDs → 2 CRM users (CRM wins over name).
         _seed_acct(cur, login=100, registration=0, comment="CRM_1", name="John Smith")
         _seed_acct(cur, login=200, registration=0, comment="CRM_2", name="John Smith")
         _seed_closed(cur, 1, login=100, symbol="EURUSD",
@@ -400,7 +400,7 @@ class TestNActiveTraders:
         assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 0
 
     def test_name_deduplication(self, cur):
-        # Two logins, no CRM, same human name → 1 trader (covers the ~3%
+        # Two logins, no CRM, same name → 1 CRM user (covers the ~3%
         # CRM-missing tail; "Peter Otengo Omusula" is the canary case).
         _seed_acct(cur, login=100, registration=0, name="Peter Otengo Omusula")
         _seed_acct(cur, login=200, registration=0, name="Peter Otengo Omusula")
@@ -409,7 +409,7 @@ class TestNActiveTraders:
         assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 1
 
     def test_crm_overrides_name(self, cur):
-        # Same name, different CRM → 2 humans (CRM takes precedence over name).
+        # Same name, different CRM → 2 CRM users (CRM takes precedence over name).
         _seed_acct(cur, login=100, registration=0, comment="CRM_A", name="John Smith")
         _seed_acct(cur, login=200, registration=0, comment="CRM_B", name="John Smith")
         _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
@@ -490,6 +490,28 @@ class TestNNewRegistrations:
         _seed_acct(cur, 300, registration=TODAY_START + 100, group_name="testbed")
         assert cro_metrics.n_new_registrations(cur, TODAY_START, TODAY_END) == 1
 
+    def test_crm_deduplication(self, cur):
+        # One CRM user opening two MT5 logins today → counts as 1 registration.
+        _seed_acct(cur, 100, registration=TODAY_START + 100, comment="CRM_777")
+        _seed_acct(cur, 200, registration=TODAY_START + 200, comment="CRM_777")
+        assert cro_metrics.n_new_registrations(cur, TODAY_START, TODAY_END) == 1
+
+    def test_name_deduplication(self, cur):
+        # No CRM comment, same name on both logins → 1 registration.
+        _seed_acct(cur, 100, registration=TODAY_START + 100,
+                   name="Peter Otengo Omusula")
+        _seed_acct(cur, 200, registration=TODAY_START + 200,
+                   name="Peter Otengo Omusula")
+        assert cro_metrics.n_new_registrations(cur, TODAY_START, TODAY_END) == 1
+
+    def test_crm_beats_name(self, cur):
+        # Same name but different CRM IDs → 2 CRM users (CRM precedence).
+        _seed_acct(cur, 100, registration=TODAY_START + 100,
+                   comment="CRM_A", name="John Smith")
+        _seed_acct(cur, 200, registration=TODAY_START + 200,
+                   comment="CRM_B", name="John Smith")
+        assert cro_metrics.n_new_registrations(cur, TODAY_START, TODAY_END) == 2
+
 
 # ── #FTD tests ──────────────────────────────────────────────────────────
 
@@ -521,6 +543,33 @@ class TestNFTD:
         _seed_dw(cur, 1, login=100, action=2, time=TODAY_START + 100,
                  amount=50, comment="fees placeholder")
         assert cro_metrics.n_ftd(cur, TODAY_START, TODAY_END) == 0
+
+    def test_crm_user_first_deposit_across_logins(self, cur):
+        # CRM user X has login A (deposited last month) and login B (deposits
+        # today for the first time). The user's TRUE first deposit was last
+        # month → today is NOT their FTD. Old per-login code would have
+        # mis-counted login B as a today-FTD.
+        _seed_acct(cur, 100, registration=0, comment="CRM_42")
+        _seed_acct(cur, 200, registration=0, comment="CRM_42")
+        _seed_dw(cur, 1, login=100, action=2, time=LAST_MONTH_TIME, amount=500)
+        _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 100, amount=300)
+        assert cro_metrics.n_ftd(cur, TODAY_START, TODAY_END) == 0
+
+    def test_two_logins_first_today_same_crm(self, cur):
+        # Same CRM user, both logins first-deposit today → 1 FTD.
+        _seed_acct(cur, 100, registration=0, comment="CRM_42")
+        _seed_acct(cur, 200, registration=0, comment="CRM_42")
+        _seed_dw(cur, 1, login=100, action=2, time=TODAY_START + 100, amount=500)
+        _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 200, amount=300)
+        assert cro_metrics.n_ftd(cur, TODAY_START, TODAY_END) == 1
+
+    def test_two_logins_first_today_same_name(self, cur):
+        # No CRM on either, same name → name-fallback dedup → 1 FTD.
+        _seed_acct(cur, 100, registration=0, name="Peter Otengo Omusula")
+        _seed_acct(cur, 200, registration=0, name="Peter Otengo Omusula")
+        _seed_dw(cur, 1, login=100, action=2, time=TODAY_START + 100, amount=500)
+        _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 200, amount=300)
+        assert cro_metrics.n_ftd(cur, TODAY_START, TODAY_END) == 1
 
 
 # ── FTD Amount tests ────────────────────────────────────────────────────
@@ -554,6 +603,25 @@ class TestFTDAmount:
         # Mid-rate for foreign-base (usd_base=False) = (bid+ask)/2 = 1.11
         # Result = 100 * 1.11 = 111.0
         assert cro_metrics.ftd_amount_usd(cur, TODAY_START, TODAY_END) == pytest.approx(111.0)
+
+    def test_sums_across_logins_for_one_crm_user(self, cur):
+        # Same CRM user; both logins first-deposit today → user is a today-FTD.
+        # Both logins' in-window deposits contribute to the amount sum.
+        _seed_acct(cur, 100, registration=0, comment="CRM_42")
+        _seed_acct(cur, 200, registration=0, comment="CRM_42")
+        _seed_dw(cur, 1, login=100, action=2, time=TODAY_START + 100, amount=500)
+        _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 200, amount=300)
+        assert cro_metrics.ftd_amount_usd(cur, TODAY_START, TODAY_END) == pytest.approx(800.0)
+
+    def test_excludes_user_whose_first_was_earlier(self, cur):
+        # Same CRM user; login A deposited last month (so the user's true
+        # first-deposit was last month). The user is NOT a today-FTD →
+        # today's $300 on login B does NOT contribute to FTD Amount.
+        _seed_acct(cur, 100, registration=0, comment="CRM_42")
+        _seed_acct(cur, 200, registration=0, comment="CRM_42")
+        _seed_dw(cur, 1, login=100, action=2, time=LAST_MONTH_TIME, amount=500)
+        _seed_dw(cur, 2, login=200, action=2, time=TODAY_START + 100, amount=300)
+        assert cro_metrics.ftd_amount_usd(cur, TODAY_START, TODAY_END) == pytest.approx(0.0)
 
 
 # ── Integration: collect_all_metrics shape ──────────────────────────────
