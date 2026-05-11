@@ -214,31 +214,48 @@ position size regardless of direction.`,
     // ── ACTIVITY & COUNTS (mirrors Mt5MonitorApiBundle.cs)
     { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
       summary:
-`Distinct logins that closed at least one position today. Synthetic
-"Zeroing*" / "*inactivity*" symbols are excluded (per the C# bundle).`,
+`Distinct humans who OPENED or CLOSED at least one position today.
+Multiple MT5 logins belonging to the same human are collapsed via CRM ID
+(accounts_snapshot.comment), then by name (case-insensitive, trimmed) when
+CRM is missing — falling back to per-login only if both are absent.
+Synthetic "Zeroing*" / "*inactivity*" symbols are excluded (per the C# bundle).`,
       formula:
-`COUNT(DISTINCT login)
-FROM closed_positions
-WHERE close_time IN [today_start, today_end)
-  AND symbol NOT ILIKE 'Zeroing%'
-  AND symbol NOT ILIKE '%inactivity%'`,
-      sources: ["closed_positions"], componentsOf: [] },
-
-    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
-      summary:
-`Distinct CRM users who OPENED a new position today.
-Counts positions that were opened today and are either still open
-(positions_snapshot.time_create) or already closed (closed_positions.open_time).
-Deduplicates across multiple MT5 accounts via accounts_snapshot.comment (CRM user ID).`,
-      formula:
-`COUNT(DISTINCT crm_user_id) WHERE crm_user_id =
-  CASE WHEN comment != '' THEN comment ELSE login::text END
+`COUNT(DISTINCT dedup_key)
 FROM (
   SELECT login FROM positions_snapshot WHERE time_create IN window
   UNION
-  SELECT login FROM closed_positions WHERE open_time IN window
+  SELECT login FROM closed_positions   WHERE open_time   IN window
+  UNION
+  SELECT login FROM closed_positions   WHERE close_time  IN window
+) touched
+LEFT JOIN accounts_snapshot a USING (login)
+  WHERE symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'
+  dedup_key = CASE WHEN comment != '' AND comment != '0'
+                   THEN 'CRM:'   || comment
+                   WHEN name    != '' THEN 'NAME:'  || lower(trim(name))
+                   ELSE              'LOGIN:' || login END`,
+      sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
+
+    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
+      summary:
+`Distinct humans who OPENED a new position today. Closes alone don't count.
+Sources: positions_snapshot.time_create (still open) UNION closed_positions.open_time
+(opened and closed in the same window). Dedupe across MT5 logins by CRM ID
+(accounts_snapshot.comment), then by name (case-insensitive, trimmed) when CRM is
+missing — closing the ~3% CRM-coverage gap.`,
+      formula:
+`COUNT(DISTINCT dedup_key)
+FROM (
+  SELECT login FROM positions_snapshot WHERE time_create IN window
+  UNION
+  SELECT login FROM closed_positions   WHERE open_time   IN window
 ) opened
-LEFT JOIN accounts_snapshot USING (login)`,
+LEFT JOIN accounts_snapshot a USING (login)
+  WHERE symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'
+  dedup_key = CASE WHEN comment != '' AND comment != '0'
+                   THEN 'CRM:'   || comment
+                   WHEN name    != '' THEN 'NAME:'  || lower(trim(name))
+                   ELSE              'LOGIN:' || login END`,
       sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",
@@ -470,30 +487,36 @@ See Today's card for the current value.`,
 
     // ── ACTIVITY & COUNTS (yesterday window)
     { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
-      summary: `Distinct logins that closed at least one position yesterday.`,
-      formula:
-`COUNT(DISTINCT login)
-FROM closed_positions
-WHERE close_time IN [yesterday_start, today_start)
-  AND symbol NOT ILIKE 'Zeroing%'
-  AND symbol NOT ILIKE '%inactivity%'`,
-      sources: ["closed_positions"], componentsOf: [] },
-
-    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
       summary:
-`Distinct CRM users who OPENED a new position yesterday.
-Same logic as today's card: positions_snapshot.time_create (still open)
-UNION closed_positions.open_time (opened and closed same day).
-CRM deduplication via accounts_snapshot.comment.`,
+`Distinct humans who OPENED or CLOSED at least one position yesterday.
+Dedupe across MT5 logins by CRM ID (accounts_snapshot.comment), then by
+name (case-insensitive, trimmed) when CRM is missing.`,
       formula:
-`COUNT(DISTINCT crm_user_id) WHERE crm_user_id =
-  CASE WHEN comment != '' THEN comment ELSE login::text END
+`COUNT(DISTINCT dedup_key)
 FROM (
   SELECT login FROM positions_snapshot WHERE time_create IN yesterday_window
   UNION
-  SELECT login FROM closed_positions WHERE open_time IN yesterday_window
+  SELECT login FROM closed_positions   WHERE open_time   IN yesterday_window
+  UNION
+  SELECT login FROM closed_positions   WHERE close_time  IN yesterday_window
+) touched
+LEFT JOIN accounts_snapshot a USING (login)
+  WHERE symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
+      sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
+
+    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
+      summary:
+`Distinct humans who OPENED a new position yesterday.
+Same dedup chain as today's card: CRM ID → name → login fallback.`,
+      formula:
+`COUNT(DISTINCT dedup_key)
+FROM (
+  SELECT login FROM positions_snapshot WHERE time_create IN yesterday_window
+  UNION
+  SELECT login FROM closed_positions   WHERE open_time   IN yesterday_window
 ) opened
-LEFT JOIN accounts_snapshot USING (login)`,
+LEFT JOIN accounts_snapshot a USING (login)
+  WHERE symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
       sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",
@@ -689,29 +712,36 @@ See Today's card for the current value.`,
 
     // ── ACTIVITY & COUNTS (MTD window)
     { key: "n_traders", label: "#Traders", formatter: "int", dividerTop: true, sectionLabel: "Activity",
-      summary: `Distinct logins that closed at least one position this month-to-date.`,
-      formula:
-`COUNT(DISTINCT login)
-FROM closed_positions
-WHERE close_time IN [month_start, today_end)
-  AND symbol NOT ILIKE 'Zeroing%'
-  AND symbol NOT ILIKE '%inactivity%'`,
-      sources: ["closed_positions"], componentsOf: [] },
-
-    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
       summary:
-`Distinct CRM users who opened any position since month-start.
-positions_snapshot.time_create UNION closed_positions.open_time,
-deduplicated by CRM user ID (accounts_snapshot.comment).`,
+`Distinct humans who OPENED or CLOSED at least one position month-to-date.
+Dedupe across MT5 logins by CRM ID (accounts_snapshot.comment), then by
+name (case-insensitive, trimmed) when CRM is missing.`,
       formula:
-`COUNT(DISTINCT crm_user_id) WHERE crm_user_id =
-  CASE WHEN comment != '' THEN comment ELSE login::text END
+`COUNT(DISTINCT dedup_key)
 FROM (
   SELECT login FROM positions_snapshot WHERE time_create IN mtd_window
   UNION
-  SELECT login FROM closed_positions WHERE open_time IN mtd_window
+  SELECT login FROM closed_positions   WHERE open_time   IN mtd_window
+  UNION
+  SELECT login FROM closed_positions   WHERE close_time  IN mtd_window
+) touched
+LEFT JOIN accounts_snapshot a USING (login)
+  WHERE symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
+      sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
+
+    { key: "n_active_traders", label: "#Active Traders", formatter: "int",
+      summary:
+`Distinct humans who opened any position since month-start.
+Dedupe chain: CRM ID → name → login fallback.`,
+      formula:
+`COUNT(DISTINCT dedup_key)
+FROM (
+  SELECT login FROM positions_snapshot WHERE time_create IN mtd_window
+  UNION
+  SELECT login FROM closed_positions   WHERE open_time   IN mtd_window
 ) opened
-LEFT JOIN accounts_snapshot USING (login)`,
+LEFT JOIN accounts_snapshot a USING (login)
+  WHERE symbol NOT ILIKE 'Zeroing%' AND symbol NOT ILIKE '%inactivity%'`,
       sources: ["positions_snapshot", "closed_positions", "accounts_snapshot"], componentsOf: [] },
 
     { key: "n_depositors", label: "#Depositors", formatter: "int",

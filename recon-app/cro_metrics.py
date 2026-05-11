@@ -573,47 +573,83 @@ _TRADER_SYMBOL_FILTER = (
     "symbol NOT ILIKE 'Zeroing%%' AND symbol NOT ILIKE '%%inactivity%%'"
 )
 
+# Dedup chain for "distinct human" trader counts. The same CRM user often
+# holds multiple MT5 logins; we collapse them so a single human contributes
+# 1 to the count regardless of how many accounts they trade on.
+#   1. CRM ID via accounts_snapshot.comment (~97% coverage on CMV*)
+#   2. Lowercased+trimmed name (100% coverage; closes the CRM-missing tail —
+#      e.g. logins {140376499, 140443929, 140744882, 140805200} all belong
+#      to "Peter Otengo Omusula" with no CRM comment on any of them)
+#   3. login::text safety net for the (currently empty) name-also-missing case
+# Bucket prefixes ('CRM:', 'NAME:', 'LOGIN:') prevent cross-bucket collisions
+# (a CRM ID can't accidentally match a login number in another bucket).
+# Requires the surrounding query to LEFT JOIN accounts_snapshot a ON a.login = o.login.
+_TRADER_DEDUP_KEY = """
+    CASE
+        WHEN a.comment IS NOT NULL AND a.comment != '' AND a.comment != '0'
+             THEN 'CRM:'   || a.comment
+        WHEN NULLIF(TRIM(a.name), '') IS NOT NULL
+             THEN 'NAME:'  || LOWER(TRIM(a.name))
+        ELSE 'LOGIN:' || o.login::text
+    END
+"""
+
 
 def n_traders(cur, from_ts: int, to_ts: int) -> int:
-    """Distinct logins with any closing-leg deal in [from, to) — excludes
-    Zeroing* and *inactivity* synthetic symbols (matches C# bundle)."""
-    sql = f"""
-        SELECT COUNT(DISTINCT login)::int AS v
-        FROM closed_positions
-        WHERE close_time >= %(from_ts)s AND close_time < %(to_ts)s
-          AND {_TRADER_SYMBOL_FILTER}
+    """Distinct humans with any position OPENED OR CLOSED in [from_ts, to_ts).
+
+    Sources:
+      positions_snapshot — time_create in window (newly opened, still open)
+      closed_positions   — open_time   in window (opened in window, since closed)
+      closed_positions   — close_time  in window (closed in window)
+
+    Dedup via `_TRADER_DEDUP_KEY`: CRM ID → name → login fallback. Excludes
+    Zeroing* and *inactivity* synthetic symbols (matches C# bundle).
     """
-    cur.execute(sql, {"from_ts": from_ts, "to_ts": to_ts})
+    sql = f"""
+        WITH touched AS (
+            SELECT DISTINCT login FROM positions_snapshot
+            WHERE time_create >= %(t)s AND time_create < %(te)s
+              AND {_TRADER_SYMBOL_FILTER}
+            UNION
+            SELECT DISTINCT login FROM closed_positions
+            WHERE open_time >= %(t)s AND open_time < %(te)s
+              AND {_TRADER_SYMBOL_FILTER}
+            UNION
+            SELECT DISTINCT login FROM closed_positions
+            WHERE close_time >= %(t)s AND close_time < %(te)s
+              AND {_TRADER_SYMBOL_FILTER}
+        )
+        SELECT COUNT(DISTINCT {_TRADER_DEDUP_KEY})::int AS v
+        FROM touched o
+        LEFT JOIN accounts_snapshot a ON a.login = o.login
+    """
+    cur.execute(sql, {"t": from_ts, "te": to_ts})
     row = cur.fetchone() or {}
     return int(row.get("v") or 0)
 
 
 def n_active_traders_opened(cur, from_ts: int, to_ts: int) -> int:
-    """Distinct CRM users who opened any position in [from_ts, to_ts).
+    """Distinct humans who OPENED any position in [from_ts, to_ts). Closes
+    alone do not count — pair with `n_traders` for the opens-or-closes view.
 
     Sources:
-      positions_snapshot — time_create in window (currently-open positions)
-      closed_positions   — open_time   in window (opened and closed same period)
+      positions_snapshot — time_create in window (still-open positions)
+      closed_positions   — open_time   in window (opened and closed in period)
 
-    CRM deduplication via accounts_snapshot.comment (numeric CRM user ID,
-    e.g. '27072047').  Falls back to login::text for the ~3% of accounts
-    with no CRM comment.
+    Dedup via `_TRADER_DEDUP_KEY`: CRM ID → name → login fallback.
     """
-    sql = """
+    sql = f"""
         WITH opened AS (
             SELECT DISTINCT login FROM positions_snapshot
             WHERE time_create >= %(t)s AND time_create < %(te)s
-              AND symbol NOT ILIKE 'Zeroing%%' AND symbol NOT ILIKE '%%inactivity%%'
+              AND {_TRADER_SYMBOL_FILTER}
             UNION
             SELECT DISTINCT login FROM closed_positions
             WHERE open_time >= %(t)s AND open_time < %(te)s
-              AND symbol NOT ILIKE 'Zeroing%%' AND symbol NOT ILIKE '%%inactivity%%'
+              AND {_TRADER_SYMBOL_FILTER}
         )
-        SELECT COUNT(DISTINCT
-            CASE WHEN a.comment IS NOT NULL AND a.comment != '' AND a.comment != '0'
-                 THEN a.comment
-                 ELSE o.login::text END
-        )::int AS v
+        SELECT COUNT(DISTINCT {_TRADER_DEDUP_KEY})::int AS v
         FROM opened o
         LEFT JOIN accounts_snapshot a ON a.login = o.login
     """

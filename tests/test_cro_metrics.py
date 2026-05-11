@@ -66,7 +66,8 @@ CREATE TABLE accounts_snapshot (
     credit       DOUBLE PRECISION NOT NULL DEFAULT 0,
     floating     DOUBLE PRECISION NOT NULL DEFAULT 0,
     currency     TEXT NOT NULL DEFAULT 'USD',
-    comment      TEXT NOT NULL DEFAULT ''
+    comment      TEXT NOT NULL DEFAULT '',
+    name         TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE deposits_withdrawals (
@@ -231,11 +232,11 @@ def _seed_dw(cur, ticket, login, action, time, amount,
     )
 
 
-def _seed_acct(cur, login, registration, group_name="CMV\\real", comment=""):
+def _seed_acct(cur, login, registration, group_name="CMV\\real", comment="", name=""):
     cur.execute(
-        "INSERT INTO accounts_snapshot (login, group_name, registration, comment) "
-        "VALUES (%s,%s,%s,%s)",
-        (login, group_name, registration, comment),
+        "INSERT INTO accounts_snapshot (login, group_name, registration, comment, name) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (login, group_name, registration, comment, name),
     )
 
 
@@ -315,6 +316,38 @@ class TestNTraders:
     def test_empty_result_returns_zero(self, cur):
         assert cro_metrics.n_traders(cur, TODAY_START, TODAY_END) == 0
 
+    def test_counts_open_only_in_window(self, cur):
+        # Opened today, closed tomorrow → close_time outside window, but the
+        # open IS in window. New semantics count this; old code did not.
+        _seed_closed(cur, 1, login=100, symbol="EURUSD",
+                     open_time=TODAY_START + 500, close_time=TODAY_END + 1000)
+        assert cro_metrics.n_traders(cur, TODAY_START, TODAY_END) == 1
+
+    def test_counts_positions_snapshot_open(self, cur):
+        # A still-open position created in the window should count.
+        _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
+        assert cro_metrics.n_traders(cur, TODAY_START, TODAY_END) == 1
+
+    def test_name_deduplication(self, cur):
+        # Two logins, no CRM comment, same human name → 1 trader.
+        _seed_acct(cur, login=100, registration=0, name="Peter Otengo Omusula")
+        _seed_acct(cur, login=200, registration=0, name="Peter Otengo Omusula")
+        _seed_closed(cur, 1, login=100, symbol="EURUSD",
+                     open_time=YEST_START, close_time=TODAY_START + 1000)
+        _seed_closed(cur, 2, login=200, symbol="EURUSD",
+                     open_time=YEST_START, close_time=TODAY_START + 2000)
+        assert cro_metrics.n_traders(cur, TODAY_START, TODAY_END) == 1
+
+    def test_crm_beats_name(self, cur):
+        # Same name but different CRM IDs → 2 humans (CRM wins over name).
+        _seed_acct(cur, login=100, registration=0, comment="CRM_1", name="John Smith")
+        _seed_acct(cur, login=200, registration=0, comment="CRM_2", name="John Smith")
+        _seed_closed(cur, 1, login=100, symbol="EURUSD",
+                     open_time=YEST_START, close_time=TODAY_START + 1000)
+        _seed_closed(cur, 2, login=200, symbol="EURUSD",
+                     open_time=YEST_START, close_time=TODAY_START + 2000)
+        assert cro_metrics.n_traders(cur, TODAY_START, TODAY_END) == 2
+
 
 # ── #Active Traders tests ───────────────────────────────────────────────
 
@@ -365,6 +398,42 @@ class TestNActiveTraders:
 
     def test_empty_returns_zero(self, cur):
         assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 0
+
+    def test_name_deduplication(self, cur):
+        # Two logins, no CRM, same human name → 1 trader (covers the ~3%
+        # CRM-missing tail; "Peter Otengo Omusula" is the canary case).
+        _seed_acct(cur, login=100, registration=0, name="Peter Otengo Omusula")
+        _seed_acct(cur, login=200, registration=0, name="Peter Otengo Omusula")
+        _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
+        _seed_position(cur, 2, login=200, time_create=TODAY_START + 200)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 1
+
+    def test_crm_overrides_name(self, cur):
+        # Same name, different CRM → 2 humans (CRM takes precedence over name).
+        _seed_acct(cur, login=100, registration=0, comment="CRM_A", name="John Smith")
+        _seed_acct(cur, login=200, registration=0, comment="CRM_B", name="John Smith")
+        _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
+        _seed_position(cur, 2, login=200, time_create=TODAY_START + 200)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 2
+
+    def test_name_normalization(self, cur):
+        # Mixed casing + surrounding whitespace should still collapse.
+        _seed_acct(cur, login=100, registration=0, name="Peter Otengo Omusula")
+        _seed_acct(cur, login=200, registration=0, name="  peter otengo omusula  ")
+        _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
+        _seed_position(cur, 2, login=200, time_create=TODAY_START + 200)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 1
+
+    def test_name_fallback_only_when_crm_missing(self, cur):
+        # One login has CRM, the other has no CRM but a matching name —
+        # they belong to different buckets ('CRM:X' vs 'NAME:...') so they
+        # do NOT collapse. This is the documented trade-off; CRM is the
+        # source of truth when available.
+        _seed_acct(cur, login=100, registration=0, comment="CRM_X", name="John Doe")
+        _seed_acct(cur, login=200, registration=0, name="John Doe")
+        _seed_position(cur, 1, login=100, time_create=TODAY_START + 100)
+        _seed_position(cur, 2, login=200, time_create=TODAY_START + 200)
+        assert cro_metrics.n_active_traders_opened(cur, TODAY_START, TODAY_END) == 2
 
 
 # ── #Depositors tests ───────────────────────────────────────────────────
