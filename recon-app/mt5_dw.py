@@ -90,10 +90,10 @@ def parse_balance_comment(comment: str):
     return ("deposit" if m.group(1) == "D" else "withdrawal"), m.group(2)
 
 
-def mt4_summary(year: int, month: int) -> dict:
+def mt5_summary(year: int, month: int) -> dict:
     """Per-login net deposit for the month, computed from mt5_deals (Action=2).
 
-    Drop-in replacement for queries.mt4_summary — returns the identical shape:
+    Drop-in replacement for queries.mt5_summary — returns the identical shape:
         { login(int): {"login", "net_usd", "groupcurrency", "avg_fx"} }
     so reconcile() is unchanged. Test-group accounts are excluded. net_usd is
     converted with the month-average EXTERNAL FX rate (USD groups = identity);
@@ -138,7 +138,7 @@ def deposits_withdrawals(year: int, month: int) -> dict:
     """Per-login gross deposits and withdrawals (group currency + USD) for the month.
     Returns { login(int): {"dep_native","wd_native","dep_usd","wd_usd","currency","tx_count"} }.
     Test-group accounts excluded. Useful for detail views / parity diagnostics;
-    reconcile() uses mt4_summary above."""
+    reconcile() uses mt5_summary above."""
     start, end = _month_bounds(year, month)
     table = _deal_table(year)
     with db.dw() as cur:

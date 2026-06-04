@@ -173,7 +173,7 @@
         </td>
         <td>
           {% set ms = tx.match_status or 'unmatched' %}
-          <span class="badge {% if ms=='matched' %}matched{% elif ms=='manual' %}crm_only{% elif ms=='excluded' %}mt4_only{% else %}tx-unmatched{% endif %}">
+          <span class="badge {% if ms=='matched' %}matched{% elif ms=='manual' %}crm_only{% elif ms=='excluded' %}mt5_only{% else %}tx-unmatched{% endif %}">
             {{ ms }}
           </span>
         </td>

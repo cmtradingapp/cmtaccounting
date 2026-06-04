@@ -41,7 +41,7 @@
   .client-card.ambiguous  { border-left:3px solid #a78bfa; }
   .client-card.discrepancy{ border-left:3px solid var(--yellow); }
   .client-card.clean      { border-left:3px solid var(--green); }
-  .client-card.no-mt4     { border-left:3px solid var(--muted); }
+  .client-card.no-mt5     { border-left:3px solid var(--muted); }
 
   .client-head {
     display:flex; align-items:center; gap:12px;
@@ -70,7 +70,7 @@
   .acct-row.discrepancy  { background:rgba(245,158,11,.07); }
   .acct-row.unmatched_praxis { background:rgba(239,68,68,.06); }
   .acct-row.unmatched_crm   { background:rgba(148,163,184,.06); }
-  .acct-row.no_mt4       { background:rgba(255,255,255,.03); }
+  .acct-row.no_mt5       { background:rgba(255,255,255,.03); }
   .acct-login { font-weight:700; color:var(--accent); font-size:13px; }
   .acct-num   { font-variant-numeric:tabular-nums; text-align:right; }
   .acct-diff.pos { color:var(--green); }
@@ -152,13 +152,13 @@
 {% set card_class = 'ambiguous' if client.ambiguous else ('discrepancy' if client.has_issue else 'clean') %}
 {% set open_default = client.has_issue %}
 {# diff = Praxis - CRM. Positive = Praxis > CRM = company kept the difference (profit). Negative = loss. #}
-{% set card_diff = client.mt4_accounts | sum(attribute='diff') %}
-{% set latest_ts = client.mt4_accounts[0].transactions[-1].ts if client.mt4_accounts[0].transactions else '' %}
+{% set card_diff = client.mt5_accounts | sum(attribute='diff') %}
+{% set latest_ts = client.mt5_accounts[0].transactions[-1].ts if client.mt5_accounts[0].transactions else '' %}
 <div class="client-card {{ card_class }} {% if open_default %}open{% endif %}" id="cc-{{ loop.index }}"
      data-diff="{{ card_diff }}"
      data-latest="{{ latest_ts }}"
      data-search="{{ [client.name, client.email, client.session_cid] | join(' ') | lower }}
-       {%- for a in client.mt4_accounts %} {{ a.login }}{% endfor %}">
+       {%- for a in client.mt5_accounts %} {{ a.login }}{% endfor %}">
   <div class="client-head" onclick="toggleCard('cc-{{ loop.index }}')">
     <span class="client-chevron">▶</span>
     <div>
@@ -187,18 +187,18 @@
     {% if client.ambiguous %}
     <div style="font-size:12px;color:#a78bfa;margin-bottom:10px;padding:8px 12px;
                 background:rgba(167,139,250,.07);border-radius:var(--radius-sm);">
-      ⚠ This Praxis customer maps to {{ client.mt4_accounts|length }} MT4 accounts.
+      ⚠ This Praxis customer maps to {{ client.mt5_accounts|length }} MT5 accounts.
       The deposit attribution below is uncertain — same transactions shown under each account.
     </div>
     {% endif %}
 
-    {% for acct in client.mt4_accounts %}
+    {% for acct in client.mt5_accounts %}
     <div class="acct-row {{ acct.match }}">
       <span>
         {% if acct.login %}
         <a class="acct-login" href="/cid/{{ client.session_cid }}?ref={{ month }}">{{ acct.login }}</a>
         {% else %}
-        <span style="color:var(--muted);font-size:12px;">No MT4 account</span>
+        <span style="color:var(--muted);font-size:12px;">No MT5 account</span>
         {% endif %}
       </span>
       <span class="acct-num" title="Praxis net">
@@ -224,7 +224,7 @@
     </div>
     {% endfor %}
 
-    {% if client.mt4_accounts[0].transactions %}
+    {% if client.mt5_accounts[0].transactions %}
     <table class="tx-table" style="margin-top:12px;">
       <thead>
         <tr>
@@ -238,7 +238,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for tx in client.mt4_accounts[0].transactions %}
+        {% for tx in client.mt5_accounts[0].transactions %}
         <tr>
           <td style="font-family:monospace;font-size:10px;color:var(--muted);">{{ tx.tid }}</td>
           <td>
@@ -260,7 +260,7 @@
               text-transform:uppercase;letter-spacing:.06em;color:rgba(212,175,55,.6);">Total</td>
           <td class="num" style="padding:6px 8px;font-weight:700;
               color:rgba(212,175,55,.9);font-variant-numeric:tabular-nums;">
-            ${{ "{:,.2f}".format(client.mt4_accounts[0].transactions | sum(attribute='usd')) }}
+            ${{ "{:,.2f}".format(client.mt5_accounts[0].transactions | sum(attribute='usd')) }}
           </td>
           <td colspan="2"></td>
         </tr>

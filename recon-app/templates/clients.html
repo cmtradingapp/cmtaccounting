@@ -211,7 +211,7 @@
   <div class="cl-spinner"></div>
   <div style="font-size:15px;font-weight:600;color:var(--text);" id="cl-load-title">Loading client data…</div>
   <div class="cl-load-steps">
-    <div class="cl-step" id="cl-step-mt4">Fetching MT4 trading data</div>
+    <div class="cl-step" id="cl-step-mt5">Fetching MT5 trading data</div>
     <div class="cl-step" id="cl-step-map">Loading CRM account mappings</div>
     <div class="cl-step" id="cl-step-names">Fetching client names</div>
     <div class="cl-step" id="cl-step-build">Building client list</div>
@@ -632,7 +632,7 @@ function loadData(span){
   _span=span;
   var overlay=document.getElementById('cl-overlay');
   var elapsedEl=document.getElementById('cl-elapsed');
-  var stepIds=['cl-step-mt4','cl-step-map','cl-step-names','cl-step-build','cl-step-group'];
+  var stepIds=['cl-step-mt5','cl-step-map','cl-step-names','cl-step-build','cl-step-group'];
   var isRetry = _retryCount > 0;
 
   if (!isRetry) {

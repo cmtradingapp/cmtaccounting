@@ -212,7 +212,7 @@ def crm_summary(year: int, month: int):
     return summary
 
 
-def mt4_summary(year: int, month: int):
+def mt5_summary(year: int, month: int):
     """Per-login net deposit, dispatched by the PLATFORM_SOURCE env flag.
 
     PLATFORM_SOURCE=dealio (default) -> legacy Dealio replica (dealio.daily_profits).
@@ -222,11 +222,11 @@ def mt4_summary(year: int, month: int):
     """
     if os.environ.get("PLATFORM_SOURCE", "dealio").lower() == "dw":
         import mt5_dw
-        return mt5_dw.mt4_summary(year, month)
-    return _mt4_summary_dealio(year, month)
+        return mt5_dw.mt5_summary(year, month)
+    return _mt5_summary_dealio(year, month)
 
 
-def _mt4_summary_dealio(year: int, month: int):
+def _mt5_summary_dealio(year: int, month: int):
     """Per-login net deposit from dealio daily_profits.
     Uses an explicit date range so TimescaleDB can exclude irrelevant hypertable chunks.
     EXTRACT()-based filtering scans ALL chunks and kills the replica at peak hours.
@@ -238,7 +238,7 @@ def _mt4_summary_dealio(year: int, month: int):
     else:
         month_end = datetime.date(year, month + 1, 1)
 
-    def _fetch_mt4():
+    def _fetch_mt5():
         with dealio() as cur:
             cur.execute("""
                 SELECT
@@ -254,12 +254,12 @@ def _mt4_summary_dealio(year: int, month: int):
             """, (month_start, month_end))
             return {r["login"]: dict(r) for r in cur.fetchall()}
 
-    return _db_retry(_fetch_mt4)
+    return _db_retry(_fetch_mt5)
 
 
 def _load_praxis_account_map() -> dict:
     """
-    Build {session_cid (str) -> [mt4_login (int), ...]} lookup from Antelope CRM.
+    Build {session_cid (str) -> [mt5_login (int), ...]} lookup from Antelope CRM.
 
     Source: vtiger_mttransactions.vtigeraccountid — this column stores the CRM
     account ID which equals the Praxis session_cid (26xxx/27xxx range).
@@ -314,10 +314,10 @@ def get_praxis_error():
 
 def praxis_summary(year: int, month: int) -> dict:
     """
-    Per-MT4-login Praxis deposit/withdrawal totals for a month. Cached 5 min.
+    Per-MT5-login Praxis deposit/withdrawal totals for a month. Cached 5 min.
 
     Join: praxis_transactions.session_cid = vtiger_trading_accounts.vtigeraccountid
-          vtiger_trading_accounts.login = MT4 login
+          vtiger_trading_accounts.login = MT5 login
     """
     global _praxis_last_error
     import datetime
@@ -358,9 +358,9 @@ def praxis_summary(year: int, month: int) -> dict:
         print(f"[PRAXIS ERROR] praxis_summary({year}-{month:02d}): {e}")
         rows = []
 
-    # Map each session_cid to MT4 login(s).
-    # Only assign when the mapping is unambiguous (exactly one MT4 login per Praxis customer).
-    # When a Praxis customer has multiple MT4 accounts we cannot reliably attribute the
+    # Map each session_cid to MT5 login(s).
+    # Only assign when the mapping is unambiguous (exactly one MT5 login per Praxis customer).
+    # When a Praxis customer has multiple MT5 accounts we cannot reliably attribute the
     # deposit to the correct account without a transaction-level reference — skip those.
     result: dict = {}
     for r in rows:
@@ -485,7 +485,7 @@ def crm_expected_fees(year: int, month: int) -> dict:
 
     Returns {login: expected_fee_usd}.
 
-    This bridges the gap between MT4 net deposit (post-fee) and CRM gross deposit
+    This bridges the gap between MT5 net deposit (post-fee) and CRM gross deposit
     (pre-fee), allowing the reconciliation to compute a fee-adjusted difference.
     """
     import datetime
@@ -534,37 +534,37 @@ def crm_expected_fees(year: int, month: int) -> dict:
 
 
 def reconcile(year: int, month: int):
-    """Join MT4 netdeposit vs CRM cash transactions per login (cached 5 min)."""
+    """Join MT5 netdeposit vs CRM cash transactions per login (cached 5 min)."""
     key = f"reconcile:{year}:{month}"
     cached = _cache_get(key, _TTL_RECONCILE)
     if cached is not None:
         return cached
 
     crm    = crm_summary(year, month)
-    mt4    = mt4_summary(year, month)
+    mt5    = mt5_summary(year, month)
     praxis = praxis_summary(year, month)
     fees   = crm_expected_fees(year, month)   # {login: expected_fee_usd}
     bank   = bank_recon_summary(year, month)  # {login: {bank_deposits, bank_withdrawals, ...}}
 
     rows = []
-    for login in set(crm) | set(mt4):
+    for login in set(crm) | set(mt5):
         c = crm.get(login, {})
-        m = mt4.get(login, {})
+        m = mt5.get(login, {})
 
-        mt4_net      = round(float(m.get("net_usd") or 0), 2)
+        mt5_net      = round(float(m.get("net_usd") or 0), 2)
         crm_cash     = round(c.get("cash_net", 0), 2)
         expected_fee = round(fees.get(login, 0.0), 2)
-        diff         = round(mt4_net - crm_cash, 2)
+        diff         = round(mt5_net - crm_cash, 2)
         # Fee adj is informational only — company pays fees so they don't affect matching
         fee_adj_diff = round(diff - expected_fee, 2)
-        # Full adj: MT4 vs (cash + internal credits/debits from bonuses etc.)
-        # Bonuses are credited to MT4 by the company; they show as noncash in CRM
+        # Full adj: MT5 vs (cash + internal credits/debits from bonuses etc.)
+        # Bonuses are credited to MT5 by the company; they show as noncash in CRM
         noncash_net = round(c.get("noncash_in", 0) - c.get("noncash_out", 0), 2)
         adj_diff    = round(diff - noncash_net, 2)
 
         if login not in crm:
-            status = "mt4_only"
-        elif login not in mt4:
+            status = "mt5_only"
+        elif login not in mt5:
             status = "crm_only"
         elif abs(adj_diff) < 1.0:
             status = "matched"
@@ -578,7 +578,7 @@ def reconcile(year: int, month: int):
         bk = bank.get(login, {})
         rows.append({
             "login":              login,
-            "mt4_net":            mt4_net,
+            "mt5_net":            mt5_net,
             "crm_cash_net":       crm_cash,
             "crm_cash_dep":       round(c.get("cash_deposits", 0), 2),
             "crm_cash_with":      round(c.get("cash_withdrawals", 0), 2),
@@ -689,7 +689,7 @@ def reconcile_grouped(year: int, month: int) -> list:
                 login_to_cid[login] = cid
     fallback_cids = fb_cids  # cids that came from trading_accounts fallback
 
-    STATUS_PRIORITY = {"discrepancy": 3, "crm_only": 2, "mt4_only": 2, "matched": 1}
+    STATUS_PRIORITY = {"discrepancy": 3, "crm_only": 2, "mt5_only": 2, "matched": 1}
 
     groups_dict: dict = {}
     for r in rows:
@@ -703,7 +703,7 @@ def reconcile_grouped(year: int, month: int) -> list:
     for g in groups_dict.values():
         logins = g["logins"]
         agg = {
-            "mt4_net":        round(sum(r["mt4_net"]        for r in logins), 2),
+            "mt5_net":        round(sum(r["mt5_net"]        for r in logins), 2),
             "crm_cash_dep":   round(sum(r["crm_cash_dep"]   for r in logins), 2),
             "crm_cash_with":  round(sum(r["crm_cash_with"]  for r in logins), 2),
             "crm_cash_net":   round(sum(r["crm_cash_net"]   for r in logins), 2),
@@ -1497,9 +1497,9 @@ def _compute_client_list(date_from, date_to) -> list:
     float_from = max(date_from, date_to - _dt2.timedelta(days=90))
     stmt_timeout = 300000 if wide_span else 120000
 
-    _set_stage("Querying MT4 deposits & P&L\u2026", 1)
+    _set_stage("Querying MT5 deposits & P&L\u2026", 1)
 
-    def _fetch_mt4():
+    def _fetch_mt5():
         with dealio() as cur:
             cur.execute(f"SET statement_timeout = {stmt_timeout}")
             cur.execute("""
@@ -1571,22 +1571,22 @@ def _compute_client_list(date_from, date_to) -> list:
         return result
 
     _set_stage("Fetching client names\u2026", 3)
-    # Run MT4 and CRM names in parallel (different DBs, both I/O-bound)
+    # Run MT5 and CRM names in parallel (different DBs, both I/O-bound)
     cids_for_names = all_cids if wide_span else []
     with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
-        _f_mt4   = _ex.submit(_db_retry, _fetch_mt4)
+        _f_mt5   = _ex.submit(_db_retry, _fetch_mt5)
         _f_names = _ex.submit(_fetch_crm_names_for, cids_for_names)
         try:
-            mt4 = _f_mt4.result()
-        except Exception as _mt4_err:
-            print(f"[client_list] MT4 query FAILED ({date_from}→{date_to}): {_mt4_err}")
+            mt5 = _f_mt5.result()
+        except Exception as _mt5_err:
+            print(f"[client_list] MT5 query FAILED ({date_from}→{date_to}): {_mt5_err}")
             raise   # propagate so caller gets a real error, not silent empty
         crm_names_wide = _f_names.result()
 
     if wide_span:
         crm_names = crm_names_wide
     else:
-        cids_needed = list({login_to_cid[l] for l in mt4 if l in login_to_cid and login_to_cid[l]})
+        cids_needed = list({login_to_cid[l] for l in mt5 if l in login_to_cid and login_to_cid[l]})
         crm_names = _fetch_crm_names_for(cids_needed)
 
     praxis_names: dict = {}
@@ -1612,7 +1612,7 @@ def _compute_client_list(date_from, date_to) -> list:
 
     _set_stage("Building result rows\u2026", 4)
     rows = []
-    for login, m in mt4.items():
+    for login, m in mt5.items():
         net_dep    = float(m["net_deposit"] or 0)
         client_pnl = float(m["client_realised_pnl"] or 0)
         floating   = float(m.get("client_floating_eod") or 0)
@@ -1716,14 +1716,14 @@ def client_list(date_from=None, date_to=None) -> list:
 def summary_stats(rows):
     matched     = sum(1 for r in rows if r["status"] == "matched")
     discrepancy = sum(1 for r in rows if r["status"] == "discrepancy")
-    mt4_only    = sum(1 for r in rows if r["status"] == "mt4_only")
+    mt5_only    = sum(1 for r in rows if r["status"] == "mt5_only")
     crm_only    = sum(1 for r in rows if r["status"] == "crm_only")
     total_diff  = sum(r["difference"] for r in rows if r["status"] == "discrepancy")
     return {
         "total":       len(rows),
         "matched":     matched,
         "discrepancy": discrepancy,
-        "mt4_only":    mt4_only,
+        "mt5_only":    mt5_only,
         "crm_only":    crm_only,
         "total_diff":  round(total_diff, 2),
         "match_rate":  round(matched / len(rows) * 100, 1) if rows else 0,
@@ -1838,7 +1838,7 @@ def praxis_client_tree(year: int, month: int,
         total_praxis -= sum(float(t["usd_amount"] or 0) for t in txs
                            if t["direction"] in ("withdrawal", "payout"))
 
-        mt4_accounts = []
+        mt5_accounts = []
         for login in (logins if logins else [None]):
             acct_txs = txs   # when ambiguous, all txs shown under each login
             p_dep  = sum(float(t["usd_amount"] or 0) for t in acct_txs if t["direction"] == "payment")
@@ -1850,7 +1850,7 @@ def praxis_client_tree(year: int, month: int,
             diff   = round(p_net - c_net, 2)
 
             if login is None:
-                match = "no_mt4"
+                match = "no_mt5"
             elif abs(diff) < 1.0:
                 match = "matched"
             elif c_net == 0 and p_net != 0:
@@ -1874,7 +1874,7 @@ def praxis_client_tree(year: int, month: int,
                     "ts":        str(t["ts"])[:16] if t["ts"] else "",
                 })
 
-            mt4_accounts.append({
+            mt5_accounts.append({
                 "login":          login,
                 "praxis_net":     p_net,
                 "praxis_dep":     round(p_dep, 2),
@@ -1891,8 +1891,8 @@ def praxis_client_tree(year: int, month: int,
             "email":         email,
             "ambiguous":     ambiguous,
             "total_praxis":  round(total_praxis, 2),
-            "mt4_accounts":  mt4_accounts,
-            "has_issue":     ambiguous or any(a["match"] not in ("matched",) for a in mt4_accounts),
+            "mt5_accounts":  mt5_accounts,
+            "has_issue":     ambiguous or any(a["match"] not in ("matched",) for a in mt5_accounts),
         })
 
     # Sort: issues first, then by total amount desc
@@ -2014,7 +2014,7 @@ def praxis_transaction_list(year: int, month: int) -> list:
                     row["fee_actual"] = float(row["fee_actual"] or 0)
                     cid = str(row.get("login") or "").strip()
                     logins = account_map.get(cid, [])
-                    row["mt4_login"] = logins[0] if logins else None
+                    row["mt5_login"] = logins[0] if logins else None
                     rows.append(row)
                 return rows
         result = _db_retry(_fetch)
@@ -2105,8 +2105,8 @@ def psp_balance_at_month_end(year: int, month: int) -> list:
 
 def cid_full_profile(cid: str, date_from, date_to) -> dict:
     """
-    Full profile for a Praxis customer (session_cid) across all their MT4 accounts.
-    Returns a unified dict with name, email, all logins, Praxis txs, CRM + MT4 per login.
+    Full profile for a Praxis customer (session_cid) across all their MT5 accounts.
+    Returns a unified dict with name, email, all logins, Praxis txs, CRM + MT5 per login.
     Cached 5 minutes.
     """
     key = f"cid_profile:{cid}:{date_from}:{date_to}"
@@ -2206,12 +2206,12 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
     except Exception:
         praxis_txs = primary_txs
 
-    # 2. CRM + MT4 per login
+    # 2. CRM + MT5 per login
     crm_by_login = {}
-    mt4_by_login = {}
+    mt5_by_login = {}
     for login in logins:
         crm_by_login[login] = client_crm_detail(login, date_from, date_to)
-        mt4_by_login[login] = client_mt4_detail(login, date_from, date_to)
+        mt5_by_login[login] = client_mt5_detail(login, date_from, date_to)
 
     # 3. Summary totals
     praxis_dep  = sum(t["usd_amount"] for t in praxis_txs if t["direction"] == "payment")
@@ -2240,11 +2240,11 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
     else:
         related_cids = []
 
-    # 4. Trading P&L from MT4 (converted to USD), also compute per-login
+    # 4. Trading P&L from MT5 (converted to USD), also compute per-login
     client_realised_pnl = 0.0
     client_unrealised_eod = 0.0
     pnl_by_login = {}
-    for login, rows in mt4_by_login.items():
+    for login, rows in mt5_by_login.items():
         # Use converted (USD) fields throughout — closedpnl is in native currency
         l_realised = sum(float(r.get("convertedclosedpnl") or r.get("closedpnl") or 0) for r in rows)
         l_unrealised = float(rows[-1].get("convertedfloatingpnl") or rows[-1].get("floatingpnl") or 0) if rows else 0.0
@@ -2266,10 +2266,10 @@ def cid_full_profile(cid: str, date_from, date_to) -> dict:
         "cid":          cid,
         "name":         name,
         "email":        email,
-        "mt4_accounts": logins,
+        "mt5_accounts": logins,
         "praxis_txs":   praxis_txs,
         "crm_by_login": crm_by_login,
-        "mt4_by_login": mt4_by_login,
+        "mt5_by_login": mt5_by_login,
         "pnl_by_login": pnl_by_login,
         "related_cids": related_cids,
         "summary": {
@@ -2319,8 +2319,8 @@ def client_crm_detail(login: int, date_from, date_to) -> list:
     return result
 
 
-def client_mt4_detail(login: int, date_from, date_to) -> list:
-    """MT4 daily profits for a login over an arbitrary date range."""
+def client_mt5_detail(login: int, date_from, date_to) -> list:
+    """MT5 daily profits for a login over an arbitrary date range."""
     def _fetch():
         with dealio() as cur:
             cur.execute("""
@@ -2344,7 +2344,7 @@ def client_mt4_detail(login: int, date_from, date_to) -> list:
 
 def client_praxis_detail(login: int, date_from, date_to) -> list:
     """Individual Praxis transactions for a login over an arbitrary date range.
-    Resolves MT4 login → Praxis session_cid via vtiger_trading_accounts.
+    Resolves MT5 login → Praxis session_cid via vtiger_trading_accounts.
     """
     account_map, _fallback_cids = _load_praxis_account_map()
     # Reverse lookup: login → [cid, ...]
@@ -2449,8 +2449,8 @@ def login_crm_transactions(year: int, month: int, login: int):
     } for r in rows]
 
 
-def login_mt4_detail(year: int, month: int, login: int):
-    """Daily MT4 net deposit entries for a specific login."""
+def login_mt5_detail(year: int, month: int, login: int):
+    """Daily MT5 net deposit entries for a specific login."""
     with dealio() as cur:
         cur.execute("""
             SELECT date, netdeposit, convertednetdeposit, balance, equity,
@@ -3881,7 +3881,7 @@ def auto_match_bank_to_crm(year: int, month: int) -> dict:
 
     # ── Pass 3: Login number in bank description ───────────────────────────
     unmatched3 = []
-    login_re = re.compile(r"\b(1[234]\d{7})\b")   # MT4 logins: 130M–149M range
+    login_re = re.compile(r"\b(1[234]\d{7})\b")   # MT5 logins: 130M–149M range
     for b in unmatched2:
         b_desc = str(b.get("reference") or "") + " " + str(b.get("description") or "")
         login_matches = login_re.findall(b_desc)
@@ -3972,7 +3972,7 @@ def auto_match_bank_to_crm(year: int, month: int) -> dict:
 
 
 def bank_recon_summary(year: int, month: int) -> dict:
-    """Aggregate matched bank transactions per MT4 login.
+    """Aggregate matched bank transactions per MT5 login.
 
     Returns {login: {"bank_deposits": X, "bank_withdrawals": Y,
                      "bank_net": Z, "bank_matched": N}}

@@ -279,7 +279,7 @@
               {% endif %}
             </td>
             <td>
-              <span class="badge {% if r.fee_type == 'Deposit' %}matched{% elif r.fee_type == 'Withdrawal' %}discrepancy{% elif r.fee_type == 'Settlement' %}fee-settlement{% elif r.fee_type == 'Chargeback' %}fee-chargeback{% elif r.fee_type == 'Refund' %}fee-refund{% elif r.fee_type == 'Rolling Reserve' %}fee-rolling{% elif r.fee_type == 'Holdback' %}fee-holdback{% elif r.fee_type == 'Setup' %}fee-setup{% elif r.fee_type == 'Registration' %}fee-registration{% elif r.fee_type == 'Minimum Monthly' %}fee-minmonthly{% else %}mt4_only{% endif %}">
+              <span class="badge {% if r.fee_type == 'Deposit' %}matched{% elif r.fee_type == 'Withdrawal' %}discrepancy{% elif r.fee_type == 'Settlement' %}fee-settlement{% elif r.fee_type == 'Chargeback' %}fee-chargeback{% elif r.fee_type == 'Refund' %}fee-refund{% elif r.fee_type == 'Rolling Reserve' %}fee-rolling{% elif r.fee_type == 'Holdback' %}fee-holdback{% elif r.fee_type == 'Setup' %}fee-setup{% elif r.fee_type == 'Registration' %}fee-registration{% elif r.fee_type == 'Minimum Monthly' %}fee-minmonthly{% else %}mt5_only{% endif %}">
                 {{ r.fee_type }}
               </span>
             </td>

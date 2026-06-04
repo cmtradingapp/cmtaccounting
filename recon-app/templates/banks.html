@@ -139,7 +139,7 @@
           </td>
           <td class="num" data-val="{{ s.tx_count or 0 }}">{{ s.tx_count or 0 }}</td>
           <td>
-            <span class="badge {% if s.source == 'upload' %}matched{% elif s.source == 'manual' %}mt4_only{% else %}crm_only{% endif %}">
+            <span class="badge {% if s.source == 'upload' %}matched{% elif s.source == 'manual' %}mt5_only{% else %}crm_only{% endif %}">
               {{ s.source }}
             </span>
           </td>
@@ -247,7 +247,7 @@
           <td class="num pos">{% if s.total_credits %}+{{ "{:,.2f}".format(s.total_credits) }}{% else %}&mdash;{% endif %}</td>
           <td class="num neg">{% if s.total_debits %}{{ "{:,.2f}".format(s.total_debits) }}{% else %}&mdash;{% endif %}</td>
           <td class="num">{{ s.tx_count or 0 }}</td>
-          <td><span class="badge mt4_only">{{ s.source }}</span></td>
+          <td><span class="badge mt5_only">{{ s.source }}</span></td>
           <td style="font-size:12px;color:var(--muted);">{{ s.uploaded_at[:16] if s.uploaded_at else '' }}</td>
           <td style="text-align:right;white-space:nowrap;">
             <form method="post" action="/banks/{{ s.id }}/restore" style="display:inline;">

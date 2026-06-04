@@ -179,7 +179,7 @@
             <td>{{ r.transactiontype or '—' }}</td>
             <td>{{ r.payment_method or '—' }}</td>
             <td>
-              <span class="badge {% if r.transactionapproval == 'Approved' %}matched{% elif r.transactionapproval == 'Failure' %}discrepancy{% else %}mt4_only{% endif %}">
+              <span class="badge {% if r.transactionapproval == 'Approved' %}matched{% elif r.transactionapproval == 'Failure' %}discrepancy{% else %}mt5_only{% endif %}">
                 {{ r.transactionapproval }}
               </span>
             </td>
@@ -203,11 +203,11 @@
   </div>
 </div>
 
-<!-- MT4 daily profits -->
+<!-- MT5 daily profits -->
 <div class="cd-section">
   <div class="cd-section-head">
-    <span class="cd-section-title">MT4 Daily Net Deposits</span>
-    <span class="cd-badge" style="background:rgba(34,197,94,.12);color:var(--green);">{{ mt4_rows|length }} days</span>
+    <span class="cd-section-title">MT5 Daily Net Deposits</span>
+    <span class="cd-badge" style="background:rgba(34,197,94,.12);color:var(--green);">{{ mt5_rows|length }} days</span>
   </div>
   <div class="table-wrap">
     <table>
@@ -224,9 +224,9 @@
         </tr>
       </thead>
       <tbody>
-        {% if mt4_rows %}
+        {% if mt5_rows %}
           {% set totals = namespace(net=0, pnl=0) %}
-          {% for r in mt4_rows %}
+          {% for r in mt5_rows %}
           {% set totals.net = totals.net + (r.convertednetdeposit or 0) %}
           {% set totals.pnl = totals.pnl + (r.closedpnl or 0) %}
           <tr>
@@ -253,7 +253,7 @@
             <td></td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="empty">No MT4 activity in this period.</td></tr>
+          <tr><td colspan="8" class="empty">No MT5 activity in this period.</td></tr>
         {% endif %}
       </tbody>
     </table>

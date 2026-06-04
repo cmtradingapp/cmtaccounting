@@ -254,11 +254,11 @@ def recon_source_compare(month):
 
     import mt5_dw
     try:
-        dealio = queries._mt4_summary_dealio(year, mon)
+        dealio = queries._mt5_summary_dealio(year, mon)
     except Exception as e:
         return jsonify({"error": f"dealio source failed: {e}"}), 500
     try:
-        dw = mt5_dw.mt4_summary(year, mon)
+        dw = mt5_dw.mt5_summary(year, mon)
     except Exception as e:
         return jsonify({"error": f"dw source failed: {e}"}), 500
 
@@ -476,8 +476,8 @@ def cid_detail(cid):
     try:
         profile = queries.cid_full_profile(cid, range_start, range_end)
     except Exception:
-        profile = {"cid": cid, "name":"—","email":"—","mt4_accounts":[],
-                   "praxis_txs":[],"crm_by_login":{},"mt4_by_login":{},
+        profile = {"cid": cid, "name":"—","email":"—","mt5_accounts":[],
+                   "praxis_txs":[],"crm_by_login":{},"mt5_by_login":{},
                    "summary":{"praxis_deposits":0,"praxis_withdrawals":0,
                                "crm_cash_dep":0,"crm_cash_with":0,"diff":0}}
 
@@ -523,10 +523,10 @@ def client_detail(login):
 
     try:
         crm_rows    = queries.client_crm_detail(login, range_start, range_end)
-        mt4_rows    = queries.client_mt4_detail(login, range_start, range_end)
+        mt5_rows    = queries.client_mt5_detail(login, range_start, range_end)
         praxis_rows = queries.client_praxis_detail(login, range_start, range_end)
     except Exception as e:
-        crm_rows = mt4_rows = praxis_rows = []
+        crm_rows = mt5_rows = praxis_rows = []
 
     # Summary totals
     crm_cash   = sum(r["total_usd"] for r in crm_rows
@@ -543,7 +543,7 @@ def client_detail(login):
         return render_template("client_detail.html",
             login=login, span=span, span_label=span_labels.get(span, span),
             range_start=str(range_start), range_end=str(range_end), ref=ref,
-            crm_rows=crm_rows, mt4_rows=mt4_rows, praxis_rows=praxis_rows,
+            crm_rows=crm_rows, mt5_rows=mt5_rows, praxis_rows=praxis_rows,
             crm_cash=round(crm_cash,2), crm_with=round(crm_with,2),
             praxis_dep=round(praxis_dep,2), praxis_with=round(praxis_with,2),
         )
@@ -861,14 +861,14 @@ def export(month):
     # ── Sheet 1: Summary (fixed keys) ────────────────────────────────────
     ws1 = wb.active
     ws1.title = "Summary"
-    ws1.append(["Login", "MT4 Net (USD)", "CRM Cash Net (USD)", "CRM Deposits (USD)",
+    ws1.append(["Login", "MT5 Net (USD)", "CRM Cash Net (USD)", "CRM Deposits (USD)",
                  "CRM Withdrawals (USD)", "Praxis Net (USD)", "Praxis Deposits (USD)",
                  "Praxis Withdrawals (USD)", "Bank Net", "Bank Matched Txns",
-                 "Difference (MT4 vs CRM)",
+                 "Difference (MT5 vs CRM)",
                  "Status", "Payment Methods", "CRM Tx Count", "Praxis Tx Count", "Currency"])
     for r in recon_rows:
         ws1.append([
-            r["login"], r["mt4_net"], r["crm_cash_net"],
+            r["login"], r["mt5_net"], r["crm_cash_net"],
             r["crm_cash_dep"], r["crm_cash_with"],
             r["praxis_net"], r["praxis_deposits"], r["praxis_withdrawals"],
             r.get("bank_net", 0), r.get("bank_matched", 0),
@@ -1014,10 +1014,10 @@ def login_detail(month, login):
     except (ValueError, IndexError):
         abort(400)
     crm_rows  = queries.login_detail(year, mon, login)
-    mt4_rows  = queries.login_mt4_detail(year, mon, login)
+    mt5_rows  = queries.login_mt5_detail(year, mon, login)
     months    = queries.available_months()
     return render_template("detail.html", month=month, login=login,
-                           crm_rows=crm_rows, mt4_rows=mt4_rows, months=months)
+                           crm_rows=crm_rows, mt5_rows=mt5_rows, months=months)
 
 
 # ---------------------------------------------------------------------------

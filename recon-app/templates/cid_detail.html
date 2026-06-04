@@ -54,7 +54,7 @@
     </div>
     <div style="font-size:13px;color:var(--muted);margin-top:3px;">
       {{ profile.email }}
-      &nbsp;·&nbsp; {{ profile.mt4_accounts|length }} MT4 account{{ 's' if profile.mt4_accounts|length != 1 }}
+      &nbsp;·&nbsp; {{ profile.mt5_accounts|length }} MT5 account{{ 's' if profile.mt5_accounts|length != 1 }}
       &nbsp;·&nbsp; {{ range_start }} → {{ range_end }} ({{ span_label }})
     </div>
   </div>
@@ -90,8 +90,8 @@
 <!-- Summary cards -->
 <div class="cd-summary-grid">
   <div class="cd-stat">
-    <div class="label">MT4 Accounts</div>
-    <div class="value" style="color:var(--accent);">{{ profile.mt4_accounts|length }}</div>
+    <div class="label">MT5 Accounts</div>
+    <div class="value" style="color:var(--accent);">{{ profile.mt5_accounts|length }}</div>
   </div>
   <div class="cd-stat">
     <div class="label">CRM Cash Deposits</div>
@@ -215,7 +215,7 @@
 
 <!-- CRM Transactions — all accounts merged, Login column added -->
 {% set all_crm = [] %}
-{% for login in profile.mt4_accounts %}
+{% for login in profile.mt5_accounts %}
   {% for r in profile.crm_by_login.get(login, []) %}
     {% set _ = all_crm.append(r.update({'_login': login}) or r) %}
   {% endfor %}
@@ -228,7 +228,7 @@
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th data-col="0">MT4 Login</th>
+        <th data-col="0">MT5 Login</th>
         <th data-col="1">Type</th>
         <th data-col="2">Payment Method</th>
         <th data-col="3">Approval</th>
@@ -240,7 +240,7 @@
       </tr></thead>
       <tbody>
         {% set any_crm = [] %}
-        {% for login in profile.mt4_accounts %}
+        {% for login in profile.mt5_accounts %}
           {% for r in profile.crm_by_login.get(login, []) %}
           {% set _ = any_crm.append(1) %}
           <tr>
@@ -251,7 +251,7 @@
             <td data-val="{{ r.transactiontype or '' }}">{{ r.transactiontype or '—' }}</td>
             <td data-val="{{ r.payment_method or '' }}">{{ r.payment_method or '—' }}</td>
             <td data-val="{{ r.transactionapproval or '' }}">
-              <span class="badge {% if r.transactionapproval=='Approved' %}matched{% elif r.transactionapproval=='Failure' %}discrepancy{% else %}mt4_only{% endif %}">
+              <span class="badge {% if r.transactionapproval=='Approved' %}matched{% elif r.transactionapproval=='Failure' %}discrepancy{% else %}mt5_only{% endif %}">
                 {{ r.transactionapproval }}
               </span>
             </td>
@@ -277,21 +277,21 @@
   </div>
 </div>
 
-<!-- MT4 Accounts — one collapsible per login (MT4 data only, CRM moved above) -->
-{% if profile.mt4_accounts %}
+<!-- MT5 Accounts — one collapsible per login (MT5 data only, CRM moved above) -->
+{% if profile.mt5_accounts %}
 <div class="cd-section">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-    <span class="cd-section-title">MT4 Accounts</span>
-    <span class="cd-badge" style="background:rgba(79,142,247,.12);color:var(--accent);">{{ profile.mt4_accounts|length }}</span>
+    <span class="cd-section-title">MT5 Accounts</span>
+    <span class="cd-badge" style="background:rgba(79,142,247,.12);color:var(--accent);">{{ profile.mt5_accounts|length }}</span>
   </div>
 
-  {% for login in profile.mt4_accounts %}
+  {% for login in profile.mt5_accounts %}
   {% set crm = profile.crm_by_login.get(login, []) %}
-  {% set mt4 = profile.mt4_by_login.get(login, []) %}
+  {% set mt5 = profile.mt5_by_login.get(login, []) %}
   {% set pnl = profile.pnl_by_login.get(login, {}) %}
   {% set company_total = pnl.get('company_total', 0) %}
   {% set is_losing = company_total < -1 %}
-  <div class="acct-panel {% if crm or mt4 %}open{% endif %}"
+  <div class="acct-panel {% if crm or mt5 %}open{% endif %}"
        id="ap-{{ login }}"
        style="{% if is_losing %}border-left:3px solid var(--red);{% elif company_total > 1 %}border-left:3px solid var(--green);{% endif %}">
     <div class="acct-head" onclick="document.getElementById('ap-{{ login }}').classList.toggle('open')">
@@ -299,7 +299,7 @@
       <a href="/client/{{ login }}?{% if ref %}ref={{ ref }}&{% endif %}span={{ span }}"
          style="font-weight:700;font-size:14px;color:var(--accent);text-decoration:none;"
          onclick="event.stopPropagation()">{{ login }}</a>
-      <span style="font-size:12px;color:var(--muted);">{{ mt4|length }} MT4 days</span>
+      <span style="font-size:12px;color:var(--muted);">{{ mt5|length }} MT5 days</span>
       {% if pnl %}
       <div style="margin-left:auto;display:flex;gap:16px;font-size:12px;font-variant-numeric:tabular-nums;">
         <span title="Client's realised trading P&L">
@@ -322,9 +322,9 @@
     </div>
     <div class="acct-body">
 
-      <!-- MT4 for this login -->
+      <!-- MT5 for this login -->
       <div>
-        <div class="cd-section-title" style="margin-bottom:8px;">MT4 Daily Net Deposits</div>
+        <div class="cd-section-title" style="margin-bottom:8px;">MT5 Daily Net Deposits</div>
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -337,9 +337,9 @@
               <th data-col="6">Ccy</th>
             </tr></thead>
             <tbody>
-              {% if mt4 %}
+              {% if mt5 %}
                 {% set tot = namespace(net=0) %}
-                {% for r in mt4 %}
+                {% for r in mt5 %}
                 {% set tot.net = tot.net + (r.convertednetdeposit or 0) %}
                 <tr>
                   <td data-val="{{ r.date }}">{{ r.date }}</td>
@@ -359,7 +359,7 @@
                   <td colspan="4"></td>
                 </tr>
               {% else %}
-                <tr><td colspan="7" class="empty">No MT4 activity in this period.</td></tr>
+                <tr><td colspan="7" class="empty">No MT5 activity in this period.</td></tr>
               {% endif %}
             </tbody>
           </table>
@@ -372,11 +372,11 @@
 </div>
 {% endif %}
 
-{% if not profile.mt4_accounts and not profile.praxis_txs %}
+{% if not profile.mt5_accounts and not profile.praxis_txs %}
 <div style="text-align:center;padding:64px;color:var(--muted);">
   <div style="font-size:32px;margin-bottom:12px;opacity:.3;">👤</div>
   <div style="font-size:15px;font-weight:600;margin-bottom:6px;">No data found for CID {{ cid }}</div>
-  <div style="font-size:13px;">This CID has no Praxis transactions or linked MT4 accounts in the selected period.</div>
+  <div style="font-size:13px;">This CID has no Praxis transactions or linked MT5 accounts in the selected period.</div>
 </div>
 {% endif %}
 

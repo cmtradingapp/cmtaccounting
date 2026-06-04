@@ -36,7 +36,7 @@
               <td>{{ r.transactiontype or '—' }}</td>
               <td>{{ r.payment_method or '—' }}</td>
               <td>
-                <span class="badge {% if r.transactionapproval == 'Approved' %}matched{% elif r.transactionapproval == 'Failure' %}discrepancy{% else %}mt4_only{% endif %}">
+                <span class="badge {% if r.transactionapproval == 'Approved' %}matched{% elif r.transactionapproval == 'Failure' %}discrepancy{% else %}mt5_only{% endif %}">
                   {{ r.transactionapproval }}
                 </span>
               </td>
@@ -61,9 +61,9 @@
     </div>
   </div>
 
-  <!-- MT4 daily profits -->
+  <!-- MT5 daily profits -->
   <div>
-    <div class="section-title" style="margin-top:0;">MT4 Daily Net Deposits — dealio</div>
+    <div class="section-title" style="margin-top:0;">MT5 Daily Net Deposits — dealio</div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -77,9 +77,9 @@
           </tr>
         </thead>
         <tbody>
-          {% if mt4_rows %}
+          {% if mt5_rows %}
             {% set total_net = namespace(v=0) %}
-            {% for r in mt4_rows %}
+            {% for r in mt5_rows %}
             {% set _ = total_net.__setattr__('v', total_net.v + (r.convertednetdeposit or 0)) %}
             <tr>
               <td>{{ r.date }}</td>
@@ -103,7 +103,7 @@
               <td colspan="3"></td>
             </tr>
           {% else %}
-            <tr><td colspan="6" class="empty">No MT4 activity this month.</td></tr>
+            <tr><td colspan="6" class="empty">No MT5 activity this month.</td></tr>
           {% endif %}
         </tbody>
       </table>
