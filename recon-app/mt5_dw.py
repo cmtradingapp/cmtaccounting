@@ -13,8 +13,13 @@ MT5 deal model (verified on the datawarehouse):
                      (mt5_users."Group" -> mt5_groups."Currency")
     "Comment"     -> "D:<cid>,IP:..." (deposit) / "W:<cid>,IP:..." (withdrawal),
                      where <cid> = Praxis session_cid / CRM account id.
-Note: mt5_deals_{year} are standalone yearly tables (not partitions); a monthly
-query targets a single year table. Columns are case-sensitive (quoted).
+
+Notes:
+- mt5_deals_{year} are standalone yearly tables (not partitions); a monthly query
+  targets a single year table. Columns are case-sensitive (quoted).
+- TEST accounts (group name contains "test", e.g. CMVtest3US) are EXCLUDED — they
+  are not real client cash and Dealio omits them too.
+- psycopg2 parameterised queries: literal % in LIKE/ILIKE must be doubled (%%).
 """
 
 import datetime
@@ -25,11 +30,15 @@ import fx_rates
 
 # Balance-op deals that are NOT real client cash movements — excluded from the
 # net-deposit figure, mirroring cro_metrics / Mt5MonitorApiBundle conventions.
+# (`d.` = the mt5_deals alias; %% because these run in parameterised queries.)
 _NONCASH_COMMENT_SQL = (
-    " AND COALESCE(lower(\"Comment\"), '') NOT LIKE '%bonus%'"
-    " AND COALESCE(lower(\"Comment\"), '') NOT LIKE '%fees placeholder%'"
-    " AND COALESCE(lower(\"Comment\"), '') NOT LIKE '%spread charge%'"
+    " AND COALESCE(lower(d.\"Comment\"), '') NOT LIKE '%%bonus%%'"
+    " AND COALESCE(lower(d.\"Comment\"), '') NOT LIKE '%%fees placeholder%%'"
+    " AND COALESCE(lower(d.\"Comment\"), '') NOT LIKE '%%spread charge%%'"
 )
+
+# Exclude test accounts (group name contains "test", any case).
+_EXCLUDE_TEST_GROUP_SQL = " AND u.\"Group\" NOT ILIKE '%%test%%'"
 
 _BALANCE_COMMENT_RE = re.compile(r"^\s*([DW]):(\d+)")
 
@@ -59,46 +68,37 @@ def parse_balance_comment(comment: str):
     return ("deposit" if m.group(1) == "D" else "withdrawal"), m.group(2)
 
 
-def _login_currency(cur, logins):
-    """{login(int) -> group currency} for the given logins (default 'USD')."""
-    if not logins:
-        return {}
-    cur.execute(
-        'SELECT u."Login" AS login, g."Currency" AS currency '
-        "FROM mt5_users u "
-        'LEFT JOIN mt5_groups g ON g."Group" = u."Group" '
-        'WHERE u."Login" = ANY(%s)',
-        (list(logins),),
-    )
-    return {int(r["login"]): (r["currency"] or "USD") for r in cur.fetchall()}
-
-
 def mt4_summary(year: int, month: int) -> dict:
     """Per-login net deposit for the month, computed from mt5_deals (Action=2).
 
     Drop-in replacement for queries.mt4_summary — returns the identical shape:
         { login(int): {"login", "net_usd", "groupcurrency", "avg_fx"} }
-    so reconcile() is unchanged. net_usd is converted with the month-average
-    EXTERNAL FX rate (USD groups = identity); the legacy `avg_fx` key carries
-    that rate. Rows that net to 0 USD are dropped (mirrors dealio's netdeposit!=0).
+    so reconcile() is unchanged. Test-group accounts are excluded. net_usd is
+    converted with the month-average EXTERNAL FX rate (USD groups = identity);
+    the legacy `avg_fx` key carries that rate. Rows that net to 0 USD are dropped
+    (mirrors dealio's netdeposit != 0).
     """
     start, end = _month_bounds(year, month)
     table = _deal_table(year)
 
     with db.dw() as cur:
         cur.execute(
-            f'SELECT "Login" AS login, SUM("Profit") AS net_native '
-            f"FROM {table} "
-            f'WHERE "Action" = 2 AND "Time" >= %s AND "Time" < %s{_NONCASH_COMMENT_SQL} '
-            f'GROUP BY "Login"',
+            f'SELECT d."Login" AS login, g."Currency" AS currency, SUM(d."Profit") AS net_native '
+            f"FROM {table} d "
+            f'JOIN mt5_users u ON u."Login" = d."Login" '
+            f'LEFT JOIN mt5_groups g ON g."Group" = u."Group" '
+            f'WHERE d."Action" = 2 AND d."Time" >= %s AND d."Time" < %s'
+            f"{_NONCASH_COMMENT_SQL}{_EXCLUDE_TEST_GROUP_SQL} "
+            f'GROUP BY d."Login", g."Currency"',
             (start, end),
         )
-        login_native = {int(r["login"]): float(r["net_native"] or 0) for r in cur.fetchall()}
-        ccy_by_login = _login_currency(cur, list(login_native.keys()))
+        rows = cur.fetchall()
 
     result = {}
-    for login, net_native in login_native.items():
-        ccy = ccy_by_login.get(login, "USD")
+    for r in rows:
+        login = int(r["login"])
+        ccy = r["currency"] or "USD"
+        net_native = float(r["net_native"] or 0)
         rate = 1.0 if ccy == "USD" else fx_rates.monthly_rate(ccy, year, month)
         net_usd = round(net_native * rate, 2)
         if net_usd == 0:
@@ -115,27 +115,30 @@ def mt4_summary(year: int, month: int) -> dict:
 def deposits_withdrawals(year: int, month: int) -> dict:
     """Per-login gross deposits and withdrawals (group currency + USD) for the month.
     Returns { login(int): {"dep_native","wd_native","dep_usd","wd_usd","currency","tx_count"} }.
-    Useful for detail views / parity diagnostics; reconcile() uses mt4_summary above.
-    """
+    Test-group accounts excluded. Useful for detail views / parity diagnostics;
+    reconcile() uses mt4_summary above."""
     start, end = _month_bounds(year, month)
     table = _deal_table(year)
     with db.dw() as cur:
         cur.execute(
-            f'SELECT "Login" AS login, '
-            f'  SUM(CASE WHEN "Profit" > 0 THEN "Profit" ELSE 0 END) AS dep_native, '
-            f'  SUM(CASE WHEN "Profit" < 0 THEN "Profit" ELSE 0 END) AS wd_native, '
+            f'SELECT d."Login" AS login, g."Currency" AS currency, '
+            f'  SUM(CASE WHEN d."Profit" > 0 THEN d."Profit" ELSE 0 END) AS dep_native, '
+            f'  SUM(CASE WHEN d."Profit" < 0 THEN d."Profit" ELSE 0 END) AS wd_native, '
             f'  COUNT(*) AS tx_count '
-            f"FROM {table} "
-            f'WHERE "Action" = 2 AND "Time" >= %s AND "Time" < %s{_NONCASH_COMMENT_SQL} '
-            f'GROUP BY "Login"',
+            f"FROM {table} d "
+            f'JOIN mt5_users u ON u."Login" = d."Login" '
+            f'LEFT JOIN mt5_groups g ON g."Group" = u."Group" '
+            f'WHERE d."Action" = 2 AND d."Time" >= %s AND d."Time" < %s'
+            f"{_NONCASH_COMMENT_SQL}{_EXCLUDE_TEST_GROUP_SQL} "
+            f'GROUP BY d."Login", g."Currency"',
             (start, end),
         )
-        rows = {int(r["login"]): r for r in cur.fetchall()}
-        ccy_by_login = _login_currency(cur, list(rows.keys()))
+        rows = cur.fetchall()
 
     out = {}
-    for login, r in rows.items():
-        ccy = ccy_by_login.get(login, "USD")
+    for r in rows:
+        login = int(r["login"])
+        ccy = r["currency"] or "USD"
         rate = 1.0 if ccy == "USD" else fx_rates.monthly_rate(ccy, year, month)
         dep = float(r["dep_native"] or 0)
         wd = float(r["wd_native"] or 0)
