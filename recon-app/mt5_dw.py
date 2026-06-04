@@ -28,6 +28,28 @@ import re
 import db
 import fx_rates
 
+
+def _utc_month_epoch(year: int, month: int):
+    """(epoch_start, epoch_end) for the month at UTC midnight boundaries.
+
+    mt5_daily."Datetime" is the EOD snapshot stamped at 23:59:59 UTC of the day it
+    summarises, so a day-D snapshot has epoch in [epoch(D), epoch(D+1)). Filtering
+    "Datetime" in [epoch(month_start), epoch(month_end)) (UTC) therefore selects
+    exactly that month's EOD snapshots, and `(to_timestamp("Datetime") AT TIME ZONE
+    'UTC')::date` is the day each row summarises (matches Dealio's date — no offset).
+    """
+    start = datetime.datetime(year, month, 1, tzinfo=datetime.timezone.utc)
+    end = (datetime.datetime(year + 1, 1, 1, tzinfo=datetime.timezone.utc) if month == 12
+           else datetime.datetime(year, month + 1, 1, tzinfo=datetime.timezone.utc))
+    return int(start.timestamp()), int(end.timestamp())
+
+
+def _daily_table(year: int) -> str:
+    y = int(year)
+    if y < 2012 or y > 2100:
+        raise ValueError(f"unexpected daily year: {year}")
+    return f"mt5_daily_{y}"
+
 # Balance-op deals that are NOT real client cash movements — excluded from the
 # net-deposit figure, mirroring cro_metrics / Mt5MonitorApiBundle conventions.
 # (`d.` = the mt5_deals alias; %% because these run in parameterised queries.)
@@ -151,3 +173,30 @@ def deposits_withdrawals(year: int, month: int) -> dict:
             "tx_count": int(r["tx_count"] or 0),
         }
     return out
+
+
+def equity_by_client(year: int, month: int) -> list:
+    """Last balance & equity per login for the month, from mt5_daily (MRS Export #1).
+    Same shape as queries.equity_by_client: [{login, currency, balance, equity, date}].
+    Native balance/equity (no FX conversion — Dealio returns native too); test groups excluded.
+    """
+    ep_start, ep_end = _utc_month_epoch(year, month)
+    table = _daily_table(year)
+    with db.dw() as cur:
+        cur.execute(
+            f'SELECT DISTINCT ON ("Login") "Login" AS login, "Currency" AS currency, '
+            f'  "Balance" AS balance, "ProfitEquity" AS equity, '
+            f"  (to_timestamp(\"Datetime\") AT TIME ZONE 'UTC')::date AS date "
+            f"FROM {table} "
+            f'WHERE "Datetime" >= %s AND "Datetime" < %s '
+            f"  AND \"Group\" NOT ILIKE '%%test%%' "
+            f'  AND ("Balance" <> 0 OR "ProfitEquity" <> 0) '   # active book only (match Dealio scope)
+            f'ORDER BY "Login", "Datetime" DESC',
+            (ep_start, ep_end),
+        )
+        return [
+            {"login": int(r["login"]), "currency": r["currency"] or "USD",
+             "balance": float(r["balance"] or 0), "equity": float(r["equity"] or 0),
+             "date": r["date"]}
+            for r in cur.fetchall()
+        ]

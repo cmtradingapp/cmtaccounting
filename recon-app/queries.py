@@ -1910,6 +1910,12 @@ def equity_by_client(year: int, month: int) -> list:
     if cached is not None:
         return cached
 
+    if os.environ.get("PLATFORM_SOURCE", "dealio").lower() == "dw":
+        import mt5_dw
+        result = mt5_dw.equity_by_client(year, month)
+        _cache_set(key, result)
+        return result
+
     month_start = datetime.date(year, month, 1)
     month_end   = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
 
