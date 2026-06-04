@@ -200,3 +200,36 @@ def equity_by_client(year: int, month: int) -> list:
              "date": r["date"]}
             for r in cur.fetchall()
         ]
+
+
+def profitability_by_day(year: int, month: int) -> list:
+    """Daily realised + unrealised P&L per login for the month, from mt5_daily (MRS Export #3).
+    Same shape as queries.profitability_by_day:
+      [{login, date, currency, realised_pnl, unrealised_pnl_eod, balance, equity}].
+    realised_pnl=DailyProfit, unrealised_pnl_eod=Profit (MT5-native floating). Active-book
+    scope (nonzero balance/equity or daily P&L), test groups excluded, UTC-date aligned.
+    """
+    ep_start, ep_end = _utc_month_epoch(year, month)
+    table = _daily_table(year)
+    with db.dw() as cur:
+        cur.execute(
+            f'SELECT "Login" AS login, '
+            f"  (to_timestamp(\"Datetime\") AT TIME ZONE 'UTC')::date AS date, "
+            f'  "Currency" AS currency, '
+            # Dealio closedpnl = NET realised result: gross trade profit + swaps + commissions
+            f'  ("DailyProfit" + "DailyStorage" + "DailyCommInstant" + "DailyCommFee" + "DailyCommRound") AS realised_pnl, '
+            f'  "Profit" AS unrealised_pnl_eod, "Balance" AS balance, "ProfitEquity" AS equity '
+            f"FROM {table} "
+            f'WHERE "Datetime" >= %s AND "Datetime" < %s '
+            f"  AND \"Group\" NOT ILIKE '%%test%%' "
+            f'  AND ("Balance" <> 0 OR "ProfitEquity" <> 0 OR "DailyProfit" <> 0) '
+            f'ORDER BY "Login", "Datetime"',
+            (ep_start, ep_end),
+        )
+        return [
+            {"login": int(r["login"]), "date": r["date"], "currency": r["currency"] or "USD",
+             "realised_pnl": float(r["realised_pnl"] or 0),
+             "unrealised_pnl_eod": float(r["unrealised_pnl_eod"] or 0),
+             "balance": float(r["balance"] or 0), "equity": float(r["equity"] or 0)}
+            for r in cur.fetchall()
+        ]
