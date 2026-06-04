@@ -178,6 +178,26 @@ def _conn_cro():
     )
 
 
+def _conn_dw():
+    """Read-only connection to the MT5 datawarehouse (Postgres on 109.199.112.72).
+
+    Authoritative source for MT5 deals/accounts (the mt5_* tables) — replaces the
+    Dealio replica. Connects as the dedicated read-only role `recon_reader`; the
+    role also has default_transaction_read_only enforced server-side. We pin a
+    read-only transaction + statement_timeout here as defence in depth.
+    """
+    return psycopg2.connect(
+        host=os.environ["DW_HOST"],
+        port=int(os.environ.get("DW_PORT", 5432)),
+        dbname=os.environ["DW_DB"],
+        user=os.environ["DW_USER"],
+        password=os.environ["DW_PASS"],
+        connect_timeout=15,
+        sslmode=os.environ.get("DW_SSLMODE", "prefer"),
+        options="-c default_transaction_read_only=on -c statement_timeout=180000",
+    )
+
+
 # ── Context managers ───────────────────────────────────────────────────────
 
 @contextmanager
@@ -201,6 +221,17 @@ def praxis():
 def cro():
     """Read-only connection to the MT5-CRO Postgres (written by MT5-CRO-Backend)."""
     conn = _conn_cro()
+    try:
+        yield psycopg2.extras.RealDictCursor(conn)
+    finally:
+        conn.close()
+
+@contextmanager
+def dw():
+    """Read-only connection to the MT5 datawarehouse (mt5_* tables on 109.199.112.72).
+    Replaces the Dealio replica as the platform source of truth for deals/accounts.
+    """
+    conn = _conn_dw()
     try:
         yield psycopg2.extras.RealDictCursor(conn)
     finally:

@@ -1,0 +1,150 @@
+"""MT5 datawarehouse query layer — platform deposits/withdrawals from mt5_deals.
+
+Replaces the Dealio replica (`dealio.daily_profits`) as the source of per-login
+net deposits used by reconcile(). Reads through the read-only `recon_reader`
+connection (`db.dw()`). Amounts are converted to USD with EXTERNAL FX rates
+(`fx_rates`) — the spread-free basis CRM/Praxis use for cash movements — NOT the
+broker's internal (spread-loaded) MT5 prices.
+
+MT5 deal model (verified on the datawarehouse):
+    "Action" = 2  -> BALANCE op: deposit if "Profit" > 0, withdrawal if "Profit" < 0
+    "Action" = 3  -> credit/bonus, = 4 charge, 0/1 buy/sell   (excluded here)
+    "Profit"      -> in the account's GROUP currency
+                     (mt5_users."Group" -> mt5_groups."Currency")
+    "Comment"     -> "D:<cid>,IP:..." (deposit) / "W:<cid>,IP:..." (withdrawal),
+                     where <cid> = Praxis session_cid / CRM account id.
+Note: mt5_deals_{year} are standalone yearly tables (not partitions); a monthly
+query targets a single year table. Columns are case-sensitive (quoted).
+"""
+
+import datetime
+import re
+
+import db
+import fx_rates
+
+# Balance-op deals that are NOT real client cash movements — excluded from the
+# net-deposit figure, mirroring cro_metrics / Mt5MonitorApiBundle conventions.
+_NONCASH_COMMENT_SQL = (
+    " AND COALESCE(lower(\"Comment\"), '') NOT LIKE '%bonus%'"
+    " AND COALESCE(lower(\"Comment\"), '') NOT LIKE '%fees placeholder%'"
+    " AND COALESCE(lower(\"Comment\"), '') NOT LIKE '%spread charge%'"
+)
+
+_BALANCE_COMMENT_RE = re.compile(r"^\s*([DW]):(\d+)")
+
+
+def _month_bounds(year: int, month: int):
+    start = datetime.date(year, month, 1)
+    end = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+    return start, end
+
+
+def _deal_table(year: int) -> str:
+    """Yearly deal table name. (Validate the year so it can't be injected into SQL.)"""
+    y = int(year)
+    if y < 2012 or y > 2100:
+        raise ValueError(f"unexpected deal year: {year}")
+    return f"mt5_deals_{y}"
+
+
+def parse_balance_comment(comment: str):
+    """('deposit'|'withdrawal', cid) from a balance-op Comment, else None.
+    e.g. 'D:26643552,IP:1.2.3.4' -> ('deposit', '26643552')."""
+    if not comment:
+        return None
+    m = _BALANCE_COMMENT_RE.match(comment)
+    if not m:
+        return None
+    return ("deposit" if m.group(1) == "D" else "withdrawal"), m.group(2)
+
+
+def _login_currency(cur, logins):
+    """{login(int) -> group currency} for the given logins (default 'USD')."""
+    if not logins:
+        return {}
+    cur.execute(
+        'SELECT u."Login" AS login, g."Currency" AS currency '
+        "FROM mt5_users u "
+        'LEFT JOIN mt5_groups g ON g."Group" = u."Group" '
+        'WHERE u."Login" = ANY(%s)',
+        (list(logins),),
+    )
+    return {int(r["login"]): (r["currency"] or "USD") for r in cur.fetchall()}
+
+
+def mt4_summary(year: int, month: int) -> dict:
+    """Per-login net deposit for the month, computed from mt5_deals (Action=2).
+
+    Drop-in replacement for queries.mt4_summary — returns the identical shape:
+        { login(int): {"login", "net_usd", "groupcurrency", "avg_fx"} }
+    so reconcile() is unchanged. net_usd is converted with the month-average
+    EXTERNAL FX rate (USD groups = identity); the legacy `avg_fx` key carries
+    that rate. Rows that net to 0 USD are dropped (mirrors dealio's netdeposit!=0).
+    """
+    start, end = _month_bounds(year, month)
+    table = _deal_table(year)
+
+    with db.dw() as cur:
+        cur.execute(
+            f'SELECT "Login" AS login, SUM("Profit") AS net_native '
+            f"FROM {table} "
+            f'WHERE "Action" = 2 AND "Time" >= %s AND "Time" < %s{_NONCASH_COMMENT_SQL} '
+            f'GROUP BY "Login"',
+            (start, end),
+        )
+        login_native = {int(r["login"]): float(r["net_native"] or 0) for r in cur.fetchall()}
+        ccy_by_login = _login_currency(cur, list(login_native.keys()))
+
+    result = {}
+    for login, net_native in login_native.items():
+        ccy = ccy_by_login.get(login, "USD")
+        rate = 1.0 if ccy == "USD" else fx_rates.monthly_rate(ccy, year, month)
+        net_usd = round(net_native * rate, 2)
+        if net_usd == 0:
+            continue
+        result[login] = {
+            "login": login,
+            "net_usd": net_usd,
+            "groupcurrency": ccy,
+            "avg_fx": rate,
+        }
+    return result
+
+
+def deposits_withdrawals(year: int, month: int) -> dict:
+    """Per-login gross deposits and withdrawals (group currency + USD) for the month.
+    Returns { login(int): {"dep_native","wd_native","dep_usd","wd_usd","currency","tx_count"} }.
+    Useful for detail views / parity diagnostics; reconcile() uses mt4_summary above.
+    """
+    start, end = _month_bounds(year, month)
+    table = _deal_table(year)
+    with db.dw() as cur:
+        cur.execute(
+            f'SELECT "Login" AS login, '
+            f'  SUM(CASE WHEN "Profit" > 0 THEN "Profit" ELSE 0 END) AS dep_native, '
+            f'  SUM(CASE WHEN "Profit" < 0 THEN "Profit" ELSE 0 END) AS wd_native, '
+            f'  COUNT(*) AS tx_count '
+            f"FROM {table} "
+            f'WHERE "Action" = 2 AND "Time" >= %s AND "Time" < %s{_NONCASH_COMMENT_SQL} '
+            f'GROUP BY "Login"',
+            (start, end),
+        )
+        rows = {int(r["login"]): r for r in cur.fetchall()}
+        ccy_by_login = _login_currency(cur, list(rows.keys()))
+
+    out = {}
+    for login, r in rows.items():
+        ccy = ccy_by_login.get(login, "USD")
+        rate = 1.0 if ccy == "USD" else fx_rates.monthly_rate(ccy, year, month)
+        dep = float(r["dep_native"] or 0)
+        wd = float(r["wd_native"] or 0)
+        out[login] = {
+            "dep_native": round(dep, 2),
+            "wd_native": round(wd, 2),
+            "dep_usd": round(dep * rate, 2),
+            "wd_usd": round(wd * rate, 2),
+            "currency": ccy,
+            "tx_count": int(r["tx_count"] or 0),
+        }
+    return out

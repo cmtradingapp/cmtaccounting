@@ -104,6 +104,7 @@ jobs:
           S_MT5_CRO_DB_USER: ${{ secrets.MT5_CRO_DB_USER }}
           S_MT5_CRO_DB_PASS: ${{ secrets.MT5_CRO_DB_PASS }}
           S_MT5_CRO_DB_SSLMODE: ${{ secrets.MT5_CRO_DB_SSLMODE }}
+          S_DW_PASS: ${{ secrets.DW_PASS }}
         run: |
           # echo avoids printf format-string issues (e.g. % in passwords)
           echo "ADMIN_USER=$S_ADMIN_USER"       > /tmp/new_secrets.env
@@ -127,8 +128,9 @@ jobs:
           echo "MT5_CRO_DB_USER=$S_MT5_CRO_DB_USER"       >> /tmp/new_secrets.env
           echo "MT5_CRO_DB_PASS=$S_MT5_CRO_DB_PASS"       >> /tmp/new_secrets.env
           echo "MT5_CRO_DB_SSLMODE=$S_MT5_CRO_DB_SSLMODE" >> /tmp/new_secrets.env
+          echo "DW_PASS=$S_DW_PASS"                         >> /tmp/new_secrets.env
           sshpass -e scp -o StrictHostKeyChecking=no /tmp/new_secrets.env root@213.199.45.213:/tmp/new_secrets.env
-          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d;/^RETENTION_PASS=/d;/^CRO_USER=/d;/^CRO_PASS=/d;/^CRO_BRIDGE_SECRET=/d;/^MT5_PASSWORD=/d;/^MT5_LOGIN=/d;/^MT5_SERVER=/d;/^MT5_CRO_DB_HOST=/d;/^MT5_CRO_DB_PORT=/d;/^MT5_CRO_DB_NAME=/d;/^MT5_CRO_DB_USER=/d;/^MT5_CRO_DB_PASS=/d;/^MT5_CRO_DB_SSLMODE=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
+          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^DW_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d;/^RETENTION_PASS=/d;/^CRO_USER=/d;/^CRO_PASS=/d;/^CRO_BRIDGE_SECRET=/d;/^MT5_PASSWORD=/d;/^MT5_LOGIN=/d;/^MT5_SERVER=/d;/^MT5_CRO_DB_HOST=/d;/^MT5_CRO_DB_PORT=/d;/^MT5_CRO_DB_NAME=/d;/^MT5_CRO_DB_USER=/d;/^MT5_CRO_DB_PASS=/d;/^MT5_CRO_DB_SSLMODE=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
 
       - name: Restart or rebuild container
         env:

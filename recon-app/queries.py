@@ -213,6 +213,20 @@ def crm_summary(year: int, month: int):
 
 
 def mt4_summary(year: int, month: int):
+    """Per-login net deposit, dispatched by the PLATFORM_SOURCE env flag.
+
+    PLATFORM_SOURCE=dealio (default) -> legacy Dealio replica (dealio.daily_profits).
+    PLATFORM_SOURCE=dw               -> MT5 datawarehouse (mt5_deals, via mt5_dw).
+    Both return the identical shape {login: {net_usd, groupcurrency, avg_fx}}, so
+    reconcile() and every other caller stays source-agnostic.
+    """
+    if os.environ.get("PLATFORM_SOURCE", "dealio").lower() == "dw":
+        import mt5_dw
+        return mt5_dw.mt4_summary(year, month)
+    return _mt4_summary_dealio(year, month)
+
+
+def _mt4_summary_dealio(year: int, month: int):
     """Per-login net deposit from dealio daily_profits.
     Uses an explicit date range so TimescaleDB can exclude irrelevant hypertable chunks.
     EXTRACT()-based filtering scans ALL chunks and kills the replica at peak hours.

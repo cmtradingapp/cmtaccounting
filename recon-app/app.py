@@ -52,6 +52,23 @@ import threading as _threading
 _threading.Thread(target=_warm_wide_span_caches, daemon=True).start()
 
 
+# Daily external-FX snapshot — builds fx_external_daily history in fees.db so non-USD
+# deposits convert at each month's true-market average (replaces dealio.ticks for FX).
+# Fetches once at startup, then every 24h. Upserts today's row, so restarts are safe.
+def _fx_daily_snapshot():
+    import time
+    import fx_rates
+    while True:
+        try:
+            n = fx_rates.store_today()
+            print(f"[fx] external-rate snapshot stored ({n} rows)")
+        except Exception as e:
+            print(f"[fx] snapshot failed: {e}")
+        time.sleep(24 * 3600)
+
+_threading.Thread(target=_fx_daily_snapshot, daemon=True).start()
+
+
 # NOTE: CRO dashboard reads directly from the MT5-CRO Postgres
 # (cro_metrics.collect_all_metrics via db.cro()). No warmup needed.
 
@@ -220,6 +237,70 @@ def recon_groups(month):
         groups = [g for g in groups if g["agg"]["status"] == status_filter]
 
     return jsonify({"groups": groups, "stats": stats, "cache_age": cache_age})
+
+
+@app.route("/recon/<month>/source-compare")
+@require_admin_auth
+def recon_source_compare(month):
+    """Diagnostic (admin-only, read-only): per-login net-deposit parity between the
+    legacy Dealio replica and the MT5 datawarehouse for the given month. Used to
+    validate the MT5 migration before flipping PLATFORM_SOURCE. Always runs BOTH
+    sources directly, regardless of the active flag. ?tol=<usd> sets the match band.
+    """
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+    except (ValueError, IndexError):
+        abort(400)
+
+    import mt5_dw
+    try:
+        dealio = queries._mt4_summary_dealio(year, mon)
+    except Exception as e:
+        return jsonify({"error": f"dealio source failed: {e}"}), 500
+    try:
+        dw = mt5_dw.mt4_summary(year, mon)
+    except Exception as e:
+        return jsonify({"error": f"dw source failed: {e}"}), 500
+
+    try:
+        tol = float(request.args.get("tol", "1.0"))
+    except ValueError:
+        tol = 1.0
+
+    rows = []
+    n_match = n_diff = 0
+    sum_dealio = sum_dw = 0.0
+    for login in (set(dealio) | set(dw)):
+        d = float((dealio.get(login) or {}).get("net_usd") or 0)
+        w = float((dw.get(login) or {}).get("net_usd") or 0)
+        diff = round(w - d, 2)
+        sum_dealio += d
+        sum_dw += w
+        if abs(diff) <= tol:
+            n_match += 1
+        else:
+            n_diff += 1
+            rows.append({
+                "login": login,
+                "dealio_usd": round(d, 2),
+                "dw_usd": round(w, 2),
+                "diff": diff,
+                "ccy": (dw.get(login) or dealio.get(login) or {}).get("groupcurrency", ""),
+            })
+    rows.sort(key=lambda r: abs(r["diff"]), reverse=True)
+    return jsonify({
+        "month": month,
+        "tolerance_usd": tol,
+        "logins_total": len(set(dealio) | set(dw)),
+        "in_dealio": len(dealio),
+        "in_dw": len(dw),
+        "matched": n_match,
+        "differing": n_diff,
+        "dealio_total_usd": round(sum_dealio, 2),
+        "dw_total_usd": round(sum_dw, 2),
+        "total_diff_usd": round(sum_dw - sum_dealio, 2),
+        "top_diffs": rows[:200],
+    })
 
 
 @app.route("/clients/equity-report")

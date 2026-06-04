@@ -41,6 +41,13 @@ services:
       - PRAXIS_DB=operations
       - PRAXIS_USER=praxis_reader
       - PRAXIS_PASS=${PRAXIS_PASS}
+      # MT5 datawarehouse (Postgres on 109.199.112.72) — authoritative MT5 deals/accounts,
+      # replaces the Dealio replica. Read-only role recon_reader; DW_PASS injected into .env.
+      - DW_HOST=109.199.112.72
+      - DW_PORT=5432
+      - DW_DB=datawarehouse
+      - DW_USER=recon_reader
+      - DW_PASS=${DW_PASS}
       # Antelope CRM — Azure SQL (direct TLS, no tunnel needed, login: reco)
       - CRM_HOST=cmtmainserver.database.windows.net
       - CRM_PORT=1433
