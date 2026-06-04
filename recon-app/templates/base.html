@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CMT Recon & PSPs{% block title %}{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700;800;900&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -428,6 +431,139 @@
       font-size: 15px; padding: 0; line-height: 1; transition: color .15s;
     }
     .entity-chip button:hover { color: var(--red); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       REFINED "FINTECH TERMINAL" REDESIGN LAYER  (overrides the above)
+       ═══════════════════════════════════════════════════════════════ */
+    :root {
+      --bg:          #090b10;
+      --surface:     #11141c;
+      --surface-alt: #161a24;
+      --border:      #1e222d;
+      --border-2:    #2b3242;
+      --accent:      #5b9dff;
+      --accent-2:    #22d3ee;
+      --green:       #34d399;
+      --red:         #f87171;
+      --yellow:      #fbbf24;
+      --text:        #e8eef8;
+      --text-2:      #9aa9c2;
+      --muted:       #5d6b82;
+      --font-display:'Schibsted Grotesk', system-ui, sans-serif;
+      --font-body:   'Hanken Grotesk', system-ui, sans-serif;
+      --font-mono:   'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+      --shadow:      0 20px 44px -26px rgba(0,0,0,.85);
+    }
+    html { background: var(--bg); }
+    body {
+      font-family: var(--font-body); letter-spacing: .005em;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+      background:
+        radial-gradient(1100px 620px at 12% -10%, rgba(91,157,255,.11), transparent 60%),
+        radial-gradient(900px 700px at 110% -6%, rgba(34,211,238,.07), transparent 55%),
+        var(--bg);
+      background-attachment: fixed;
+    }
+    /* faint grid texture, fading downward */
+    body::before {
+      content:''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+      background-size: 44px 44px;
+      -webkit-mask-image: radial-gradient(120% 70% at 50% 0%, #000 0%, transparent 75%);
+              mask-image: radial-gradient(120% 70% at 50% 0%, #000 0%, transparent 75%);
+    }
+    body > header, main { position: relative; z-index: 1; }
+
+    /* ── Header / nav ─────────────────────────────────────────── */
+    body > header {
+      height: 60px; gap: 18px;
+      background: rgba(13,16,23,.72);
+      -webkit-backdrop-filter: blur(16px) saturate(140%);
+              backdrop-filter: blur(16px) saturate(140%);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 1px 0 rgba(255,255,255,.04) inset;
+      position: sticky; top: 0; z-index: 50;
+    }
+    body > header .logo { font-family: var(--font-display); font-size: 16px; font-weight: 800; letter-spacing: -.025em; }
+    body > header .logo .cmt {
+      font-weight: 900;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    body > header .logo .recon, body > header .logo .psps { color: var(--text); font-weight: 700; }
+    body > header .logo .sep { color: var(--muted); font-weight: 400; }
+    body > header nav { gap: 2px; }
+    body > header nav a {
+      font-family: var(--font-body); font-weight: 600; font-size: 13px;
+      color: var(--text-2); padding: 7px 13px; border-radius: 9px;
+      transition: color .15s, background .15s, box-shadow .2s;
+    }
+    body > header nav a:hover { color: var(--text); background: rgba(255,255,255,.05); }
+    body > header nav a.active {
+      color: #fff;
+      background: linear-gradient(180deg, rgba(91,157,255,.22), rgba(91,157,255,.07));
+      box-shadow: 0 0 0 1px rgba(91,157,255,.32), 0 8px 20px -10px rgba(91,157,255,.65);
+    }
+
+    /* ── Typography ───────────────────────────────────────────── */
+    .page-title { font-family: var(--font-display); font-weight: 800; font-size: 27px; letter-spacing: -.03em; }
+    h3, .psp-card-name { font-family: var(--font-display); letter-spacing: -.02em; }
+    .num, .mono, .stat-card .value, .rule-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .stat-card .label, .section-title, thead th, .form-section-label { font-family: var(--font-body); }
+
+    /* ── Surfaces / cards ─────────────────────────────────────── */
+    .card, .stat-card {
+      background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0)), var(--surface);
+      border: 1px solid var(--border); box-shadow: var(--shadow);
+    }
+    .stats-grid { gap: 14px; }
+    .stat-card { position: relative; overflow: hidden; padding: 18px 20px; border-radius: 14px; }
+    .stat-card::before {
+      content:''; position: absolute; inset: 0 0 auto 0; height: 2px;
+      background: linear-gradient(90deg, var(--accent), transparent 72%); opacity: .55;
+    }
+    .stat-card .value { font-weight: 700; font-size: 27px; letter-spacing: -.01em; }
+    .stat-card.green::before  { background: linear-gradient(90deg, var(--green),  transparent 72%); }
+    .stat-card.red::before    { background: linear-gradient(90deg, var(--red),    transparent 72%); }
+    .stat-card.yellow::before { background: linear-gradient(90deg, var(--yellow), transparent 72%); }
+
+    /* ── Tables ───────────────────────────────────────────────── */
+    .table-wrap { box-shadow: var(--shadow); }
+    thead th { background: rgba(255,255,255,.015); }
+    td { font-family: var(--font-body); }
+    td.num, td .num { font-family: var(--font-mono); }
+    tbody tr:hover { background: rgba(91,157,255,.05); }
+
+    /* ── Buttons ──────────────────────────────────────────────── */
+    .btn { font-family: var(--font-body); border-radius: 9px; }
+    .btn-primary {
+      background: linear-gradient(180deg, var(--accent), #3f86f5); border-color: transparent;
+      box-shadow: 0 10px 22px -10px rgba(91,157,255,.65);
+    }
+    .btn-primary:hover { background: linear-gradient(180deg, #6aa6ff, #4a8ff7); border-color: transparent; }
+    .badge { font-family: var(--font-mono); }
+    .filter-btn { font-family: var(--font-body); }
+
+    /* ── Period tiles (Reconciliation) ────────────────────────── */
+    .month-tile { background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)), var(--surface); box-shadow: var(--shadow); border-radius: 14px; }
+    .month-tile:hover { border-color: var(--accent); box-shadow: 0 14px 30px -16px rgba(91,157,255,.5); }
+    .month-tile-name { font-family: var(--font-display); }
+    .month-tile-year { font-family: var(--font-mono); }
+
+    /* ── Motion ───────────────────────────────────────────────── */
+    @keyframes reveal { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: no-preference) {
+      .page-header { animation: reveal .4s ease both; }
+      .stats-grid  { animation: reveal .5s ease .05s both; }
+      .table-wrap, .filter-bar, .card, .form-wrapper { animation: reveal .55s ease .1s both; }
+    }
+    @keyframes shimmer { 0% { background-position: -260px 0; } 100% { background-position: 260px 0; } }
+    .skeleton {
+      background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.10) 37%, rgba(255,255,255,.04) 63%);
+      background-size: 520px 100%; animation: shimmer 1.5s infinite; border-radius: 8px; color: transparent !important;
+    }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
@@ -435,7 +571,8 @@
   <header>
     <div class="logo"><span class="cmt">CMT</span><span class="recon">Reconciliation</span><span class="sep">&amp;</span><span class="psps">PSPs</span><span class="sep">&amp;</span><span class="psps">General Ops</span></div>
     <nav>
-      <a href="/" class="{{ 'active' if request.path == '/' or request.path.startswith('/recon') }}">Dashboard</a>
+      <a href="/" class="{{ 'active' if request.path == '/' }}">Dashboard</a>
+      <a href="/reconciliation" class="{{ 'active' if request.path == '/reconciliation' or request.path.startswith('/recon') }}">Reconciliation</a>
       <a href="/fees" class="{{ 'active' if request.path.startswith('/fees') }}">Fees</a>
       <a href="/clients" class="{{ 'active' if request.path.startswith('/clients') or request.path.startswith('/cid') or request.path.startswith('/client') }}">Clients</a>
       <a href="/banks" class="{{ 'active' if request.path.startswith('/banks') }}">Banks</a>

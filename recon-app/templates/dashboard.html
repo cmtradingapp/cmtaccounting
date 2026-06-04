@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %} — Dashboard{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:6px;">
+  <div>
+    <div class="page-title">Overview</div>
+    <div class="page-sub" style="display:block;margin-top:6px;">
+      Live snapshot across reconciliation, money flow, trading &amp; FX
+    </div>
+  </div>
+  <div class="updated" id="updated">
+    <span class="dot"></span><span id="updated-text">loading…</span>
+  </div>
+</div>
+
+{# ── Reconciliation ─────────────────────────────────────────── #}
+<div class="dash-section">
+  <a class="dash-section-head" href="/reconciliation">
+    <span class="dash-section-title">Reconciliation</span>
+    <span class="dash-chip" id="recon-month">latest</span>
+    <span class="dash-go">Open&nbsp;→</span>
+  </a>
+  <div class="stats-grid">
+    <div class="stat-card big-accent"><div class="label">Match rate</div><div class="value skeleton" id="k_match_rate">00.0%</div></div>
+    <div class="stat-card green"><div class="label">Matched</div><div class="value skeleton" id="k_matched">0000</div></div>
+    <div class="stat-card red"><div class="label">Discrepancies</div><div class="value skeleton" id="k_discrepancy">000</div></div>
+    <div class="stat-card yellow"><div class="label">Net discrepancy</div><div class="value skeleton" id="k_net_disc">$00,000</div></div>
+    <div class="stat-card"><div class="label">Clients</div><div class="value skeleton" id="k_clients">0,000</div></div>
+  </div>
+</div>
+
+{# ── Money flow ─────────────────────────────────────────────── #}
+<div class="dash-section">
+  <a class="dash-section-head" href="/clients">
+    <span class="dash-section-title">Money flow</span>
+    <span class="dash-chip">month-to-date</span>
+    <span class="dash-go">Clients&nbsp;→</span>
+  </a>
+  <div class="stats-grid">
+    <div class="stat-card green"><div class="label">Net deposits (MTD)</div><div class="value skeleton" id="k_deposits">$0,000,000</div></div>
+    <div class="stat-card red"><div class="label">Withdrawals (MTD)</div><div class="value skeleton" id="k_withdrawals">$0,000,000</div></div>
+    <div class="stat-card"><div class="label">Settled P&amp;L (MTD)</div><div class="value skeleton" id="k_settled">$0,000</div></div>
+  </div>
+</div>
+
+{# ── Trading / CRO ──────────────────────────────────────────── #}
+<div class="dash-section">
+  <a class="dash-section-head" href="/cro">
+    <span class="dash-section-title">Trading &amp; exposure</span>
+    <span class="dash-chip">live · MT5</span>
+    <span class="dash-go">CRO&nbsp;→</span>
+  </a>
+  <div class="stats-grid">
+    <div class="stat-card"><div class="label">Client balance</div><div class="value skeleton" id="k_balance">$00,000,000</div></div>
+    <div class="stat-card big-accent"><div class="label">Client equity</div><div class="value skeleton" id="k_equity">$00,000,000</div></div>
+    <div class="stat-card"><div class="label">Floating P&amp;L</div><div class="value skeleton" id="k_floating">$000,000</div></div>
+    <div class="stat-card"><div class="label">Net exposure</div><div class="value skeleton" id="k_exposure">$000,000</div></div>
+  </div>
+</div>
+
+{# ── FX ─────────────────────────────────────────────────────── #}
+<div class="dash-section">
+  <a class="dash-section-head" href="/fx">
+    <span class="dash-section-title">FX rates</span>
+    <span class="dash-chip">USD base · live</span>
+    <span class="dash-go">FX&nbsp;→</span>
+  </a>
+  <div class="fx-row" id="fx-row">
+    {% for c in ['EUR','GBP','KES','ZAR','NGN','MXN'] %}
+    <div class="fx-pill"><span class="fx-ccy">USD/{{ c }}</span><span class="fx-val skeleton" id="fx_{{ c }}">0.0000</span></div>
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+  .updated { display:flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:12px; color:var(--muted); }
+  .updated .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); box-shadow:0 0 0 0 rgba(52,211,153,.5); }
+  .updated.live .dot { background:var(--green); animation:pulse 2s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(52,211,153,.5);} 70%{box-shadow:0 0 0 6px rgba(52,211,153,0);} 100%{box-shadow:0 0 0 0 rgba(52,211,153,0);} }
+
+  .dash-section { margin-top: 30px; }
+  .dash-section-head {
+    display:flex; align-items:center; gap:12px; margin-bottom:14px;
+    text-decoration:none; color:inherit; width:fit-content;
+  }
+  .dash-section-title { font-family:var(--font-display); font-weight:800; font-size:15px; letter-spacing:-.01em; color:var(--text); }
+  .dash-chip {
+    font-family:var(--font-mono); font-size:10.5px; font-weight:600; color:var(--text-2);
+    background:rgba(255,255,255,.05); border:1px solid var(--border);
+    padding:2px 8px; border-radius:999px; letter-spacing:.02em;
+  }
+  .dash-go { font-family:var(--font-body); font-size:12px; font-weight:600; color:var(--accent); opacity:0; transform:translateX(-4px); transition:opacity .18s, transform .18s; }
+  .dash-section-head:hover .dash-go { opacity:1; transform:none; }
+  .dash-section-head:hover .dash-section-title { color:#fff; }
+
+  .stat-card.big-accent {
+    background: linear-gradient(180deg, rgba(91,157,255,.12), rgba(91,157,255,.02)), var(--surface);
+    border-color: rgba(91,157,255,.28);
+  }
+  .stat-card.big-accent::before { opacity:.9; }
+
+  .fx-row { display:flex; flex-wrap:wrap; gap:12px; }
+  .fx-pill {
+    display:flex; flex-direction:column; gap:3px; min-width:120px;
+    padding:14px 16px; border:1px solid var(--border); border-radius:12px;
+    background:linear-gradient(180deg,rgba(255,255,255,.025),transparent), var(--surface);
+    box-shadow:var(--shadow);
+  }
+  .fx-ccy { font-family:var(--font-body); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .fx-val { font-family:var(--font-mono); font-size:18px; font-weight:600; }
+  .err { color:var(--muted) !important; font-size:14px !important; }
+</style>
+
+<script>
+(function () {
+  var fmtInt  = function (n) { return Math.round(n).toLocaleString('en-US'); };
+  var fmtUSD  = function (n) {
+    var a = Math.abs(n), s = n < 0 ? '-$' : '$';
+    if (a >= 1e6) return s + (a/1e6).toFixed(2) + 'M';
+    if (a >= 1e3) return s + (a/1e3).toFixed(1) + 'K';
+    return s + a.toFixed(0);
+  };
+  var fmtPct  = function (n) { return n.toFixed(1) + '%'; };
+
+  function reveal(id, finalText) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('skeleton');
+    el.textContent = finalText;
+  }
+  function countUp(id, target, fmt) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('skeleton');
+    if (target === null || target === undefined || isNaN(target)) { el.textContent = '—'; el.classList.add('err'); return; }
+    var dur = 700, start = performance.now(), from = 0;
+    function step(t) {
+      var p = Math.min((t - start) / dur, 1);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = fmt(from + (target - from) * eased);
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  function fail(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) { el.classList.remove('skeleton'); el.classList.add('err'); el.textContent = '—'; } }); }
+
+  fetch('/dashboard/metrics', { headers: { 'Accept': 'application/json' } })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var u = document.getElementById('updated'); u.classList.add('live');
+      document.getElementById('updated-text').textContent = 'updated ' + (d.generated_at || 'now');
+
+      // Reconciliation
+      var rc = d.recon || {};
+      if (rc.error) { fail(['k_match_rate','k_matched','k_discrepancy','k_net_disc','k_clients']); }
+      else {
+        document.getElementById('recon-month').textContent = rc.month || 'latest';
+        countUp('k_match_rate', rc.match_rate, fmtPct);
+        countUp('k_matched', rc.matched, fmtInt);
+        countUp('k_discrepancy', rc.discrepancy, fmtInt);
+        countUp('k_net_disc', rc.net_discrepancy, fmtUSD);
+        countUp('k_clients', rc.clients, fmtInt);
+      }
+      // Money flow
+      var mf = d.moneyflow || {};
+      if (mf.error) fail(['k_deposits','k_withdrawals','k_settled']);
+      else {
+        countUp('k_deposits', mf.net_deposits_mtd, fmtUSD);
+        countUp('k_withdrawals', mf.withdrawals_mtd, fmtUSD);
+        countUp('k_settled', mf.settled_mtd, fmtUSD);
+      }
+      // CRO
+      var cro = d.cro || {};
+      if (cro.error) fail(['k_balance','k_equity','k_floating','k_exposure']);
+      else {
+        countUp('k_balance', cro.balance, fmtUSD);
+        countUp('k_equity', cro.equity, fmtUSD);
+        countUp('k_floating', cro.floating, fmtUSD);
+        countUp('k_exposure', cro.net_exposure, fmtUSD);
+      }
+      // FX
+      var fx = d.fx || {};
+      ['EUR','GBP','KES','ZAR','NGN','MXN'].forEach(function (c) {
+        var v = fx[c];
+        var el = document.getElementById('fx_' + c);
+        if (!el) return;
+        el.classList.remove('skeleton');
+        if (v === null || v === undefined) { el.textContent = '—'; el.classList.add('err'); }
+        else { el.textContent = (v >= 100 ? v.toFixed(2) : v.toFixed(4)); }
+      });
+    })
+    .catch(function () {
+      document.getElementById('updated-text').textContent = 'metrics unavailable';
+      fail(['k_match_rate','k_matched','k_discrepancy','k_net_disc','k_clients',
+            'k_deposits','k_withdrawals','k_settled','k_balance','k_equity','k_floating','k_exposure']);
+      ['EUR','GBP','KES','ZAR','NGN','MXN'].forEach(function (c) { fail(['fx_' + c]); });
+    });
+})();
+</script>
+
+{% endblock %}

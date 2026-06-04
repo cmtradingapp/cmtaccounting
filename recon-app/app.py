@@ -169,11 +169,90 @@ def require_cro_auth(f):
 @app.route("/")
 @require_recon_auth
 def index():
+    """General overview dashboard. KPIs load async via /dashboard/metrics."""
+    return render_template("dashboard.html")
+
+
+@app.route("/reconciliation")
+@require_recon_auth
+def reconciliation():
+    """Reconciliation period picker (moved off the dashboard into its own tab)."""
     try:
         months = queries.available_months()
     except Exception as e:
-        months = []
-    return render_template("index.html", months=months)
+        return render_template("reconciliation.html", months=[], error=str(e))
+    return render_template("reconciliation.html", months=months)
+
+
+@app.route("/dashboard/metrics")
+@require_recon_auth
+def dashboard_metrics():
+    """Aggregated KPI bundle for the overview dashboard. Each source is isolated
+    in its own try/except so one failing backend (Praxis/CRO/FX down) never
+    blanks the whole page."""
+    import datetime as _dt
+    out = {"generated_at": _dt.datetime.now(_dt.timezone.utc).strftime("%H:%M UTC")}
+
+    # ── Reconciliation (latest available month) + money flow ──
+    try:
+        months = queries.available_months()
+        if not months:
+            raise ValueError("no reconciliation periods")
+        month = months[0]
+        y, mo = int(month[:4]), int(month[5:7])
+        rows  = queries.reconcile(y, mo)
+        stats = queries.summary_stats(rows)
+        out["recon"] = {
+            "month": month,
+            "match_rate": stats["match_rate"],
+            "matched": stats["matched"],
+            "discrepancy": stats["discrepancy"],
+            "net_discrepancy": stats["total_diff"],
+            "clients": stats["total"],
+        }
+        try:
+            dep = sum((r.get("crm_cash_dep")  or 0) for r in rows)
+            wd  = sum((r.get("crm_cash_with") or 0) for r in rows)
+            out["moneyflow"] = {"net_deposits_mtd": round(dep, 2), "withdrawals_mtd": round(wd, 2)}
+        except Exception as e:
+            out["moneyflow"] = {"error": str(e)[:120]}
+    except Exception as e:
+        out["recon"] = {"error": str(e)[:120]}
+        out["moneyflow"] = {"error": "depends on reconciliation"}
+
+    # ── Trading / CRO (live MT5-CRO snapshot) ──
+    try:
+        import cro_metrics as _cm
+        with db.cro() as cur:
+            bal  = float(_cm.total_balance_usd(cur)  or 0)
+            cred = float(_cm.total_credit_usd(cur)   or 0)
+            flt  = float(_cm.total_floating_usd(cur) or 0)
+            now  = _dt.datetime.now(_dt.timezone.utc)
+            mstart = int(now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp())
+            now_ts = int(now.timestamp())
+            try:    settled = float(_cm.closed_pnl_usd(cur, mstart, now_ts) or 0)
+            except Exception: settled = None
+            try:
+                exp = _cm.exposure(cur)
+                net_exp = float(exp.get("net_notional_usd", exp.get("net_usd", 0))) if isinstance(exp, dict) else None
+            except Exception:
+                net_exp = None
+        out["cro"] = {"balance": bal, "equity": bal + cred + flt, "floating": flt, "net_exposure": net_exp}
+        if isinstance(out.get("moneyflow"), dict) and "error" not in out["moneyflow"] and settled is not None:
+            out["moneyflow"]["settled_mtd"] = round(settled, 2)
+    except Exception as e:
+        out["cro"] = {"error": str(e)[:120]}
+
+    # ── FX (external true-market rates; display CCY-per-USD) ──
+    try:
+        import fx_rates
+        live = fx_rates.live_rates()   # {ccy: USD per 1 ccy}
+        out["fx"] = {c: (round(1.0 / live[c], 4) if live.get(c) else None)
+                     for c in ("EUR", "GBP", "KES", "ZAR", "NGN", "MXN")}
+    except Exception as e:
+        out["fx"] = {"error": str(e)[:120]}
+
+    return jsonify(out)
 
 
 @app.route("/recon/<month>")
@@ -187,7 +266,7 @@ def recon(month):
     try:
         months = queries.available_months()
     except Exception as e:
-        return render_template("index.html", months=[], error=str(e))
+        return render_template("reconciliation.html", months=[], error=str(e))
     status_filter = request.args.get("status", "all")
     hide_noncash  = request.args.get("hide_noncash") == "1"
     return render_template("recon.html", month=month, months=months,

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %} — Reconciliation{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom: var(--sp-4);">
+  <div>
+    <div class="page-title">Net Deposit Reconciliation</div>
+    <div class="page-sub" style="margin-top:6px;display:block;">
+      MT5 net deposits vs CRM approved cash transactions — pick a period
+    </div>
+  </div>
+</div>
+
+{% if error %}
+<div style="color:var(--red);background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);padding:14px 18px;border-radius:12px;margin-bottom:20px;">
+  DB error: {{ error }}
+</div>
+{% endif %}
+
+<div style="max-width:760px;">
+
+  {% if months %}
+  <div class="picker-label">Select period</div>
+  <div class="month-grid">
+    {% for m in months[:12] %}
+    {% set parts = m.split('-') %}
+    {% set year = parts[0] %}
+    {% set mon = parts[1]|int %}
+    {% set mon_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+    <a href="/recon/{{ m }}" class="month-tile" style="animation:reveal .4s ease {{ loop.index0 * 0.03 }}s both;">
+      <span class="month-tile-name">{{ mon_names[mon - 1] }}</span>
+      <span class="month-tile-year">{{ year }}</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if months|length > 12 %}
+  <div class="picker-label" style="margin-top:24px;">Older periods</div>
+  <select onchange="if(this.value) window.location.href='/recon/'+this.value" style="width:100%;">
+    <option value="">Select a month…</option>
+    {% for m in months[12:] %}
+    <option value="{{ m }}">{{ m }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  {% else %}
+  <div class="card" style="padding:64px 40px;text-align:center;">
+    <div style="width:60px;height:60px;border-radius:16px;
+      background:linear-gradient(180deg,rgba(91,157,255,.18),rgba(91,157,255,.05));
+      border:1px solid rgba(91,157,255,.25);
+      display:flex;align-items:center;justify-content:center;
+      font-size:26px;margin:0 auto 20px;box-shadow:0 12px 30px -12px rgba(91,157,255,.5);">📊</div>
+    <div style="font-family:var(--font-display);font-size:18px;font-weight:800;margin-bottom:8px;">No data available</div>
+    <div style="color:var(--muted);font-size:13px;line-height:1.6;max-width:340px;margin:0 auto;">
+      No reconciliation periods found. Check the datawarehouse / CRM connection.
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<style>
+  .picker-label {
+    font-family: var(--font-body); font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 12px;
+  }
+  .month-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+    gap: 12px;
+  }
+  .month-tile {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 20px 12px; gap: 3px;
+    border: 1px solid var(--border); border-radius: 14px;
+    text-decoration: none; color: var(--text);
+    transition: border-color .15s, transform .14s, box-shadow .2s;
+  }
+  .month-tile:hover { transform: translateY(-3px); }
+  .month-tile-name { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+  .month-tile-year { font-size: 11px; color: var(--muted); font-weight: 500; }
+</style>
+
+{% endblock %}
