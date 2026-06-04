@@ -48,6 +48,9 @@ services:
       - DW_DB=datawarehouse
       - DW_USER=recon_reader
       - DW_PASS=${DW_PASS}
+      # reconcile() platform source: dw = MT5 datawarehouse (mt5_deals, bonus-excluded),
+      # dealio = legacy replica. Default dw; override to dealio via .env for rollback.
+      - PLATFORM_SOURCE=${PLATFORM_SOURCE:-dw}
       # Antelope CRM — Azure SQL (direct TLS, no tunnel needed, login: reco)
       - CRM_HOST=cmtmainserver.database.windows.net
       - CRM_PORT=1433
