@@ -234,7 +234,7 @@ def dashboard_metrics():
             except Exception: settled = None
             try:
                 exp = _cm.exposure(cur)
-                net_exp = float(exp.get("net_notional_usd", exp.get("net_usd", 0))) if isinstance(exp, dict) else None
+                net_exp = float(exp.get("net_total_usd", 0)) if isinstance(exp, dict) else None
             except Exception:
                 net_exp = None
         out["cro"] = {"balance": bal, "equity": bal + cred + flt, "floating": flt, "net_exposure": net_exp}
