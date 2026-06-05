@@ -2,7 +2,7 @@
 {% block title %} - CRO{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='cro/styles.css') }}">
+<link rel="stylesheet" href="{{ static_v('cro/styles.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4/dist/chart.umd.min.js"></script>
 <style>
   /* Override base.html main constraints so the CRO layout fills the page,
@@ -144,5 +144,5 @@
   <span id="conn-status" class="conn-ok">connected</span>
 </div>
 
-<script src="{{ url_for('static', filename='cro/app.js') }}"></script>
+<script src="{{ static_v('cro/app.js') }}"></script>
 {% endblock %}

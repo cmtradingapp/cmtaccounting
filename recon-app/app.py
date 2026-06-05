@@ -24,6 +24,17 @@ app.secret_key = os.environ.get("FLASK_SECRET", "dev")
 def inject_request():
     return {"request": request}
 
+@app.template_global()
+def static_v(filename):
+    """url_for('static') with the file's mtime as a cache-busting ?v= param, so
+    edits to external CSS/JS take effect immediately for every user instead of the
+    browser/Cloudflare edge serving a stale copy until TTL expiry."""
+    try:
+        ver = int(os.path.getmtime(os.path.join(app.static_folder, filename)))
+    except OSError:
+        ver = 0
+    return url_for("static", filename=filename, v=ver)
+
 try:
     queries.ensure_fee_tables()
 except Exception as e:
