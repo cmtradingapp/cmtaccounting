@@ -4,42 +4,43 @@
    ────────────────────────────────────────────────────────── */
 
 :root {
-  /* surfaces — darker than v3.1, with stronger contrast between tiers */
-  --bg-page:        #0A0E1F;          /* near-black with a navy hint */
-  --bg-card:        #10172A;          /* one step lighter — cards stand out */
-  --bg-card-2:      #16213E;          /* used for code/inset surfaces */
-  --bg-panel:       #10172A;
+  /* ── Harmonised with the app-wide base.html "fintech terminal" palette ──
+     (was a separate pink-red/navy theme; remapped so /cro matches every other
+     tab. Component rules below are var-driven, so this re-skins the page.)   */
+  --bg-page:        #090b10;          /* base --bg */
+  --bg-card:        #11141c;          /* base --surface */
+  --bg-card-2:      #161a24;          /* base --surface-alt */
+  --bg-panel:       #11141c;
 
-  /* lines — sharper, clearly visible against bg-card */
-  --border:         #2A3858;          /* +50% brightness over v3.1 */
-  --border-strong:  #3D4F7A;          /* clearly defined dividers */
+  --border:         #1e222d;          /* base --border */
+  --border-strong:  #2b3242;          /* base --border-2 */
 
-  /* text — palette light + desaturated mids */
-  --text:           #F9F9F9;          /* palette[5] near-white */
-  --text-dim:       #A8AEBC;          /* desaturated cool grey */
-  --text-mute:      #5A607A;          /* further desaturated */
+  --text:           #e8eef8;          /* base --text */
+  --text-dim:       #9aa9c2;          /* base --text-2 */
+  --text-mute:      #5d6b82;          /* base --muted */
 
-  /* accents — palette pink-red is the only warm pop */
-  --accent:         #E94560;          /* palette[4] pink-red */
-  --accent-soft:    #E9456022;
-  --accent-purple:  #0F3460;          /* palette[3] deep blue */
+  --accent:         #5b9dff;          /* base --accent (app blue, was pink-red) */
+  --accent-soft:    rgba(91,157,255,.13);
+  --accent-purple:  #1f3a66;          /* deep blue (charts/secondary) */
 
-  /* signals — pos preserved (palette has no green); neg uses palette pink */
-  --pos:            #10c891;
-  --pos-bright:     #1adba5;
-  --pos-deep:       #0a8b65;
-  --neg:            #E94560;          /* palette[4] */
-  --neg-bright:     #F25C75;
-  --neg-deep:       #B32D44;
-  --pos-soft:       #10c89122;
-  --neg-soft:       #E9456022;
+  /* signals — match base --green / --red */
+  --pos:            #34d399;
+  --pos-bright:     #4ade80;
+  --pos-deep:       #16a34a;
+  --neg:            #f87171;
+  --neg-bright:     #fb8a8a;
+  --neg-deep:       #dc2626;
+  --pos-soft:       rgba(52,211,153,.13);
+  --neg-soft:       rgba(248,113,113,.13);
 
-  /* fonts */
-  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono",
-          "Roboto Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+  /* fonts — match base.html (loaded by base.html's <head>) */
+  --mono: 'JetBrains Mono', ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: 'Hanken Grotesk', system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: 'Schibsted Grotesk', system-ui, sans-serif;
 }
+
+/* CRO headings use the app's display face for cross-tab consistency */
+.brand-name, .card-head h2, .panel-head h2, .vol-header { font-family: var(--display); letter-spacing: -.01em; }
 
 * {
   box-sizing: border-box;

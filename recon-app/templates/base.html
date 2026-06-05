@@ -565,6 +565,32 @@
       background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.10) 37%, rgba(255,255,255,.04) 63%);
       background-size: 520px 100%; animation: shimmer 1.5s infinite; border-radius: 8px; color: transparent !important;
     }
+
+    /* ── Themed scrollbars (consistent across every tab, incl. CRO) ───────── */
+    * { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-2); border-radius: 8px;
+      border: 2px solid transparent; background-clip: content-box;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: #39415a; background-clip: content-box; }
+
+    /* ── Native inputs match the dark theme (fee-form keeps its own styling) ─ */
+    input[type=text]:not(.fee-form *),
+    input[type=search]:not(.fee-form *),
+    input[type=number]:not(.fee-form *),
+    input[type=date]:not(.fee-form *) {
+      height: 36px; padding: 0 12px;
+      background: var(--surface-alt); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; font-size: 13px; font-family: var(--font-body);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:not(.fee-form *):focus {
+      border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px rgba(91,157,255,.12);
+    }
+    input:not(.fee-form *)::placeholder { color: var(--muted); }
+    input[type=date]:not(.fee-form *) { color-scheme: dark; }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
