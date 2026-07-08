@@ -22,6 +22,8 @@
   </div>
 </div>
 
+{% include "_psps_subnav.html" %}
+
 <div class="psp-range-bar">
   <div class="psp-range-links">
     <a class="filter-btn {{ 'active' if range_label=='7d' }}"  href="{{ url_for('psps_dashboard', range='7d',  processor=processor or '') }}">7D</a>

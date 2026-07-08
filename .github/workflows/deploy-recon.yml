@@ -246,6 +246,7 @@ jobs:
           check "/psps/providers"
           check "/psps/merchants"
           check "/psps/settlements"
+          check "/psps/reports"
           # Admin auth — POST-only routes (GET returns 405, verify POST returns 401)
           check_post "/fees/mode"
           check_post "/fees/admin/snapshot/save"

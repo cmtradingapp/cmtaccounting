@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %} — PSP Reports{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <div class="page-title">Reports</div>
+    <div class="page-sub">Generate real exports from live Praxis &amp; reconciliation data</div>
+  </div>
+</div>
+
+{% include "_psps_subnav.html" %}
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4);">
+
+  <div class="card" style="padding:20px;">
+    <h3>PSP Transactions (CSV)</h3>
+    <div class="page-sub" style="margin:4px 0 16px;">Raw Praxis transaction export, filtered by date range &amp; provider.</div>
+    <form method="get" action="/psps/transactions/export" style="display:flex; flex-direction:column; gap:10px;">
+      <select name="range">
+        <option value="7d">Last 7 days</option>
+        <option value="30d" selected>Last 30 days</option>
+        <option value="90d">Last 90 days</option>
+      </select>
+      <select name="processor">
+        <option value="">All Providers</option>
+        {% for p in processors %}
+        <option value="{{ p.psp }}">{{ p.psp }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary" type="submit">Download CSV</button>
+    </form>
+  </div>
+
+  <div class="card" style="padding:20px;">
+    <h3>Monthly Reconciliation Export (Excel)</h3>
+    <div class="page-sub" style="margin:4px 0 16px;">
+      Full MRS export for a month — CRM/MT5/Praxis reconciliation, PSP balances &amp; expected-fee comparison.
+      Opens under the <b>Reconciliation</b> login.
+    </div>
+    <form method="get" action="/recon/placeholder/export" onsubmit="this.action='/recon/'+this.month.value+'/export';" style="display:flex; flex-direction:column; gap:10px;">
+      <select name="month">
+        {% for m in months %}
+        <option value="{{ m }}">{{ m }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn" type="submit">Download Excel</button>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

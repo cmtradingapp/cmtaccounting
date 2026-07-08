@@ -8,12 +8,13 @@
 
 <div class="page-header">
   <div>
-    <a href="/psps" class="back-link">← PSPs</a>
-    <div class="page-title" style="margin-top:4px;">Transactions</div>
+    <div class="page-title">Transactions</div>
     <div class="page-sub">{{ '{:,}'.format(result.total_count) }} transactions in range</div>
   </div>
   <a class="btn" href="{{ url_for('psps_transactions_export', range=range_label, processor=processor or '', direction=direction or '', q=search or '') }}">Export CSV</a>
 </div>
+
+{% include "_psps_subnav.html" %}
 
 <div class="psp-range-links" style="display:flex; gap:6px; margin-bottom:var(--sp-3);">
   <a class="filter-btn {{ 'active' if range_label=='7d' }}"  href="{{ url_for('psps_transactions', range='7d',  processor=processor or '', direction=direction or '', q=search or '') }}">7D</a>

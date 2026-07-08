@@ -2873,7 +2873,7 @@ def psps_dashboard():
                            stats=stats, volume_day=volume_day, by_dir=by_dir, by_ccy=by_ccy,
                            by_psp=processors[:10], processors=processors, recent=recent,
                            processor=processor, range_label=range_label,
-                           date_from=date_from, date_to=date_to_incl)
+                           date_from=date_from, date_to=date_to_incl, active_psp_tab="dashboard")
 
 
 @app.route("/psps/transactions")
@@ -2893,7 +2893,8 @@ def psps_transactions():
     return render_template("psps_transactions.html",
                            result=result, processors=processors, processor=processor,
                            direction=direction, search=search or "", range_label=range_label,
-                           date_from=date_from, date_to=date_to_incl, total_pages=total_pages)
+                           date_from=date_from, date_to=date_to_incl, total_pages=total_pages,
+                           active_psp_tab="transactions")
 
 
 @app.route("/psps/transactions/export")
@@ -2934,19 +2935,29 @@ def psps_providers():
     date_from, date_to, date_to_incl, range_label = _psp_date_range()
     directory = queries.psp_directory(date_from, date_to)
     return render_template("psps_providers.html", directory=directory,
-                           range_label=range_label, date_from=date_from, date_to=date_to_incl)
+                           range_label=range_label, date_from=date_from, date_to=date_to_incl,
+                           active_psp_tab="providers")
 
 
 @app.route("/psps/merchants")
 @require_psps_auth
 def psps_merchants():
-    return render_template("psps_merchants.html")
+    return render_template("psps_merchants.html", active_psp_tab="merchants")
 
 
 @app.route("/psps/settlements")
 @require_psps_auth
 def psps_settlements():
-    return render_template("psps_settlements.html")
+    return render_template("psps_settlements.html", active_psp_tab="settlements")
+
+
+@app.route("/psps/reports")
+@require_psps_auth
+def psps_reports():
+    processors = queries.psp_distinct_processors()
+    months = queries.available_months()
+    return render_template("psps_reports.html", processors=processors, months=months,
+                           active_psp_tab="reports")
 
 
 if __name__ == "__main__":

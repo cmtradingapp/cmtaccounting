@@ -1,0 +1,10 @@
+{# Shared sub-nav for every /psps/* page. Include right after the page-header
+   and pass active_psp_tab from the route: dashboard|transactions|providers|merchants|settlements|reports #}
+<div class="filter-bar" style="margin-bottom:var(--sp-4);">
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'dashboard' }}"     href="/psps">Dashboard</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'transactions' }}" href="/psps/transactions">Transactions</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'providers' }}"    href="/psps/providers">Providers</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'merchants' }}"    href="/psps/merchants">Merchants</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'settlements' }}"  href="/psps/settlements">Settlements</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'reports' }}"      href="/psps/reports">Reports</a>
+</div>
