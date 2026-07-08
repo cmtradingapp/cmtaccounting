@@ -95,6 +95,8 @@ _RETENTION_USER  = os.environ.get("RETENTION_USER",  "")
 _RETENTION_PASS  = os.environ.get("RETENTION_PASS",  "")
 _CRO_USER        = os.environ.get("CRO_USER",        "")
 _CRO_PASS        = os.environ.get("CRO_PASS",        "")
+_PSPS_USER       = os.environ.get("PSPS_USER",       "")
+_PSPS_PASS       = os.environ.get("PSPS_PASS",       "")
 
 
 def _unauthorized(realm):
@@ -173,6 +175,18 @@ def require_cro_auth(f):
         auth = request.authorization
         if not auth or auth.username != _CRO_USER or auth.password != _CRO_PASS:
             return _unauthorized("CMT CRO")
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_psps_auth(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _PSPS_USER or not _PSPS_PASS:
+            abort(500, "PSPS_USER and PSPS_PASS env vars not set.")
+        auth = request.authorization
+        if not auth or auth.username != _PSPS_USER or auth.password != _PSPS_PASS:
+            return _unauthorized("CMT PSPs")
         return f(*args, **kwargs)
     return wrapper
 
@@ -2815,6 +2829,124 @@ def operators_stats():
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e), "stats": {}})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PSPs tab — real-data analytics over Praxis transactions
+# (ports the psp-analytics prototype's page set onto live data + this app's
+# own design system, instead of the prototype's mock data + React/shadcn UI)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _psp_date_range():
+    """Resolve (date_from, date_to_exclusive, date_to_inclusive, range_label)
+    from ?range=7d|30d|90d|custom&from=&to=. Defaults to the last 30 days."""
+    import datetime as _dt
+    range_label = request.args.get("range", "30d")
+    today = _dt.date.today()
+    if range_label == "custom":
+        try:
+            date_from    = _dt.datetime.strptime(request.args.get("from", ""), "%Y-%m-%d").date()
+            date_to_incl = _dt.datetime.strptime(request.args.get("to", ""), "%Y-%m-%d").date()
+        except ValueError:
+            date_from, date_to_incl, range_label = today - _dt.timedelta(days=30), today, "30d"
+    else:
+        days = {"7d": 7, "30d": 30, "90d": 90}.get(range_label, 30)
+        date_from, date_to_incl = today - _dt.timedelta(days=days), today
+    date_to_excl = date_to_incl + _dt.timedelta(days=1)
+    return date_from, date_to_excl, date_to_incl, range_label
+
+
+@app.route("/psps")
+@require_psps_auth
+def psps_dashboard():
+    date_from, date_to, date_to_incl, range_label = _psp_date_range()
+    processor = request.args.get("processor") or None
+
+    stats      = queries.psp_dashboard_stats(date_from, date_to, processor)
+    volume_day = queries.psp_volume_by_day(date_from, date_to, processor)
+    by_dir     = queries.psp_breakdown_by_direction(date_from, date_to, processor)
+    by_ccy     = queries.psp_breakdown_by_currency(date_from, date_to, processor)
+    processors = queries.psp_distinct_processors(date_from, date_to)
+    recent     = queries.psp_recent_transactions(date_from, date_to, processor, limit=10)
+
+    return render_template("psps_dashboard.html",
+                           stats=stats, volume_day=volume_day, by_dir=by_dir, by_ccy=by_ccy,
+                           by_psp=processors[:10], processors=processors, recent=recent,
+                           processor=processor, range_label=range_label,
+                           date_from=date_from, date_to=date_to_incl)
+
+
+@app.route("/psps/transactions")
+@require_psps_auth
+def psps_transactions():
+    date_from, date_to, date_to_incl, range_label = _psp_date_range()
+    processor = request.args.get("processor") or None
+    direction = request.args.get("direction") or None
+    search    = (request.args.get("q") or "").strip() or None
+    page      = request.args.get("page", 1, type=int) or 1
+
+    result = queries.psp_transactions_search(date_from, date_to, processor, direction, search,
+                                              page=page, page_size=50)
+    processors  = queries.psp_distinct_processors(date_from, date_to)
+    total_pages = max(1, -(-result["total_count"] // result["page_size"]))
+
+    return render_template("psps_transactions.html",
+                           result=result, processors=processors, processor=processor,
+                           direction=direction, search=search or "", range_label=range_label,
+                           date_from=date_from, date_to=date_to_incl, total_pages=total_pages)
+
+
+@app.route("/psps/transactions/export")
+@require_psps_auth
+def psps_transactions_export():
+    """CSV export of the current filter set, capped at 10,000 rows."""
+    import csv, io as _io
+    date_from, date_to, date_to_incl, range_label = _psp_date_range()
+    processor = request.args.get("processor") or None
+    direction = request.args.get("direction") or None
+    search    = (request.args.get("q") or "").strip() or None
+
+    result = queries.psp_transactions_search(date_from, date_to, processor, direction, search,
+                                              page=1, page_size=10000)
+    buf = _io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Date", "Session CID", "MT5 Login", "TID", "Order ID", "Direction",
+                      "Processor", "Method", "Amount (local)", "Currency", "USD Amount",
+                      "Fee (USD)", "Customer", "Email"])
+    for r in result["rows"]:
+        writer.writerow([
+            r["inserted_at"], r["login"], r.get("mt5_login") or "", r["tid"], r["session_order_id"],
+            r["direction"], r["payment_processor"], r["payment_method"], r["amount_local"],
+            r["currency"], r["usd_amount"], r["fee_actual"],
+            f'{r.get("customer_first_name") or ""} {r.get("customer_last_name") or ""}'.strip(),
+            r.get("email") or "",
+        ])
+    resp = Response(buf.getvalue(), mimetype="text/csv")
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=psp_transactions_{date_from}_{date_to_incl}.csv"
+    )
+    return resp
+
+
+@app.route("/psps/providers")
+@require_psps_auth
+def psps_providers():
+    date_from, date_to, date_to_incl, range_label = _psp_date_range()
+    directory = queries.psp_directory(date_from, date_to)
+    return render_template("psps_providers.html", directory=directory,
+                           range_label=range_label, date_from=date_from, date_to=date_to_incl)
+
+
+@app.route("/psps/merchants")
+@require_psps_auth
+def psps_merchants():
+    return render_template("psps_merchants.html")
+
+
+@app.route("/psps/settlements")
+@require_psps_auth
+def psps_settlements():
+    return render_template("psps_settlements.html")
 
 
 if __name__ == "__main__":

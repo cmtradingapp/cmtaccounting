@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %} — PSP Providers{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <a href="/psps" class="back-link">← PSPs</a>
+    <div class="page-title" style="margin-top:4px;">Providers</div>
+    <div class="page-sub">Praxis processors seen {{ date_from.strftime('%Y-%m-%d') }} → {{ date_to.strftime('%Y-%m-%d') }}, mapped against fee agreements</div>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Processor</th><th>Mapping</th><th class="num">Transactions</th>
+        <th class="num">Volume (USD)</th><th class="num">Fees (USD)</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in directory %}
+      <tr>
+        <td class="fw">{{ p.psp }}</td>
+        <td>
+          {% if p.mapped %}
+            <span class="badge {{ 'matched' if p.confirmed else 'mt5_only' }}">{{ p.agreement_psp_name }}</span>
+          {% else %}
+            <span class="badge discrepancy">Unmapped</span>
+          {% endif %}
+        </td>
+        <td class="num">{{ '{:,}'.format(p.tx_count) }}</td>
+        <td class="num">${{ '{:,.2f}'.format(p.volume) }}</td>
+        <td class="num muted">${{ '{:,.2f}'.format(p.actual_fees) }}</td>
+        <td>
+          {% if p.mapped %}
+          <a class="btn-ghost btn" href="/fees/{{ p.agreement_id }}">View agreement</a>
+          {% else %}
+          <a class="btn-ghost btn" href="/fees/processor-map">Map processor</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No processor activity in this range.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

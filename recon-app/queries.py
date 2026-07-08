@@ -2103,6 +2103,350 @@ def psp_balance_at_month_end(year: int, month: int) -> list:
     return result
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# PSPs tab — arbitrary date-range analytics over praxis_transactions
+# (unlike the month-scoped functions above, these take any (date_from, date_to)
+# window so the /psps pages can offer rolling 7d/30d/90d/custom ranges).
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _num_row(row: dict, float_keys) -> dict:
+    """Coerce the given keys to plain float (psycopg2 returns Decimal for NUMERIC
+    columns, which Flask's `|tojson` filter can't serialize) — 0.0 for NULL."""
+    for k in float_keys:
+        row[k] = float(row[k] or 0)
+    return row
+
+
+def psp_distinct_processors(date_from=None, date_to=None) -> list:
+    """Distinct Praxis processors with volume/tx_count/fees in the given window.
+    With no window, covers all-time — used to populate the processor filter dropdown.
+    Cached 5 min."""
+    key = f"psp_processors:{date_from}:{date_to}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = ["payment_processor IS NOT NULL", "payment_processor != ''"]
+                params = []
+                if date_from and date_to:
+                    where.append("created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)")
+                    where.append("created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)")
+                    params = [date_from, date_to]
+                cur.execute(f"""
+                    SELECT payment_processor                AS psp,
+                           COUNT(*)                          AS tx_count,
+                           SUM(usd_amount)                   AS volume,
+                           SUM(fee / 100.0)                  AS actual_fees
+                    FROM praxis_transactions
+                    WHERE {' AND '.join(where)}
+                    GROUP BY payment_processor
+                    ORDER BY volume DESC NULLS LAST
+                """, params)
+                return [_num_row(dict(r), ("volume", "actual_fees")) for r in cur.fetchall()]
+        result = _db_retry(_fetch)
+    except Exception:
+        result = []
+
+    _cache_set(key, result)
+    return result
+
+
+def psp_dashboard_stats(date_from, date_to, processor: str = None) -> dict:
+    """Headline stats for the PSPs dashboard over a date range. Cached 5 min."""
+    key = f"psp_stats:{date_from}:{date_to}:{processor}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = [
+                    "created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                    "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)",
+                ]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s")
+                    params.append(processor)
+                cur.execute(f"""
+                    SELECT
+                        COUNT(*)                                                    AS tx_count,
+                        COALESCE(SUM(usd_amount), 0)                                AS total_volume_usd,
+                        COALESCE(SUM(fee / 100.0), 0)                               AS total_fees_usd,
+                        COALESCE(SUM(CASE WHEN session_intent = 'payment'
+                                 THEN usd_amount ELSE 0 END), 0)                    AS deposits_usd,
+                        COALESCE(SUM(CASE WHEN session_intent IN ('withdrawal','payout')
+                                 THEN usd_amount ELSE 0 END), 0)                    AS withdrawals_usd,
+                        COALESCE(SUM(CASE WHEN session_intent = 'payment'
+                                 THEN usd_amount ELSE -usd_amount END), 0)          AS net_usd,
+                        COUNT(DISTINCT session_cid)                                 AS distinct_customers
+                    FROM praxis_transactions
+                    WHERE {' AND '.join(where)}
+                """, params)
+                row = dict(cur.fetchone())
+                row["avg_ticket_usd"] = (row["total_volume_usd"] / row["tx_count"]) if row["tx_count"] else 0
+                return row
+        result = _db_retry(_fetch)
+    except Exception:
+        result = {"tx_count": 0, "total_volume_usd": 0, "total_fees_usd": 0,
+                   "deposits_usd": 0, "withdrawals_usd": 0, "net_usd": 0,
+                   "distinct_customers": 0, "avg_ticket_usd": 0}
+
+    _cache_set(key, result)
+    return result
+
+
+def psp_volume_by_day(date_from, date_to, processor: str = None) -> list:
+    """Daily volume + tx count in the range, for the dashboard bar chart. Cached 5 min."""
+    key = f"psp_volday:{date_from}:{date_to}:{processor}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = [
+                    "created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                    "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)",
+                ]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s")
+                    params.append(processor)
+                cur.execute(f"""
+                    SELECT
+                        DATE(TO_TIMESTAMP(created_timestamp)) AS day,
+                        SUM(usd_amount)                       AS volume,
+                        COUNT(*)                              AS tx_count
+                    FROM praxis_transactions
+                    WHERE {' AND '.join(where)}
+                    GROUP BY day
+                    ORDER BY day
+                """, params)
+                return [_num_row(dict(r), ("volume",)) for r in cur.fetchall()]
+        result = _db_retry(_fetch)
+    except Exception:
+        result = []
+
+    _cache_set(key, result)
+    return result
+
+
+def psp_breakdown_by_direction(date_from, date_to, processor: str = None) -> list:
+    """Volume/tx count grouped by session_intent (payment/withdrawal/payout). Cached 5 min."""
+    key = f"psp_dir:{date_from}:{date_to}:{processor}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = [
+                    "created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                    "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)",
+                ]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s")
+                    params.append(processor)
+                cur.execute(f"""
+                    SELECT
+                        COALESCE(NULLIF(session_intent, ''), 'unknown') AS direction,
+                        SUM(usd_amount)                                 AS volume,
+                        COUNT(*)                                        AS tx_count
+                    FROM praxis_transactions
+                    WHERE {' AND '.join(where)}
+                    GROUP BY direction
+                    ORDER BY volume DESC NULLS LAST
+                """, params)
+                return [_num_row(dict(r), ("volume",)) for r in cur.fetchall()]
+        result = _db_retry(_fetch)
+    except Exception:
+        result = []
+
+    _cache_set(key, result)
+    return result
+
+
+def psp_breakdown_by_currency(date_from, date_to, processor: str = None, top_n: int = 8) -> list:
+    """Top-N currencies by volume in the range. Cached 5 min."""
+    key = f"psp_ccy:{date_from}:{date_to}:{processor}:{top_n}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = [
+                    "created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                    "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)",
+                ]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s")
+                    params.append(processor)
+                params.append(top_n)
+                cur.execute(f"""
+                    SELECT currency, SUM(usd_amount) AS volume, COUNT(*) AS tx_count
+                    FROM praxis_transactions
+                    WHERE {' AND '.join(where)}
+                    GROUP BY currency
+                    ORDER BY volume DESC NULLS LAST
+                    LIMIT %s
+                """, params)
+                return [_num_row(dict(r), ("volume",)) for r in cur.fetchall()]
+        result = _db_retry(_fetch)
+    except Exception:
+        result = []
+
+    _cache_set(key, result)
+    return result
+
+
+def psp_recent_transactions(date_from, date_to, processor: str = None, limit: int = 10) -> list:
+    """Most recent transactions in range, for the dashboard's recent-activity table."""
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = [
+                    "created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                    "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)",
+                ]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s")
+                    params.append(processor)
+                params.append(limit)
+                cur.execute(f"""
+                    SELECT
+                        session_cid AS login, tid, session_order_id,
+                        session_intent AS direction, usd_amount, currency,
+                        payment_method, payment_processor,
+                        fee / 100.0 AS fee_actual,
+                        customer_first_name, customer_last_name,
+                        wallet_data_email AS email,
+                        TO_TIMESTAMP(created_timestamp) AS inserted_at
+                    FROM praxis_transactions
+                    WHERE {' AND '.join(where)}
+                    ORDER BY created_timestamp DESC
+                    LIMIT %s
+                """, params)
+                return [dict(r) for r in cur.fetchall()]
+        return _db_retry(_fetch)
+    except Exception:
+        return []
+
+
+def psp_transactions_search(date_from, date_to, processor: str = None, direction: str = None,
+                             search: str = None, page: int = 1, page_size: int = 50) -> dict:
+    """Paginated, filterable transaction explorer over praxis_transactions.
+
+    Returns {"rows": [...], "total_count": int, "page": int, "page_size": int}.
+    Not cached — filters/pagination change on every request.
+    """
+    page = max(page, 1)
+    offset = (page - 1) * page_size
+
+    try:
+        from db import praxis as praxis_ctx
+        where = [
+            "created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+            "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)",
+        ]
+        params = [date_from, date_to]
+        if processor:
+            where.append("payment_processor = %s")
+            params.append(processor)
+        if direction:
+            where.append("session_intent = %s")
+            params.append(direction)
+        if search:
+            where.append("""(
+                tid::text ILIKE %s OR
+                transaction_id::text ILIKE %s OR
+                session_order_id::text ILIKE %s OR
+                session_cid::text ILIKE %s OR
+                wallet_data_email ILIKE %s OR
+                (customer_first_name || ' ' || customer_last_name) ILIKE %s
+            )""")
+            like = f"%{search}%"
+            params.extend([like, like, like, like, like, like])
+        where_sql = " AND ".join(where)
+
+        def _fetch_count():
+            with praxis_ctx() as cur:
+                cur.execute(f"SELECT COUNT(*) AS n FROM praxis_transactions WHERE {where_sql}", params)
+                return cur.fetchone()["n"]
+        total_count = _db_retry(_fetch_count)
+
+        def _fetch_rows():
+            with praxis_ctx() as cur:
+                cur.execute(f"""
+                    SELECT
+                        session_cid AS login, tid, transaction_id, session_order_id,
+                        session_intent AS direction, amount / 100.0 AS amount_local,
+                        currency, usd_amount, payment_method, payment_processor,
+                        conversion_rate, fee / 100.0 AS fee_actual,
+                        wallet_data_email AS email,
+                        customer_first_name, customer_last_name,
+                        TO_TIMESTAMP(created_timestamp) AS inserted_at
+                    FROM praxis_transactions
+                    WHERE {where_sql}
+                    ORDER BY created_timestamp DESC
+                    LIMIT %s OFFSET %s
+                """, params + [page_size, offset])
+                account_map, _ = _load_praxis_account_map()
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(r)
+                    row["usd_amount"] = float(row["usd_amount"] or 0)
+                    row["fee_actual"] = float(row["fee_actual"] or 0)
+                    cid = str(row.get("login") or "").strip()
+                    logins = account_map.get(cid, [])
+                    row["mt5_login"] = logins[0] if logins else None
+                    rows.append(row)
+                return rows
+        rows = _db_retry(_fetch_rows)
+    except Exception:
+        total_count, rows = 0, []
+
+    return {"rows": rows, "total_count": total_count, "page": page, "page_size": page_size}
+
+
+def psp_directory(date_from, date_to) -> list:
+    """Per-processor directory joining live Praxis activity with fee-agreement mappings,
+    for the PSPs > Providers page."""
+    processors = psp_distinct_processors(date_from, date_to)
+    proc_mappings = get_processor_mappings()
+    agreements_by_id = {a["id"]: a for a in get_all_agreements()}
+
+    directory = []
+    for p in processors:
+        mapping = proc_mappings.get(p["psp"])
+        agreement = agreements_by_id.get(mapping["agreement_id"]) if mapping else None
+        directory.append({
+            **p,
+            "mapped": bool(agreement),
+            "agreement_id": agreement["id"] if agreement else None,
+            "agreement_psp_name": agreement["psp_name"] if agreement else None,
+            "confirmed": mapping["confirmed"] if mapping else False,
+        })
+    return directory
+
+
 def cid_full_profile(cid: str, date_from, date_to) -> dict:
     """
     Full profile for a Praxis customer (session_cid) across all their MT5 accounts.

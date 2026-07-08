@@ -23,6 +23,8 @@ services:
       - RETENTION_PASS=${RETENTION_PASS}
       - CRO_USER=${CRO_USER:-CMTCRO}
       - CRO_PASS=${CRO_PASS}
+      - PSPS_USER=${PSPS_USER:-CMTPSPs}
+      - PSPS_PASS=${PSPS_PASS}
       # MT5-CRO Postgres (sibling cro_postgres service in this compose;
       # written by MT5-CRO-Backend running on a separate Windows host).
       - MT5_CRO_DB_HOST=cro_postgres
