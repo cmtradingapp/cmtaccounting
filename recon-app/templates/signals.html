@@ -504,30 +504,49 @@ function renderChart(id, data) {
   }));
 
   // Arrow markers anchored to actual bars, not just the vertical cutoff line:
-  // entry (up-arrow below the bar for a BUY, down-arrow above it for a SELL,
-  // colored by direction) and, once closed, an exit marker — always orange,
-  // always below the bar, so it reads as its own distinct event rather than
-  // competing with the direction color-coding of the entry arrow.
+  // entry (colored by direction) and, once closed, an orange exit marker.
+  // The underlying feed only buckets at 1 hour (see _CHART_BUCKET_SECS), but
+  // this EA's trades often resolve in seconds to minutes — far finer than
+  // that bucket — so entry and exit routinely land on the *same* bar. Always
+  // place them on opposite sides of the bar (never both above or both below)
+  // so they never visually stack, and label the exit with the actual elapsed
+  // time when they do share a bar, so it reads as "fast trade" rather than
+  // a confusing coincidence.
   function closestBarTime(iso) {
     var unix = Math.floor(new Date(iso).getTime() / 1000);
     return barTimes.reduce(function(closest, t) {
       return Math.abs(t - unix) < Math.abs(closest - unix) ? t : closest;
     }, barTimes[0]);
   }
+  function fmtDuration(ms) {
+    var s = Math.round(ms / 1000);
+    if (s < 60) return s + 's';
+    var m = Math.round(s / 60);
+    if (m < 60) return m + 'm';
+    return Math.round(m / 60) + 'h';
+  }
+  var entryPosition = data.direction === 'BUY' ? 'belowBar' : 'aboveBar';
+  var exitPosition = entryPosition === 'belowBar' ? 'aboveBar' : 'belowBar';
+  var entryBarTime = closestBarTime(data.signal_time);
   var markers = [{
-    time: closestBarTime(data.signal_time),
-    position: data.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+    time: entryBarTime,
+    position: entryPosition,
     color: data.direction === 'BUY' ? '#34d399' : '#f87171',
-    shape: data.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+    shape: entryPosition === 'belowBar' ? 'arrowUp' : 'arrowDown',
     text: 'Signal',
   }];
   if (data.close_time) {
+    var exitBarTime = closestBarTime(data.close_time);
+    var exitText = 'Exit';
+    if (exitBarTime === entryBarTime) {
+      exitText = 'Exit (' + fmtDuration(new Date(data.close_time).getTime() - new Date(data.signal_time).getTime()) + ')';
+    }
     markers.push({
-      time: closestBarTime(data.close_time),
-      position: 'belowBar',
+      time: exitBarTime,
+      position: exitPosition,
       color: '#fb923c',
-      shape: 'arrowUp',
-      text: 'Exit',
+      shape: exitPosition === 'belowBar' ? 'arrowUp' : 'arrowDown',
+      text: exitText,
     });
   }
   markers.sort(function(a, b) { return a.time - b.time; }); // Lightweight Charts requires markers in ascending time order
