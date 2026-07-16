@@ -105,6 +105,25 @@
   .sig-tri { position:absolute; right:1px; width:0; height:0; transform:translateY(-50%); }
   .sig-tri-sl { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid var(--red); }
   .sig-tri-tp { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid var(--green); }
+  .sig-tri-resistance { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid #fbbf24; }
+
+  /* Signal-entry pointer — a slim banner tapering to a point, tip anchored
+     exactly on the entry candle/price. Kept small on purpose; the direction
+     label lives in .sig-signal-label just above it, not crammed inside. */
+  .sig-signal-flag {
+    position:absolute; width:14px; height:16px; transform:translate(-50%,-100%);
+    clip-path: polygon(8% 0%, 92% 0%, 100% 55%, 50% 100%, 0% 55%);
+    box-shadow:0 1px 4px rgba(0,0,0,.45);
+  }
+  .sig-signal-flag.buy  { background:var(--green); }
+  .sig-signal-flag.sell { background:var(--red); }
+  .sig-signal-label {
+    position:absolute; transform:translate(-50%,-100%); white-space:nowrap;
+    font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.03em;
+    padding:1px 4px; border-radius:3px; background:rgba(9,11,16,.85);
+  }
+  .sig-signal-label.buy  { color:var(--green); }
+  .sig-signal-label.sell { color:var(--red); }
   .sig-box-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border-top:1px solid var(--border); }
 </style>
 
@@ -560,16 +579,13 @@ function renderChart(id, data) {
     if (m < 60) return m + 'm';
     return Math.round(m / 60) + 'h';
   }
+  // Entry itself is drawn as a custom flag pointer in paintOverlay() below
+  // (a shape + explicit BUY/SELL SIGNAL label the built-in marker shapes
+  // can't express) — only the exit uses a native Lightweight Charts marker.
   var entryPosition = data.direction === 'BUY' ? 'belowBar' : 'aboveBar';
   var exitPosition = entryPosition === 'belowBar' ? 'aboveBar' : 'belowBar';
   var entryBarTime = closestBarTime(data.signal_time);
-  var markers = [{
-    time: entryBarTime,
-    position: entryPosition,
-    color: data.direction === 'BUY' ? '#34d399' : '#f87171',
-    shape: entryPosition === 'belowBar' ? 'arrowUp' : 'arrowDown',
-    text: 'Signal',
-  }];
+  var markers = [];
   if (data.close_time) {
     var exitBarTime = closestBarTime(data.close_time);
     var exitText = 'Exit';
@@ -658,7 +674,7 @@ function renderChart(id, data) {
       label.textContent = 'Signal';
       overlay.appendChild(label);
     }
-    [['sl_price', 'sl'], ['tp_price', 'tp']].forEach(function(p) {
+    [['sl_price', 'sl'], ['tp_price', 'tp'], ['resistance_1', 'resistance']].forEach(function(p) {
       var y = series.priceToCoordinate(data[p[0]]);
       if (y != null) {
         var tri = document.createElement('div');
@@ -667,6 +683,27 @@ function renderChart(id, data) {
         overlay.appendChild(tri);
       }
     });
+
+    // Signal-entry pointer: tip anchored exactly on (entry bar, entry price).
+    // Small on purpose — the direction label sits just above it as its own
+    // compact tag rather than crammed inside the shape.
+    var entryX = chart.timeScale().timeToCoordinate(entryBarTime);
+    var entryY = series.priceToCoordinate(data.entry_price);
+    if (entryX != null && entryY != null) {
+      var dirCls = data.direction === 'BUY' ? 'buy' : 'sell';
+      var flag = document.createElement('div');
+      flag.className = 'sig-signal-flag ' + dirCls;
+      flag.style.left = entryX + 'px';
+      flag.style.top = entryY + 'px';
+      overlay.appendChild(flag);
+
+      var label = document.createElement('div');
+      label.className = 'sig-signal-label ' + dirCls;
+      label.style.left = entryX + 'px';
+      label.style.top = (entryY - 19) + 'px'; // sits just above the 16px-tall flag
+      label.textContent = (data.direction === 'BUY' ? 'Buy' : 'Sell') + ' Signal';
+      overlay.appendChild(label);
+    }
   }
   paintOverlay();
   chart.timeScale().fitContent();
