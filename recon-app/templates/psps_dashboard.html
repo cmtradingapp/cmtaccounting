@@ -25,12 +25,14 @@
 
   /* ── compact KPI strip ──────────────────────────────────────── */
   .stats-grid { grid-template-columns:repeat(auto-fit,minmax(146px,1fr)); gap:8px; margin-bottom:var(--sp-3); }
-  .stat-card { padding:10px 13px; box-shadow:inset 3px 0 0 0 var(--border); }
+  .stat-card { padding:10px 13px; box-shadow:inset 3px 0 0 0 var(--border); display:flex; flex-direction:column; }
   .stat-card .label { font-size:10px; margin-bottom:3px; }
   .stat-card .value { font-size:19px; white-space:nowrap; letter-spacing:-.01em; }
   .stat-card .delta { font-size:11px; font-weight:600; margin-top:2px; font-family:var(--font-mono); }
   .stat-card .delta.up { color:var(--green); } .stat-card .delta.down { color:var(--red); }
   .stat-card .sub { font-size:10px; color:var(--muted); margin-top:2px; }
+  .stat-card .spark { position:relative; height:26px; margin-top:auto; padding-top:9px; box-sizing:content-box; }
+  .stat-card .spark canvas { display:block; }
   .stat-card.k-accent { box-shadow:inset 3px 0 0 0 var(--accent);   }
   .stat-card.k-cyan   { box-shadow:inset 3px 0 0 0 var(--accent-2); }
   .stat-card.k-green  { box-shadow:inset 3px 0 0 0 var(--green);    }
@@ -43,8 +45,8 @@
   .psp-chart-card h3 { margin:0 0 10px; }
   .psp-chart-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
   .psp-chart-head h3 { margin:0; }
-  .chart-box { position:relative; height:158px; }
-  .chart-box.tall { height:184px; }
+  .chart-box { position:relative; height:150px; }
+  .chart-box.tall { height:156px; }
 
   /* doughnut with center total + html legend */
   .donut-center { position:absolute; inset:0 0 0 0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; gap:1px; }
@@ -129,11 +131,13 @@
     <div class="label">Total Volume</div>
     <div class="value num" title="${{ '{:,.2f}'.format(stats.total_volume_usd) }}">{{ money(stats.total_volume_usd) }}</div>
     {% if deltas.volume is not none %}<div class="delta {{ 'up' if deltas.volume>=0 else 'down' }}">{{ '▲' if deltas.volume>=0 else '▼' }} {{ '{:+.1f}'.format(deltas.volume) }}% vs prev</div>{% endif %}
+    <div class="spark"><canvas id="sparkVol"></canvas></div>
   </div>
   <div class="stat-card k-cyan">
     <div class="label">Transactions</div>
     <div class="value num">{{ '{:,}'.format(stats.tx_count) }}</div>
     {% if deltas.tx is not none %}<div class="delta {{ 'up' if deltas.tx>=0 else 'down' }}">{{ '▲' if deltas.tx>=0 else '▼' }} {{ '{:+.1f}'.format(deltas.tx) }}% vs prev</div>{% endif %}
+    <div class="spark"><canvas id="sparkTx"></canvas></div>
   </div>
   <div class="stat-card k-green">
     <div class="label">Success Rate</div>
@@ -321,15 +325,35 @@
             datasets: [{ data: statusDist.map(function (d) { return d.tx_count; }),
                          backgroundColor: statusDist.map(function (d) { return OUTCOME_COLORS[d.outcome] || C.muted; }),
                          borderWidth: 0 }] },
-    options: Object.assign({}, base, { cutout:'72%', plugins:{ legend:{ display:false } } })
+    options: Object.assign({}, base, { cutout:'78%', plugins:{ legend:{ display:false } } })
   });
 
   new Chart(document.getElementById('ccyChart'), {
     type: 'doughnut',
     data: { labels: byCcy.map(function (d) { return d.currency; }),
             datasets: [{ data: byCcy.map(function (d) { return d.volume; }), backgroundColor: palette, borderWidth: 0 }] },
-    options: Object.assign({}, base, { cutout:'72%', plugins:{ legend:{ display:false } } })
+    options: Object.assign({}, base, { cutout:'78%', plugins:{ legend:{ display:false } } })
   });
+
+  // KPI trend sparklines (daily), from the same volume-by-day series.
+  function sparkline(id, series, line, rgba) {
+    var el = document.getElementById(id);
+    if (!el || !series.length) return;
+    var ctx = el.getContext('2d');
+    var g = ctx.createLinearGradient(0, 0, 0, 26);
+    g.addColorStop(0, rgba(0.32)); g.addColorStop(1, rgba(0));
+    new Chart(ctx, {
+      type: 'line',
+      data: { labels: series.map(function (_, i) { return i; }),
+              datasets: [{ data: series, borderColor: line, borderWidth: 1.5,
+                           backgroundColor: g, fill: true, pointRadius: 0, tension: 0.35 }] },
+      options: { responsive:true, maintainAspectRatio:false, animation:{ duration:600 },
+                 plugins:{ legend:{ display:false }, tooltip:{ enabled:false } },
+                 scales:{ x:{ display:false }, y:{ display:false, beginAtZero:true } } }
+    });
+  }
+  sparkline('sparkVol', volumeDay.map(function (d) { return d.volume; }),  C.accent,  function (a) { return 'rgba(91,157,255,' + a + ')'; });
+  sparkline('sparkTx',  volumeDay.map(function (d) { return d.tx_count; }), C.accent2, function (a) { return 'rgba(34,211,238,' + a + ')'; });
 })();
 </script>
 {% endblock %}

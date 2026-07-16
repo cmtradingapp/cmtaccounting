@@ -2425,7 +2425,10 @@ def psp_approval_ratio(date_from, date_to, processor: str = None, group_by: str 
                            "declined": r["declined"] or 0, "total": r["total"], "decided": decided,
                            "ratio": round(100.0 * (r["approved"] or 0) / decided, 1) if decided else None}
                     (rated if decided else unrated).append(row)
-                rated.sort(key=lambda x: x["ratio"], reverse=True)
+                # Rank by activity (decided count) so the highest-signal groups lead and
+                # tiny 1/1 = 100% samples don't dominate the top; the colour-coded bar still
+                # conveys each rate. Rate-less (0 decided) groups trail, by total activity.
+                rated.sort(key=lambda x: x["decided"], reverse=True)
                 unrated.sort(key=lambda x: x["total"], reverse=True)
                 return (rated + unrated)[:limit]
         result = _db_retry(_fetch)
