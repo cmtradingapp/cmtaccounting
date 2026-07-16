@@ -4946,12 +4946,20 @@ def get_signal_by_id(signal_id: int) -> dict:
 _CHART_BUCKET_SECS = 3600
 
 
-def get_signal_chart(sig: dict, lookback_bars: int = 24, max_bars: int = 72) -> dict:
+def get_signal_chart(sig: dict, min_half_span_hours: int = 12, max_bars: int = 72) -> dict:
     """Historical OHLC anchored on a signal's own signal_time (and close_time)
     rather than "now" — reuses get_fx_ohlc()'s epoch-bucketing technique
     against dealio.ticks, which carries live data under the EA's own symbol
     strings (BTCUSD, CRUDE.OIL, USTECH, GOLD, SILVER, EURUSD — verified
     directly against production, not assumed from FX_GROUPS).
+
+    The window is centered on signal_time rather than a fixed lookback: the
+    "before" side mirrors however much time has actually elapsed since the
+    signal fired (floored at min_half_span_hours so a brand-new signal still
+    gets real context, capped by max_bars so a long-running trade doesn't
+    balloon the query). A fixed pre-signal lookback made the signal candle
+    sit almost at the right edge for any signal younger than that lookback —
+    which is most of them.
 
     Cached briefly for ACTIVE signals (price still moving) and effectively
     permanently for CLOSED ones (history is final).
@@ -4965,7 +4973,9 @@ def get_signal_chart(sig: dict, lookback_bars: int = 24, max_bars: int = 72) -> 
 
     signal_time = sig["signal_time"]
     end_time = sig.get("close_time") or datetime.now(timezone.utc)
-    start_time = signal_time - timedelta(seconds=lookback_bars * bucket_secs)
+    elapsed_secs = max((end_time - signal_time).total_seconds(), 0)
+    half_span_secs = max(elapsed_secs, min_half_span_hours * 3600)
+    start_time = signal_time - timedelta(seconds=half_span_secs)
     min_start = end_time - timedelta(seconds=max_bars * bucket_secs)
     if start_time < min_start:
         start_time = min_start

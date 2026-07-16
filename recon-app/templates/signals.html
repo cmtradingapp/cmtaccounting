@@ -93,7 +93,7 @@
   .sig-box.st-sl::before     { background:linear-gradient(90deg, var(--red),    transparent 75%); }
   .sig-box-head { position:relative; display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--border); }
   .sig-box-head .sig-rr { margin-left:auto; font-family:var(--font-mono); font-size:12px; }
-  .sig-box-chart { height:170px; position:relative; background:var(--bg); box-shadow:inset 0 1px 8px rgba(0,0,0,.35); }
+  .sig-box-chart { height:260px; position:relative; background:var(--bg); box-shadow:inset 0 1px 8px rgba(0,0,0,.35); }
   .sig-box-chart-msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px; text-align:center; padding:0 12px; }
   .sig-box-overlay { position:absolute; inset:0; pointer-events:none; }
   .sig-cutoff-shade { position:absolute; top:0; bottom:0; right:0; background:rgba(91,157,255,.05); border-left:1px dashed rgba(91,157,255,.55); }
@@ -399,7 +399,7 @@ var _lwBaseOpts = {
   layout:    { background: { type: 'solid', color: 'transparent' }, textColor: '#5d6b82' },
   grid:      { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
   crosshair: { mode: 1 },
-  rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.15, bottom: 0.1 } },
+  rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.06, bottom: 0.06 } },
   timeScale:       { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false, rightOffset: 2 },
   handleScroll:    { vertTouchDrag: false },
   handleScale:     { axisPressedMouseMove: { time: true, price: false } },
@@ -503,21 +503,35 @@ function renderChart(id, data) {
     return { time: barTimes[i], open: b.o, high: b.h, low: b.l, close: b.c };
   }));
 
-  // Arrow marker anchored to the actual bar the signal fired on — not just
-  // the vertical cutoff line, a precise "here's the entry" flag on the chart
-  // itself, matching standard trade-marker convention (up-arrow below the
-  // bar for a BUY, down-arrow above it for a SELL).
-  var signalUnix = Math.floor(new Date(data.signal_time).getTime() / 1000);
-  var signalBarTime = barTimes.reduce(function(closest, t) {
-    return Math.abs(t - signalUnix) < Math.abs(closest - signalUnix) ? t : closest;
-  }, barTimes[0]);
-  series.setMarkers([{
-    time: signalBarTime,
+  // Arrow markers anchored to actual bars, not just the vertical cutoff line:
+  // entry (up-arrow below the bar for a BUY, down-arrow above it for a SELL,
+  // colored by direction) and, once closed, an exit marker — always orange,
+  // always below the bar, so it reads as its own distinct event rather than
+  // competing with the direction color-coding of the entry arrow.
+  function closestBarTime(iso) {
+    var unix = Math.floor(new Date(iso).getTime() / 1000);
+    return barTimes.reduce(function(closest, t) {
+      return Math.abs(t - unix) < Math.abs(closest - unix) ? t : closest;
+    }, barTimes[0]);
+  }
+  var markers = [{
+    time: closestBarTime(data.signal_time),
     position: data.direction === 'BUY' ? 'belowBar' : 'aboveBar',
     color: data.direction === 'BUY' ? '#34d399' : '#f87171',
     shape: data.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
     text: 'Signal',
-  }]);
+  }];
+  if (data.close_time) {
+    markers.push({
+      time: closestBarTime(data.close_time),
+      position: 'belowBar',
+      color: '#fb923c',
+      shape: 'arrowUp',
+      text: 'Exit',
+    });
+  }
+  markers.sort(function(a, b) { return a.time - b.time; }); // Lightweight Charts requires markers in ascending time order
+  series.setMarkers(markers);
 
   // By default Lightweight Charts autoscales the price axis to the candle data
   // only — price lines (SL/TP/R/S) don't expand it. A TP far from the current
