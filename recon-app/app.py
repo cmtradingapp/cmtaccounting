@@ -125,8 +125,15 @@ def require_fees_auth(f):
         if not _FEES_USER or not _FEES_PASS:
             abort(500, "FEES_USER and FEES_PASS env vars not set.")
         auth = request.authorization
-        if not auth or auth.username != _FEES_USER or auth.password != _FEES_PASS:
-            return _unauthorized("CMT Fee Processor")
+        # Fees is merged under the PSPs tab: accept the PSPs login too, and share the
+        # "CMT PSPs" realm so a PSPs-authenticated browser reaches Fees without a second
+        # prompt. The FEES login still works (back-compat). Admin routes stay admin-only.
+        ok = auth and (
+            (auth.username == _FEES_USER and auth.password == _FEES_PASS)
+            or (_PSPS_USER and auth.username == _PSPS_USER and auth.password == _PSPS_PASS)
+        )
+        if not ok:
+            return _unauthorized("CMT PSPs")
         return f(*args, **kwargs)
     return wrapper
 

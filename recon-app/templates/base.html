@@ -613,8 +613,7 @@
     <nav>
       <a href="/" class="{{ 'active' if request.path == '/' }}">Dashboard</a>
       <a href="/reconciliation" class="{{ 'active' if request.path == '/reconciliation' or request.path.startswith('/recon') }}">Reconciliation</a>
-      <a href="/fees" class="{{ 'active' if request.path.startswith('/fees') }}">Fees</a>
-      <a href="/psps" class="{{ 'active' if request.path.startswith('/psps') }}">PSPs</a>
+      <a href="/psps" class="{{ 'active' if request.path.startswith('/psps') or request.path.startswith('/fees') }}">PSPs</a>
       <a href="/clients" class="{{ 'active' if request.path.startswith('/clients') or request.path.startswith('/cid') or request.path.startswith('/client') }}">Clients</a>
       <a href="/banks" class="{{ 'active' if request.path.startswith('/banks') }}">Banks</a>
       <a href="/operators" class="{{ 'active' if request.path.startswith('/operators') }}">Operators</a>
