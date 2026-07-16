@@ -162,6 +162,25 @@ def require_admin_auth(f):
     return wrapper
 
 
+def require_fees_admin_auth(f):
+    """Fees Admin panel — merged under the PSPs tab, so whoever can open the PSPs/Fees
+    area can also use it. Accepts the PSPs, FEES or ADMIN login, under the shared
+    'CMT PSPs' realm (no second prompt). Only the Fees admin routes use this; the recon
+    source-compare route keeps the stricter ADMIN-only require_admin_auth."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        auth = request.authorization
+        ok = auth and (
+            (_PSPS_USER  and auth.username == _PSPS_USER  and auth.password == _PSPS_PASS)
+            or (_FEES_USER  and auth.username == _FEES_USER  and auth.password == _FEES_PASS)
+            or (_ADMIN_USER and auth.username == _ADMIN_USER and auth.password == _ADMIN_PASS)
+        )
+        if not ok:
+            return _unauthorized("CMT PSPs")
+        return f(*args, **kwargs)
+    return wrapper
+
+
 def require_retention_auth(f):
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
@@ -1380,7 +1399,7 @@ def _list_snapshots():
 
 
 @app.route("/fees/admin")
-@require_admin_auth
+@require_fees_admin_auth
 def fees_admin():
     import os as _os, datetime as _dt
     from db import FEES_MODE
@@ -1396,7 +1415,7 @@ def fees_admin():
 
 
 @app.route("/fees/admin/backup")
-@require_admin_auth
+@require_fees_admin_auth
 def fees_admin_backup():
     from datetime import date as _d
     if not os.path.exists(_FEES_DB_PATH):
@@ -1407,7 +1426,7 @@ def fees_admin_backup():
 
 
 @app.route("/fees/admin/upload", methods=["POST"])
-@require_admin_auth
+@require_fees_admin_auth
 def fees_admin_upload():
     from db import FEES_MODE
     if FEES_MODE != "demo":
@@ -1427,7 +1446,7 @@ def fees_admin_upload():
 
 
 @app.route("/fees/admin/snapshot/save", methods=["POST"])
-@require_admin_auth
+@require_fees_admin_auth
 def fees_admin_snapshot_save():
     import shutil as _sh
     label = request.form.get("label", "").strip()
@@ -1442,7 +1461,7 @@ def fees_admin_snapshot_save():
 
 
 @app.route("/fees/admin/snapshot/<name>/activate", methods=["POST"])
-@require_admin_auth
+@require_fees_admin_auth
 def fees_admin_snapshot_activate(name):
     import shutil as _sh
     from db import FEES_MODE
@@ -1459,7 +1478,7 @@ def fees_admin_snapshot_activate(name):
 
 
 @app.route("/fees/admin/snapshot/<name>/download")
-@require_admin_auth
+@require_fees_admin_auth
 def fees_admin_snapshot_download(name):
     if not _snapshot_label_safe(name):
         abort(400)
@@ -1471,7 +1490,7 @@ def fees_admin_snapshot_download(name):
 
 
 @app.route("/fees/admin/snapshot/<name>/delete", methods=["POST"])
-@require_admin_auth
+@require_fees_admin_auth
 def fees_admin_snapshot_delete(name):
     if not _snapshot_label_safe(name):
         abort(400)
@@ -1482,7 +1501,7 @@ def fees_admin_snapshot_delete(name):
 
 
 @app.route("/fees/mode", methods=["POST"])
-@require_admin_auth
+@require_fees_admin_auth
 def fees_switch_mode():
     """Switch FEES_MODE between demo and live by updating docker-compose.yml
     and restarting the container. Server-only — no-op in local dev."""
