@@ -127,13 +127,21 @@ def _conn_dealio():
     )
 
 def _conn_praxis():
+    """Read-only connection to the Praxis operations database.
+
+    Points at the direct-access reporting replica (13.140.163.221:5434, role
+    reporting_ro) — no SSH tunnel required. We pin a read-only transaction +
+    statement_timeout as defence in depth (the role is read-only server-side too).
+    """
     return psycopg2.connect(
         host=os.environ["PRAXIS_HOST"],
         port=int(os.environ.get("PRAXIS_PORT", 5432)),
         dbname=os.environ["PRAXIS_DB"],
         user=os.environ["PRAXIS_USER"],
         password=os.environ["PRAXIS_PASS"],
-        connect_timeout=10,
+        connect_timeout=15,
+        sslmode=os.environ.get("PRAXIS_SSLMODE", "prefer"),
+        options="-c default_transaction_read_only=on -c statement_timeout=180000",
     )
 
 def _conn_crm():

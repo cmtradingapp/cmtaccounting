@@ -2117,6 +2117,117 @@ def _num_row(row: dict, float_keys) -> dict:
     return row
 
 
+# ── Transaction-outcome classifier ─────────────────────────────────────────
+# The Praxis reporting table has NO clean status: transaction_status/session_status
+# are 100% NULL and outcome only exists as a per-processor status_code plus a
+# free-text status_details whose meaning varies by processor (status_code='0' means
+# APPROVED for SafeCharge but is a meaningless default for KorapayAPM, whose outcome
+# lives entirely in status_details). We derive a BEST-EFFORT outcome class from the
+# status_details keywords (the most portable signal) with per-processor overrides for
+# the NULL/ambiguous cases. The share we cannot classify is bucketed as 'unknown' and
+# surfaced honestly in the UI.
+#
+# Precedence (first match wins): chargeback > refunded > declined > pending > approved.
+# declined before pending so a terminal "... New status declined" isn't mislabelled by
+# the earlier "pending" word; pending before approved so 3DS/OTP interstitials
+# ("Successfully Authenticated", "enter the PIN") aren't counted as approvals.
+
+OUTCOME_CLASSES = ("approved", "declined", "pending", "refunded", "chargeback", "unknown")
+
+_KW_CHARGEBACK = ["chargeback", "charge back", "dispute"]
+_KW_REFUND     = ["refund", "reversal", "reversed"]
+_KW_DECLINED   = ["insuff", "not sufficient", "declin", "do not honor", "do not honour",
+                  "not honor", "not honour", "fraud", "invalid", "not permitted",
+                  "not allowed", "expired", "timed out", "timeout", "timedout",
+                  "unable to", "fail", "reject", "cancel", "exceed", "not active",
+                  "not supported", "blocked", "suspect", "policy", "limit reached",
+                  "restricted", "error", "no response", "not enough", "abandon",
+                  "abort", "denied", "violation", "not available", "unavailable",
+                  "retry", "missing", "unpaid", "not support", "should be",
+                  "no payment method", "msisdn"]
+_KW_PENDING    = ["pending", "3ds", "3-ds", "authentication required", "authenticated",
+                  "enrolled", "pin", "awaiting", "initiated", "in progress", "requires",
+                  "otp", "waiting", "please wait", "being processed", "please provide",
+                  "processing"]
+_KW_APPROVED   = ["approved", "success", "succeed", "complete", "captured", "settled",
+                  "accepted", "accept", "paid"]
+
+# Precedence order shared by the SQL CASE and the Python mirror below.
+_OUTCOME_RULES = [
+    ("chargeback", _KW_CHARGEBACK),
+    ("refunded",   _KW_REFUND),
+    ("declined",   _KW_DECLINED),
+    ("pending",    _KW_PENDING),
+    ("approved",   _KW_APPROVED),
+]
+
+
+def classify_outcome(status_details, status_code=None, payment_processor=None) -> str:
+    """Best-effort outcome class for one Praxis transaction — Python mirror of
+    outcome_case_sql(). Returns one of OUTCOME_CLASSES."""
+    d = (status_details or "").lower()
+    if d:
+        for cls, kws in _OUTCOME_RULES:
+            if any(k in d for k in kws):
+                return cls
+    # NULL / blank details → per-processor overrides on status_code
+    proc = (payment_processor or "").lower()
+    code = (status_code or "").strip()
+    if proc.startswith("safecharge") and code == "0":
+        return "approved"
+    return "unknown"
+
+
+def outcome_case_sql(details_col="status_details", code_col="status_code",
+                     proc_col="payment_processor") -> str:
+    """SQL CASE expression matching classify_outcome(), so approval metrics aggregate
+    SQL-side over the full table instead of pulling rows into Python.
+    NB: literal % are doubled for psycopg2 params-mode execution."""
+    def _ilike_any(col, kws):
+        arr = ", ".join("'%%" + k.replace("'", "''") + "%%'" for k in kws)
+        return f"{col} ILIKE ANY (ARRAY[{arr}])"
+    whens = [f"WHEN {_ilike_any(details_col, kws)} THEN '{cls}'" for cls, kws in _OUTCOME_RULES]
+    whens.append(
+        f"WHEN ({details_col} IS NULL OR {details_col} = '') "
+        f"AND {proc_col} ILIKE 'safecharge%%' AND {code_col} = '0' THEN 'approved'"
+    )
+    return "CASE\n  " + "\n  ".join(whens) + "\n  ELSE 'unknown' END"
+
+
+def psp_data_span():
+    """(min_date, max_date) of praxis_transactions by created_timestamp. Cached 30 min.
+
+    Used to anchor the dashboard date-range on *available* data: the Praxis feed can
+    lag behind 'today', so "last N days" should mean the last N days of data we have,
+    not a window that runs past the end of the data and shows nothing."""
+    key = "psp_data_span"
+    cached = _cache_get(key, 1800)
+    if cached is not None:
+        return cached
+    import datetime as _dt
+    span = (None, None)
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                cur.execute("SELECT MIN(created_timestamp) AS mn, MAX(created_timestamp) AS mx "
+                            "FROM praxis_transactions")
+                return cur.fetchone()
+        row = _db_retry(_fetch)
+        if row and row.get("mn") and row.get("mx"):
+            span = (_dt.datetime.utcfromtimestamp(int(row["mn"])).date(),
+                    _dt.datetime.utcfromtimestamp(int(row["mx"])).date())
+    except Exception:
+        span = (None, None)
+    _cache_set(key, span)
+    return span
+
+
+def psp_data_max_date():
+    """Latest transaction date present in praxis_transactions (by created_timestamp)."""
+    return psp_data_span()[1]
+
+
 def psp_distinct_processors(date_from=None, date_to=None) -> list:
     """Distinct Praxis processors with volume/tx_count/fees in the given window.
     With no window, covers all-time — used to populate the processor filter dropdown.
@@ -2156,12 +2267,15 @@ def psp_distinct_processors(date_from=None, date_to=None) -> list:
 
 
 def psp_dashboard_stats(date_from, date_to, processor: str = None) -> dict:
-    """Headline stats for the PSPs dashboard over a date range. Cached 5 min."""
+    """Headline stats for the PSPs dashboard over a date range, incl. derived outcome
+    counts (approved/declined/pending/refunded/chargeback/unknown), a success/approval
+    rate (approved of *decided* = approved+declined) and a chargeback rate. Cached 5 min."""
     key = f"psp_stats:{date_from}:{date_to}:{processor}"
     cached = _cache_get(key, _TTL_RECONCILE)
     if cached is not None:
         return cached
 
+    oc = outcome_case_sql()
     try:
         from db import praxis as praxis_ctx
         def _fetch():
@@ -2176,28 +2290,184 @@ def psp_dashboard_stats(date_from, date_to, processor: str = None) -> dict:
                     params.append(processor)
                 cur.execute(f"""
                     SELECT
-                        COUNT(*)                                                    AS tx_count,
-                        COALESCE(SUM(usd_amount), 0)                                AS total_volume_usd,
-                        COALESCE(SUM(fee / 100.0), 0)                               AS total_fees_usd,
-                        COALESCE(SUM(CASE WHEN session_intent = 'payment'
-                                 THEN usd_amount ELSE 0 END), 0)                    AS deposits_usd,
+                        COUNT(*)                                              AS tx_count,
+                        COALESCE(SUM(usd_amount), 0)                          AS total_volume_usd,
+                        COALESCE(SUM(fee / 100.0), 0)                         AS total_fees_actual_usd,
+                        COALESCE(SUM(CASE WHEN session_intent='payment'
+                                 THEN usd_amount ELSE 0 END), 0)              AS deposits_usd,
                         COALESCE(SUM(CASE WHEN session_intent IN ('withdrawal','payout')
-                                 THEN usd_amount ELSE 0 END), 0)                    AS withdrawals_usd,
-                        COALESCE(SUM(CASE WHEN session_intent = 'payment'
-                                 THEN usd_amount ELSE -usd_amount END), 0)          AS net_usd,
-                        COUNT(DISTINCT session_cid)                                 AS distinct_customers
-                    FROM praxis_transactions
-                    WHERE {' AND '.join(where)}
+                                 THEN usd_amount ELSE 0 END), 0)              AS withdrawals_usd,
+                        COALESCE(SUM(CASE WHEN session_intent='payment'
+                                 THEN usd_amount ELSE -usd_amount END), 0)    AS net_usd,
+                        COUNT(DISTINCT session_cid)                           AS distinct_customers,
+                        COUNT(*) FILTER (WHERE outcome='approved')            AS approved_count,
+                        COUNT(*) FILTER (WHERE outcome='declined')            AS declined_count,
+                        COUNT(*) FILTER (WHERE outcome='pending')             AS pending_count,
+                        COUNT(*) FILTER (WHERE outcome='refunded')            AS refunded_count,
+                        COUNT(*) FILTER (WHERE outcome='chargeback')          AS chargeback_count,
+                        COUNT(*) FILTER (WHERE outcome='unknown')             AS unknown_count
+                    FROM (
+                        SELECT usd_amount, session_intent, session_cid, fee,
+                               {oc} AS outcome
+                        FROM praxis_transactions
+                        WHERE {' AND '.join(where)}
+                    ) t
                 """, params)
                 row = dict(cur.fetchone())
-                row["avg_ticket_usd"] = (row["total_volume_usd"] / row["tx_count"]) if row["tx_count"] else 0
+                for k in ("total_volume_usd", "total_fees_actual_usd", "deposits_usd",
+                          "withdrawals_usd", "net_usd"):
+                    row[k] = float(row[k] or 0)
+                tc      = row["tx_count"] or 0
+                decided = (row["approved_count"] or 0) + (row["declined_count"] or 0)
+                row["decided_count"]   = decided
+                row["avg_ticket_usd"]  = (row["total_volume_usd"] / tc) if tc else 0.0
+                row["success_rate"]    = (100.0 * row["approved_count"] / decided) if decided else 0.0
+                row["chargeback_rate"] = (100.0 * row["chargeback_count"] / tc) if tc else 0.0
+                # Backwards-compat alias (Praxis-reported actual fee, near-zero — the
+                # dashboard shows expected fees from the calculator instead).
+                row["total_fees_usd"]  = row["total_fees_actual_usd"]
                 return row
         result = _db_retry(_fetch)
     except Exception:
         result = {"tx_count": 0, "total_volume_usd": 0, "total_fees_usd": 0,
-                   "deposits_usd": 0, "withdrawals_usd": 0, "net_usd": 0,
-                   "distinct_customers": 0, "avg_ticket_usd": 0}
+                  "total_fees_actual_usd": 0, "deposits_usd": 0, "withdrawals_usd": 0,
+                  "net_usd": 0, "distinct_customers": 0, "avg_ticket_usd": 0,
+                  "approved_count": 0, "declined_count": 0, "pending_count": 0,
+                  "refunded_count": 0, "chargeback_count": 0, "unknown_count": 0,
+                  "decided_count": 0, "success_rate": 0, "chargeback_rate": 0}
 
+    _cache_set(key, result)
+    return result
+
+
+def psp_status_distribution(date_from, date_to, processor: str = None) -> list:
+    """Tx counts + volume per derived outcome class, for the status-distribution
+    doughnut. Ordered by OUTCOME_CLASSES; only non-empty classes returned. Cached 5 min."""
+    key = f"psp_statusdist:{date_from}:{date_to}:{processor}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+    oc = outcome_case_sql()
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = ["created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                         "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)"]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s"); params.append(processor)
+                cur.execute(f"""
+                    SELECT outcome, COUNT(*) AS tx_count, COALESCE(SUM(usd_amount),0) AS volume
+                    FROM (SELECT usd_amount, {oc} AS outcome FROM praxis_transactions
+                          WHERE {' AND '.join(where)}) t
+                    GROUP BY outcome
+                """, params)
+                by = {r["outcome"]: {"outcome": r["outcome"], "tx_count": r["tx_count"],
+                                     "volume": float(r["volume"] or 0)} for r in cur.fetchall()}
+                return [by[c] for c in OUTCOME_CLASSES if c in by]
+        result = _db_retry(_fetch)
+    except Exception:
+        result = []
+    _cache_set(key, result)
+    return result
+
+
+def psp_approval_ratio(date_from, date_to, processor: str = None, group_by: str = "country",
+                       limit: int = 15, min_decided: int = 20) -> list:
+    """Approval rate (approved / (approved+declined)) grouped by customer country or
+    processor, for the dashboard approval-ratio bar (country/PSP toggle). Cached 5 min."""
+    group_by = "psp" if group_by == "psp" else "country"
+    dim = "payment_processor" if group_by == "psp" else "customer_country"
+    key = f"psp_appratio:{date_from}:{date_to}:{processor}:{group_by}:{limit}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+    oc = outcome_case_sql()
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = ["created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                         "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)",
+                         f"{dim} IS NOT NULL", f"{dim} <> ''"]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s"); params.append(processor)
+                cur.execute(f"""
+                    SELECT name,
+                           COUNT(*) FILTER (WHERE outcome='approved') AS approved,
+                           COUNT(*) FILTER (WHERE outcome='declined') AS declined,
+                           COUNT(*) AS total
+                    FROM (SELECT {dim} AS name, {oc} AS outcome
+                          FROM praxis_transactions WHERE {' AND '.join(where)}) t
+                    GROUP BY name
+                """, params)
+                out = []
+                for r in cur.fetchall():
+                    decided = (r["approved"] or 0) + (r["declined"] or 0)
+                    if decided < min_decided:
+                        continue
+                    out.append({"name": r["name"], "approved": r["approved"] or 0,
+                                "declined": r["declined"] or 0, "total": r["total"],
+                                "ratio": round(100.0 * (r["approved"] or 0) / decided, 1)})
+                out.sort(key=lambda x: x["ratio"], reverse=True)
+                return out[:limit]
+        result = _db_retry(_fetch)
+    except Exception:
+        result = []
+    _cache_set(key, result)
+    return result
+
+
+def psp_expected_fees(date_from, date_to, processor: str = None) -> dict:
+    """Expected PSP fees over a date range from the fee-agreement engine — the Praxis
+    `fee` column is unpopulated (~0), so this is the real fee figure. Aggregates
+    APPROVED transactions by (processor, method, direction) and applies fee rules per
+    group: exact for percentage / fixed / fixed+pct, approximate for tiered (fee on the
+    group's average ticket × count). Cached 5 min.
+    Returns {'total', 'matched_vol', 'unmatched_vol'} (all USD)."""
+    key = f"psp_expfees:{date_from}:{date_to}:{processor}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+    oc = outcome_case_sql()
+    total = matched = unmatched = 0.0
+    try:
+        rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db = _load_fee_calc_context()
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = ["created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                         "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)"]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s"); params.append(processor)
+                cur.execute(f"""
+                    SELECT payment_processor, payment_method, session_intent,
+                           COALESCE(SUM(usd_amount),0) AS vol, COUNT(*) AS n
+                    FROM (SELECT payment_processor, payment_method, session_intent, usd_amount,
+                                 {oc} AS outcome FROM praxis_transactions
+                          WHERE {' AND '.join(where)}) t
+                    WHERE outcome = 'approved'
+                    GROUP BY payment_processor, payment_method, session_intent
+                """, params)
+                return cur.fetchall()
+        for g in _db_retry(_fetch):
+            vol = float(g["vol"] or 0); n = g["n"] or 0
+            if not n or vol == 0:
+                continue
+            fee_type = "Deposit" if (g["session_intent"] or "") == "payment" else "Withdrawal"
+            fee = _compute_tx_fee(vol / n, g["payment_processor"], g["payment_method"], fee_type,
+                                  rules_by_id, fee_rules_by_psp, saved_mappings, method_mappings_db) * n
+            if fee > 0:
+                total += fee; matched += vol
+            else:
+                unmatched += vol
+    except Exception:
+        pass
+    result = {"total": round(total, 2), "matched_vol": round(matched, 2),
+              "unmatched_vol": round(unmatched, 2)}
     _cache_set(key, result)
     return result
 
@@ -2334,17 +2604,25 @@ def psp_recent_transactions(date_from, date_to, processor: str = None, limit: in
                     SELECT
                         session_cid AS login, tid, session_order_id,
                         session_intent AS direction, usd_amount, currency,
-                        payment_method, payment_processor,
+                        payment_method, payment_processor, customer_country,
                         fee / 100.0 AS fee_actual,
                         customer_first_name, customer_last_name,
                         wallet_data_email AS email,
+                        status_details, status_code,
                         TO_TIMESTAMP(created_timestamp) AS inserted_at
                     FROM praxis_transactions
                     WHERE {' AND '.join(where)}
                     ORDER BY created_timestamp DESC
                     LIMIT %s
                 """, params)
-                return [dict(r) for r in cur.fetchall()]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(r)
+                    row["outcome"] = classify_outcome(row.get("status_details"),
+                                                       row.get("status_code"),
+                                                       row.get("payment_processor"))
+                    rows.append(row)
+                return rows
         return _db_retry(_fetch)
     except Exception:
         return []
@@ -2399,9 +2677,10 @@ def psp_transactions_search(date_from, date_to, processor: str = None, direction
                         session_cid AS login, tid, transaction_id, session_order_id,
                         session_intent AS direction, amount / 100.0 AS amount_local,
                         currency, usd_amount, payment_method, payment_processor,
-                        conversion_rate, fee / 100.0 AS fee_actual,
+                        customer_country, conversion_rate, fee / 100.0 AS fee_actual,
                         wallet_data_email AS email,
                         customer_first_name, customer_last_name,
+                        status_details, status_code,
                         TO_TIMESTAMP(created_timestamp) AS inserted_at
                     FROM praxis_transactions
                     WHERE {where_sql}
@@ -2414,6 +2693,9 @@ def psp_transactions_search(date_from, date_to, processor: str = None, direction
                     row = dict(r)
                     row["usd_amount"] = float(row["usd_amount"] or 0)
                     row["fee_actual"] = float(row["fee_actual"] or 0)
+                    row["outcome"] = classify_outcome(row.get("status_details"),
+                                                      row.get("status_code"),
+                                                      row.get("payment_processor"))
                     cid = str(row.get("login") or "").strip()
                     logins = account_map.get(cid, [])
                     row["mt5_login"] = logins[0] if logins else None

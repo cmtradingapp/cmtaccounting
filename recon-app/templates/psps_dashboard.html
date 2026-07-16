@@ -6,19 +6,34 @@
 {% endblock %}
 
 {% block content %}
+{%- macro money(v) -%}
+{%- if v is none -%}$0.00
+{%- elif v|abs >= 1000000000 -%}${{ '{:,.2f}'.format(v/1000000000) }}B
+{%- elif v|abs >= 1000000 -%}${{ '{:,.2f}'.format(v/1000000) }}M
+{%- else -%}${{ '{:,.2f}'.format(v) }}
+{%- endif -%}
+{%- endmacro -%}
 <style>
   .psp-charts-row { display:grid; grid-template-columns:2fr 1fr; gap:var(--sp-4); margin-bottom:var(--sp-4); }
   .psp-chart-card { padding:20px; }
   .psp-chart-card h3 { margin-bottom:14px; }
+  .psp-chart-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .psp-chart-head h3 { margin:0; }
   .psp-range-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:var(--sp-2); }
   .psp-range-links { display:flex; gap:6px; }
+  .stat-card .value { font-size:21px; white-space:nowrap; }
+  .stat-card .delta { font-size:12px; font-weight:600; margin-top:3px; font-family:var(--font-mono); }
+  .stat-card .delta.up   { color:var(--green); }
+  .stat-card .delta.down { color:var(--red); }
+  .stat-card .delta.flat { color:var(--muted); }
+  .stat-card .sub { font-size:11px; color:var(--muted); margin-top:3px; }
   @media (max-width:900px) { .psp-charts-row { grid-template-columns:1fr; } }
 </style>
 
 <div class="page-header">
   <div>
     <div class="page-title">PSPs</div>
-    <div class="page-sub">Live Praxis processing volume, fees &amp; activity</div>
+    <div class="page-sub">Live Praxis processing volume, approvals &amp; fees</div>
   </div>
 </div>
 
@@ -29,6 +44,7 @@
     <a class="filter-btn {{ 'active' if range_label=='7d' }}"  href="{{ url_for('psps_dashboard', range='7d',  processor=processor or '') }}">7D</a>
     <a class="filter-btn {{ 'active' if range_label=='30d' }}" href="{{ url_for('psps_dashboard', range='30d', processor=processor or '') }}">30D</a>
     <a class="filter-btn {{ 'active' if range_label=='90d' }}" href="{{ url_for('psps_dashboard', range='90d', processor=processor or '') }}">90D</a>
+    <a class="filter-btn {{ 'active' if range_label=='all' }}" href="{{ url_for('psps_dashboard', range='all', processor=processor or '') }}">All</a>
   </div>
   <form method="get" style="display:flex;gap:8px;align-items:center;">
     <input type="hidden" name="range" value="{{ range_label }}">
@@ -43,18 +59,63 @@
 <div class="legend">{{ date_from.strftime('%Y-%m-%d') }} → {{ date_to.strftime('%Y-%m-%d') }}</div>
 
 <div class="stats-grid">
-  <div class="stat-card"><div class="label">Total Volume</div><div class="value num">${{ '{:,.2f}'.format(stats.total_volume_usd) }}</div></div>
-  <div class="stat-card"><div class="label">Transactions</div><div class="value num">{{ '{:,}'.format(stats.tx_count) }}</div></div>
-  <div class="stat-card"><div class="label">Total Fees</div><div class="value num">${{ '{:,.2f}'.format(stats.total_fees_usd) }}</div></div>
-  <div class="stat-card {{ 'green' if stats.net_usd >= 0 else 'red' }}"><div class="label">Net Position</div><div class="value num">${{ '{:,.2f}'.format(stats.net_usd) }}</div></div>
-  <div class="stat-card"><div class="label">Avg Ticket</div><div class="value num">${{ '{:,.2f}'.format(stats.avg_ticket_usd) }}</div></div>
-  <div class="stat-card"><div class="label">Distinct Customers</div><div class="value num">{{ '{:,}'.format(stats.distinct_customers) }}</div></div>
+  <div class="stat-card">
+    <div class="label">Total Volume</div>
+    <div class="value num" title="${{ '{:,.2f}'.format(stats.total_volume_usd) }}">{{ money(stats.total_volume_usd) }}</div>
+    {% if deltas.volume is not none %}<div class="delta {{ 'up' if deltas.volume>=0 else 'down' }}">{{ '▲' if deltas.volume>=0 else '▼' }} {{ '{:+.1f}'.format(deltas.volume) }}% vs prev</div>{% endif %}
+  </div>
+  <div class="stat-card">
+    <div class="label">Transactions</div>
+    <div class="value num">{{ '{:,}'.format(stats.tx_count) }}</div>
+    {% if deltas.tx is not none %}<div class="delta {{ 'up' if deltas.tx>=0 else 'down' }}">{{ '▲' if deltas.tx>=0 else '▼' }} {{ '{:+.1f}'.format(deltas.tx) }}% vs prev</div>{% endif %}
+  </div>
+  <div class="stat-card">
+    <div class="label">Success Rate</div>
+    <div class="value num">{{ '{:.1f}'.format(stats.success_rate) }}%</div>
+    {% if deltas.success is not none %}<div class="delta {{ 'up' if deltas.success>=0 else 'down' }}">{{ '{:+.1f}'.format(deltas.success) }}pp vs prev</div>{% endif %}
+    <div class="sub">approved of {{ '{:,}'.format(stats.decided_count) }} decided</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Est. Fees</div>
+    <div class="value num" title="${{ '{:,.2f}'.format(exp_fees.total) }}">{{ money(exp_fees.total) }}</div>
+    <div class="sub">{% if exp_fees.total > 0 %}from fee agreements{% else %}needs active agreement mapping{% endif %}</div>
+  </div>
+  <div class="stat-card {{ 'red' if stats.chargeback_rate > 0 }}">
+    <div class="label">Chargeback Rate</div>
+    <div class="value num">{{ '{:.2f}'.format(stats.chargeback_rate) }}%</div>
+    <div class="sub">{{ '{:,}'.format(stats.chargeback_count) }} chargebacks</div>
+  </div>
+  <div class="stat-card {{ 'green' if stats.net_usd >= 0 else 'red' }}">
+    <div class="label">Net Position</div>
+    <div class="value num" title="${{ '{:,.2f}'.format(stats.net_usd) }}">{{ money(stats.net_usd) }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Avg Ticket</div>
+    <div class="value num">${{ '{:,.2f}'.format(stats.avg_ticket_usd) }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Distinct Customers</div>
+    <div class="value num">{{ '{:,}'.format(stats.distinct_customers) }}</div>
+  </div>
 </div>
 
 <div class="psp-charts-row">
-  <div class="card psp-chart-card"><h3>Volume by Day</h3><canvas id="volChart" height="90"></canvas></div>
-  <div class="card psp-chart-card"><h3>By Direction</h3><canvas id="dirChart" height="90"></canvas></div>
+  <div class="card psp-chart-card"><h3>Transaction Volume</h3><canvas id="volChart" height="90"></canvas></div>
+  <div class="card psp-chart-card"><h3>Status Distribution</h3><canvas id="statusChart" height="90"></canvas></div>
 </div>
+
+<div class="card psp-chart-card" style="margin-bottom:var(--sp-4);">
+  <div class="psp-chart-head">
+    <h3>Approval Ratio</h3>
+    <div class="psp-range-links">
+      <a class="filter-btn {{ 'active' if approval_group=='country' }}" href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='country') }}">By Country</a>
+      <a class="filter-btn {{ 'active' if approval_group=='psp' }}"     href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='psp') }}">By PSP</a>
+    </div>
+  </div>
+  {% if approval %}<canvas id="approvalChart" height="{{ [approval|length * 26, 120]|max }}"></canvas>
+  {% else %}<div class="empty">Not enough decided transactions to compute approval ratios in this range.</div>{% endif %}
+</div>
+
 <div class="psp-charts-row">
   <div class="card psp-chart-card"><h3>Volume by Provider</h3><canvas id="pspChart" height="110"></canvas></div>
   <div class="card psp-chart-card"><h3>By Currency</h3><canvas id="ccyChart" height="110"></canvas></div>
@@ -65,8 +126,8 @@
   <table>
     <thead>
       <tr>
-        <th>Date</th><th>Processor</th><th>Direction</th><th>Customer</th>
-        <th>Method</th><th class="num">Amount (USD)</th><th class="num">Fee (USD)</th>
+        <th>Date</th><th>Processor</th><th>Country</th><th>Customer</th>
+        <th>Method</th><th>Status</th><th class="num">Amount (USD)</th>
       </tr>
     </thead>
     <tbody>
@@ -74,11 +135,11 @@
       <tr>
         <td>{{ r.inserted_at.strftime('%Y-%m-%d %H:%M') }}</td>
         <td>{{ r.payment_processor or '—' }}</td>
-        <td>{{ r.direction or '—' }}</td>
+        <td>{{ r.customer_country or '—' }}</td>
         <td>{{ (r.customer_first_name or '') ~ ' ' ~ (r.customer_last_name or '') }}</td>
         <td class="muted">{{ r.payment_method or '—' }}</td>
+        <td><span class="badge {{ r.outcome }}">{{ r.outcome }}</span></td>
         <td class="num">${{ '{:,.2f}'.format(r.usd_amount or 0) }}</td>
-        <td class="num muted">${{ '{:,.2f}'.format(r.fee_actual or 0) }}</td>
       </tr>
       {% else %}
       <tr><td colspan="7" class="empty">No transactions in this range.</td></tr>
@@ -89,16 +150,23 @@
 
 <script>
 (function () {
-  var volumeDay = {{ volume_day | tojson }};
-  var byDir     = {{ by_dir | tojson }};
-  var byPsp     = {{ by_psp | tojson }};
-  var byCcy     = {{ by_ccy | tojson }};
+  var volumeDay  = {{ volume_day | tojson }};
+  var statusDist = {{ status_dist | tojson }};
+  var approval   = {{ approval | tojson }};
+  var byPsp      = {{ by_psp | tojson }};
+  var byCcy      = {{ by_ccy | tojson }};
 
   var C = {
     accent: '#5b9dff', accent2: '#22d3ee', green: '#34d399',
-    red: '#f87171', yellow: '#fbbf24', muted: '#5d6b82', grid: '#1e222d', text: '#9aa9c2'
+    red: '#f87171', yellow: '#fbbf24', purple: '#a78bfa', muted: '#5d6b82',
+    grid: '#1e222d', text: '#9aa9c2'
   };
-  var palette = [C.accent, C.accent2, C.green, C.yellow, C.red, '#a78bfa', '#fb923c', '#94a3b8'];
+  var palette = [C.accent, C.accent2, C.green, C.yellow, C.red, C.purple, '#fb923c', '#94a3b8'];
+  var OUTCOME_COLORS = {
+    approved: C.green, declined: C.red, pending: C.yellow,
+    refunded: C.accent2, chargeback: C.purple, unknown: C.muted
+  };
+  var usd = function (v) { return '$' + Number(v).toLocaleString('en', { maximumFractionDigits: 0 }); };
 
   Chart.defaults.color = C.text;
   Chart.defaults.font.family = "'Hanken Grotesk', system-ui, sans-serif";
@@ -112,22 +180,48 @@
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: C.grid } },
-        y: { grid: { color: C.grid }, beginAtZero: true }
-      }
+      plugins: { legend: { display: false },
+                 tooltip: { callbacks: { label: function (c) { return usd(c.parsed.y); } } } },
+      scales: { x: { grid: { color: C.grid } },
+                y: { grid: { color: C.grid }, beginAtZero: true,
+                     ticks: { callback: function (v) { return usd(v); } } } }
     }
   });
 
-  new Chart(document.getElementById('dirChart'), {
+  new Chart(document.getElementById('statusChart'), {
     type: 'doughnut',
     data: {
-      labels: byDir.map(function (d) { return d.direction; }),
-      datasets: [{ data: byDir.map(function (d) { return d.volume; }), backgroundColor: palette }]
+      labels: statusDist.map(function (d) { return d.outcome; }),
+      datasets: [{ data: statusDist.map(function (d) { return d.tx_count; }),
+                   backgroundColor: statusDist.map(function (d) { return OUTCOME_COLORS[d.outcome] || C.muted; }) }]
     },
     options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
   });
+
+  if (document.getElementById('approvalChart')) {
+    new Chart(document.getElementById('approvalChart'), {
+      type: 'bar',
+      data: {
+        labels: approval.map(function (d) { return d.name; }),
+        datasets: [{ label: 'Approval %', data: approval.map(function (d) { return d.ratio; }),
+                     backgroundColor: C.green, borderRadius: 4 }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function (c) {
+            var d = approval[c.dataIndex];
+            return d.ratio + '% (' + d.approved + '/' + (d.approved + d.declined) + ' decided)';
+          } } }
+        },
+        scales: { x: { grid: { color: C.grid }, beginAtZero: true, max: 100,
+                       ticks: { callback: function (v) { return v + '%'; } } },
+                  y: { grid: { display: false } } }
+      }
+    });
+  }
 
   new Chart(document.getElementById('pspChart'), {
     type: 'bar',
@@ -137,10 +231,12 @@
                    backgroundColor: C.accent2, borderRadius: 4 }]
     },
     options: {
-      indexAxis: 'y',
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: { x: { grid: { color: C.grid }, beginAtZero: true }, y: { grid: { display: false } } }
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false },
+                 tooltip: { callbacks: { label: function (c) { return usd(c.parsed.x); } } } },
+      scales: { x: { grid: { color: C.grid }, beginAtZero: true,
+                     ticks: { callback: function (v) { return usd(v); } } },
+                y: { grid: { display: false } } }
     }
   });
 

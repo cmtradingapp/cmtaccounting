@@ -2839,19 +2839,28 @@ def operators_stats():
 
 def _psp_date_range():
     """Resolve (date_from, date_to_exclusive, date_to_inclusive, range_label)
-    from ?range=7d|30d|90d|custom&from=&to=. Defaults to the last 30 days."""
+    from ?range=7d|30d|90d|all|custom&from=&to=. Defaults to the last 30 days.
+
+    The window is anchored on the latest *available* transaction date rather than
+    today: the Praxis feed can lag, so "last 30 days" from today would return an
+    empty window. We clamp the anchor to min(today, max data date)."""
     import datetime as _dt
     range_label = request.args.get("range", "30d")
     today = _dt.date.today()
-    if range_label == "custom":
+    data_min, data_max = queries.psp_data_span()
+    anchor = min(today, data_max) if data_max else today
+    if range_label == "all":
+        date_from    = data_min or _dt.date(2021, 1, 1)
+        date_to_incl = anchor
+    elif range_label == "custom":
         try:
             date_from    = _dt.datetime.strptime(request.args.get("from", ""), "%Y-%m-%d").date()
             date_to_incl = _dt.datetime.strptime(request.args.get("to", ""), "%Y-%m-%d").date()
         except ValueError:
-            date_from, date_to_incl, range_label = today - _dt.timedelta(days=30), today, "30d"
+            date_from, date_to_incl, range_label = anchor - _dt.timedelta(days=30), anchor, "30d"
     else:
         days = {"7d": 7, "30d": 30, "90d": 90}.get(range_label, 30)
-        date_from, date_to_incl = today - _dt.timedelta(days=days), today
+        date_from, date_to_incl = anchor - _dt.timedelta(days=days), anchor
     date_to_excl = date_to_incl + _dt.timedelta(days=1)
     return date_from, date_to_excl, date_to_incl, range_label
 
@@ -2859,19 +2868,39 @@ def _psp_date_range():
 @app.route("/psps")
 @require_psps_auth
 def psps_dashboard():
+    import datetime as _dt
     date_from, date_to, date_to_incl, range_label = _psp_date_range()
-    processor = request.args.get("processor") or None
+    processor      = request.args.get("processor") or None
+    approval_group = "psp" if request.args.get("approval_group") == "psp" else "country"
 
-    stats      = queries.psp_dashboard_stats(date_from, date_to, processor)
-    volume_day = queries.psp_volume_by_day(date_from, date_to, processor)
-    by_dir     = queries.psp_breakdown_by_direction(date_from, date_to, processor)
-    by_ccy     = queries.psp_breakdown_by_currency(date_from, date_to, processor)
-    processors = queries.psp_distinct_processors(date_from, date_to)
-    recent     = queries.psp_recent_transactions(date_from, date_to, processor, limit=10)
+    stats       = queries.psp_dashboard_stats(date_from, date_to, processor)
+    volume_day  = queries.psp_volume_by_day(date_from, date_to, processor)
+    status_dist = queries.psp_status_distribution(date_from, date_to, processor)
+    approval    = queries.psp_approval_ratio(date_from, date_to, processor, group_by=approval_group)
+    by_ccy      = queries.psp_breakdown_by_currency(date_from, date_to, processor)
+    processors  = queries.psp_distinct_processors(date_from, date_to)
+    recent      = queries.psp_recent_transactions(date_from, date_to, processor, limit=10)
+    exp_fees    = queries.psp_expected_fees(date_from, date_to, processor)
+
+    # Prior equal-length window → period-over-period deltas for the KPI change lines.
+    span_days = max((date_to_incl - date_from).days, 1)
+    prev_from = date_from - _dt.timedelta(days=span_days + 1)
+    prev      = queries.psp_dashboard_stats(prev_from, date_from, processor)
+
+    def _pct_delta(cur_v, prev_v):
+        return round(100.0 * (cur_v - prev_v) / prev_v, 1) if prev_v else None
+    deltas = {
+        "volume":  _pct_delta(stats["total_volume_usd"], prev.get("total_volume_usd", 0)),
+        "tx":      _pct_delta(stats["tx_count"], prev.get("tx_count", 0)),
+        "success": (round(stats["success_rate"] - prev.get("success_rate", 0), 1)
+                    if prev.get("decided_count") else None),
+    }
 
     return render_template("psps_dashboard.html",
-                           stats=stats, volume_day=volume_day, by_dir=by_dir, by_ccy=by_ccy,
-                           by_psp=processors[:10], processors=processors, recent=recent,
+                           stats=stats, volume_day=volume_day, status_dist=status_dist,
+                           approval=approval, approval_group=approval_group,
+                           by_ccy=by_ccy, by_psp=processors[:10], processors=processors,
+                           recent=recent, exp_fees=exp_fees, deltas=deltas,
                            processor=processor, range_label=range_label,
                            date_from=date_from, date_to=date_to_incl, active_psp_tab="dashboard")
 
@@ -2912,12 +2941,13 @@ def psps_transactions_export():
     buf = _io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["Date", "Session CID", "MT5 Login", "TID", "Order ID", "Direction",
-                      "Processor", "Method", "Amount (local)", "Currency", "USD Amount",
-                      "Fee (USD)", "Customer", "Email"])
+                      "Processor", "Country", "Method", "Status", "Amount (local)", "Currency",
+                      "USD Amount", "Fee (USD)", "Customer", "Email"])
     for r in result["rows"]:
         writer.writerow([
             r["inserted_at"], r["login"], r.get("mt5_login") or "", r["tid"], r["session_order_id"],
-            r["direction"], r["payment_processor"], r["payment_method"], r["amount_local"],
+            r["direction"], r["payment_processor"], r.get("customer_country") or "",
+            r["payment_method"], r.get("outcome") or "", r["amount_local"],
             r["currency"], r["usd_amount"], r["fee_actual"],
             f'{r.get("customer_first_name") or ""} {r.get("customer_last_name") or ""}'.strip(),
             r.get("email") or "",

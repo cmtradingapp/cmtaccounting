@@ -169,6 +169,19 @@
     .badge.fee-setup        { background:rgba(99,102,241,.15);  color:#6366f1; }
     .badge.fee-registration { background:rgba(99,102,241,.15);  color:#6366f1; }
     .badge.fee-minmonthly   { background:rgba(148,163,184,.15); color:#94a3b8; }
+    /* PSP transaction-outcome badges (psp-analytics StatusBadge parity: tinted pill + dot) */
+    .badge.approved   { background: rgba(52,211,153,.14);  color: var(--green);   }
+    .badge.declined   { background: rgba(248,113,113,.14); color: var(--red);     }
+    .badge.pending    { background: rgba(251,191,36,.14);  color: var(--yellow);  }
+    .badge.refunded   { background: rgba(34,211,238,.14);  color: var(--accent-2);}
+    .badge.chargeback { background: rgba(167,139,250,.15); color:#a78bfa;         }
+    .badge.unknown    { background: rgba(148,163,184,.14); color: var(--muted);   }
+    .badge.approved, .badge.declined, .badge.pending,
+    .badge.refunded, .badge.chargeback, .badge.unknown { text-transform: capitalize; }
+    .badge.approved::before, .badge.declined::before, .badge.pending::before,
+    .badge.refunded::before, .badge.chargeback::before, .badge.unknown::before {
+      content:''; width:6px; height:6px; border-radius:999px; margin-right:6px; background: currentColor;
+    }
 
     /* ── Filter pills ────────────────────────────────────────── */
     .filter-bar { display: flex; gap: 6px; margin-bottom: var(--sp-3); flex-wrap: wrap; }

@@ -35,14 +35,15 @@ services:
       - MT5_CRO_DB_SSLMODE=disable
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
-      # Praxis operations database
-      # NOTE: 161.97.162.143:5433 is firewalled from this server (213.199.45.213).
-      # To fix: whitelist 213.199.45.213 on the Praxis server firewall + pg_hba.conf.
-      - PRAXIS_HOST=161.97.162.143
-      - PRAXIS_PORT=5433
-      - PRAXIS_DB=operations
-      - PRAXIS_USER=praxis_reader
+      # Praxis operations database — direct-access reporting replica (no SSH tunnel).
+      # Replaces 161.97.162.143:5433, which was firewalled from this server.
+      # 13.140.163.221 is a public host; confirm the server can reach :5434 on deploy.
+      - PRAXIS_HOST=${PRAXIS_HOST:-13.140.163.221}
+      - PRAXIS_PORT=${PRAXIS_PORT:-5434}
+      - PRAXIS_DB=${PRAXIS_DB:-operations}
+      - PRAXIS_USER=${PRAXIS_USER:-reporting_ro}
       - PRAXIS_PASS=${PRAXIS_PASS}
+      - PRAXIS_SSLMODE=${PRAXIS_SSLMODE:-prefer}
       # MT5 datawarehouse (Postgres on 109.199.112.72) — authoritative MT5 deals/accounts,
       # replaces the Dealio replica. Read-only role recon_reader; DW_PASS injected into .env.
       - DW_HOST=109.199.112.72
