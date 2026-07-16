@@ -498,9 +498,26 @@ function renderChart(id, data) {
     borderUpColor: '#34d399', borderDownColor: '#f87171',
     wickUpColor: '#34d399', wickDownColor: '#f87171',
   });
-  series.setData(data.bars.map(function(b) {
-    return { time: Math.floor(new Date(b.ts).getTime() / 1000), open: b.o, high: b.h, low: b.l, close: b.c };
+  var barTimes = data.bars.map(function(b) { return Math.floor(new Date(b.ts).getTime() / 1000); });
+  series.setData(data.bars.map(function(b, i) {
+    return { time: barTimes[i], open: b.o, high: b.h, low: b.l, close: b.c };
   }));
+
+  // Arrow marker anchored to the actual bar the signal fired on — not just
+  // the vertical cutoff line, a precise "here's the entry" flag on the chart
+  // itself, matching standard trade-marker convention (up-arrow below the
+  // bar for a BUY, down-arrow above it for a SELL).
+  var signalUnix = Math.floor(new Date(data.signal_time).getTime() / 1000);
+  var signalBarTime = barTimes.reduce(function(closest, t) {
+    return Math.abs(t - signalUnix) < Math.abs(closest - signalUnix) ? t : closest;
+  }, barTimes[0]);
+  series.setMarkers([{
+    time: signalBarTime,
+    position: data.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+    color: data.direction === 'BUY' ? '#34d399' : '#f87171',
+    shape: data.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+    text: 'Signal',
+  }]);
 
   // By default Lightweight Charts autoscales the price axis to the candle data
   // only — price lines (SL/TP/R/S) don't expand it. A TP far from the current
