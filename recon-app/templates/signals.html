@@ -78,11 +78,22 @@
   .sig-linklike:hover { color:var(--accent); }
 
   /* ── Boxes view ──────────────────────────────────────────────────────── */
-  .sig-boxes-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr)); gap:14px; }
-  .sig-box { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow); overflow:hidden; }
-  .sig-box-head { display:flex; align-items:center; gap:7px; padding:10px 12px; border-bottom:1px solid var(--border); }
+  .sig-boxes-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr)); gap:16px; }
+  /* .card already gives the gradient sheen + shadow + reveal-in animation every
+     other surface in the app uses — layer state/layout specifics on top of it
+     rather than reinventing a flat surface. */
+  .sig-box {
+    position:relative; overflow:hidden; border-radius:14px;
+    transition:transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  .sig-box:hover { transform:translateY(-2px); border-color:rgba(255,255,255,.2); }
+  .sig-box::before { content:''; position:absolute; inset:0 0 auto 0; height:2px; opacity:.75; z-index:1; }
+  .sig-box.st-active::before { background:linear-gradient(90deg, var(--accent), transparent 75%); }
+  .sig-box.st-tp::before     { background:linear-gradient(90deg, var(--green),  transparent 75%); }
+  .sig-box.st-sl::before     { background:linear-gradient(90deg, var(--red),    transparent 75%); }
+  .sig-box-head { position:relative; display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--border); }
   .sig-box-head .sig-rr { margin-left:auto; font-family:var(--font-mono); font-size:12px; }
-  .sig-box-chart { height:170px; position:relative; background:var(--bg); }
+  .sig-box-chart { height:170px; position:relative; background:var(--bg); box-shadow:inset 0 1px 8px rgba(0,0,0,.35); }
   .sig-box-chart-msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px; text-align:center; padding:0 12px; }
   .sig-box-overlay { position:absolute; inset:0; pointer-events:none; }
   .sig-cutoff-shade { position:absolute; top:0; bottom:0; right:0; background:rgba(91,157,255,.05); border-left:1px dashed rgba(91,157,255,.55); }
@@ -321,7 +332,7 @@ function rowHtml(r, flashEnabled) {
   var rr = achievedRR(r);
   var rrHtml = rr == null ? '<span class="muted">—</span>' :
     '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + (rr >= 0 ? '+' : '') + rr.toFixed(2) + 'R</span>';
-  var stateCls = r.status === 'ACTIVE' ? 'st-active' : (r.outcome === 'TP_HIT' ? 'st-tp' : (r.outcome === 'SL_HIT' ? 'st-sl' : ''));
+  var stateCls = stateClass(r);
   var isNew = !_seenIds.has(r.id);
   _seenIds.add(r.id);
   var expanded = _expandedIds.has(r.id);
@@ -394,11 +405,15 @@ var _lwBaseOpts = {
   handleScale:     { axisPressedMouseMove: { time: true, price: false } },
 };
 
+function stateClass(r) {
+  return r.status === 'ACTIVE' ? 'st-active' : (r.outcome === 'TP_HIT' ? 'st-tp' : (r.outcome === 'SL_HIT' ? 'st-sl' : ''));
+}
+
 function boxCardHtml(r) {
   var rr = achievedRR(r);
   var rrHtml = rr == null ? '<span class="muted">—</span>' :
     '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + (rr >= 0 ? '+' : '') + rr.toFixed(2) + 'R</span>';
-  return '<div class="sig-box" data-id="' + r.id + '">' +
+  return '<div class="sig-box card ' + stateClass(r) + '" data-id="' + r.id + '">' +
     '<div class="sig-box-head">' +
       '<div class="sig-instrument"><span class="sym">' + r.symbol + '</span><span class="tf">' + r.timeframe + '</span></div>' +
       directionBadgeHtml(r) + resultBadgeHtml(r) +
