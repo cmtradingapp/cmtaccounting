@@ -186,6 +186,24 @@ def _conn_cro():
     )
 
 
+def _conn_signals():
+    """Dedicated Postgres for CMTrading_Signals_EA ingestion + the Signals GUI tab.
+
+    Own container (signals_postgres, internal-only), own credentials — kept
+    separate from every other domain's DB. Short-lived per-request connection,
+    no pool: same reasoning as _conn_cro() — one MT5 EA posting/patching a
+    handful of rows per bar close, load is far too low to justify a pool.
+    """
+    return psycopg2.connect(
+        host=os.environ["SIGNALS_PG_HOST"],
+        port=int(os.environ.get("SIGNALS_PG_PORT", 5432)),
+        dbname=os.environ.get("SIGNALS_PG_DB", "signals"),
+        user=os.environ["SIGNALS_PG_USER"],
+        password=os.environ["SIGNALS_PG_PASS"],
+        connect_timeout=10,
+    )
+
+
 def _conn_dw():
     """Read-only connection to the MT5 datawarehouse (Postgres on 109.199.112.72).
 
@@ -244,6 +262,28 @@ def dw():
         yield psycopg2.extras.RealDictCursor(conn)
     finally:
         conn.close()
+
+@contextmanager
+def signals():
+    """Read/write connection to the dedicated signals Postgres.
+
+    Unlike dealio()/praxis()/cro()/dw() (read-only sources), this DB is
+    written to by our own ingestion routes, so it auto-commits on success
+    and rolls back on exception — same transaction pattern as fees_db()'s
+    live-Postgres branch, minus the sqlite-compat adapter (signals has no
+    SQLite mode, so plain psycopg2 %s-style SQL is used directly).
+    """
+    conn = _conn_signals()
+    try:
+        cur = psycopg2.extras.RealDictCursor(conn)
+        yield cur
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 
 @contextmanager
 def crm():

@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %} — Signals{% endblock %}
+{% block content %}
+<style>
+  .sig-badge { display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:600; }
+  .sig-badge.buy      { background:rgba(34,197,94,.12);  color:var(--green); }
+  .sig-badge.sell     { background:rgba(239,68,68,.12);  color:var(--red); }
+  .sig-badge.active   { background:rgba(79,142,247,.12); color:var(--accent); }
+  .sig-badge.tp       { background:rgba(34,197,94,.12);  color:var(--green); }
+  .sig-badge.sl       { background:rgba(239,68,68,.12);  color:var(--red); }
+  .sig-badge.pending  { background:rgba(100,116,139,.14); color:var(--muted); }
+  .sig-rr.pos { color:var(--green); font-weight:600; }
+  .sig-rr.neg { color:var(--red);   font-weight:600; }
+</style>
+
+<div class="page-header">
+  <div class="page-title">Signals</div>
+  <div style="font-size:12px;color:var(--muted);" id="sigUpdated"></div>
+</div>
+
+<div class="stats-grid" id="sigStats"></div>
+
+<div class="filter-bar">
+  <button class="filter-btn active" data-status="" onclick="setStatusFilter('',this)">All</button>
+  <button class="filter-btn" data-status="ACTIVE" onclick="setStatusFilter('ACTIVE',this)">Active</button>
+  <button class="filter-btn" data-status="CLOSED" onclick="setStatusFilter('CLOSED',this)">Closed</button>
+  <span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>
+  <button class="filter-btn active" data-dir="" onclick="setDirFilter('',this)">Buy &amp; Sell</button>
+  <button class="filter-btn" data-dir="BUY" onclick="setDirFilter('BUY',this)">Buy</button>
+  <button class="filter-btn" data-dir="SELL" onclick="setDirFilter('SELL',this)">Sell</button>
+  <span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>
+  <select id="symbolPicker" onchange="loadList()"><option value="">All symbols</option></select>
+  <select id="tfPicker" onchange="loadList()">
+    <option value="">All timeframes</option>
+    <option value="M1">M1</option><option value="M5">M5</option>
+    <option value="M15">M15</option><option value="M30">M30</option>
+  </select>
+  <span id="sigCount" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Symbol</th><th>TF</th><th>Direction</th>
+        <th class="num">Entry</th><th class="num">SL</th><th class="num">TP</th><th class="num">RSI</th>
+        <th>Status</th><th>Outcome</th><th class="num">R:R</th>
+        <th>Signal Time</th><th>Close Time</th>
+      </tr>
+    </thead>
+    <tbody id="sigBody"><tr><td colspan="12" class="empty">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<script>
+var _statusFilter = '';
+var _dirFilter = '';
+var _knownSymbols = {};
+
+function fmtNum(v, d) {
+  if (v === null || v === undefined) return '—';
+  return Number(v).toFixed(d === undefined ? 5 : d);
+}
+function fmtTs(v) {
+  if (!v) return '—';
+  return String(v).replace('T', ' ').slice(0, 16);
+}
+function achievedRR(row) {
+  if (row.status !== 'CLOSED' || row.close_price == null) return null;
+  var reward = row.direction === 'BUY' ? (row.close_price - row.entry_price) : (row.entry_price - row.close_price);
+  var risk   = row.direction === 'BUY' ? (row.entry_price - row.sl_price)   : (row.sl_price - row.entry_price);
+  if (!risk) return null;
+  return reward / risk;
+}
+
+function setStatusFilter(v, btn) {
+  _statusFilter = v;
+  btn.parentNode.querySelectorAll('[data-status]').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  loadList();
+}
+function setDirFilter(v, btn) {
+  _dirFilter = v;
+  btn.parentNode.querySelectorAll('[data-dir]').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  loadList();
+}
+
+function loadStats() {
+  fetch('/signals/api/stats').then(function(r){ return r.json(); }).then(function(data) {
+    if (data.error) return;
+    var o = data.overall || {};
+    var winClass = (o.win_rate == null) ? '' : (o.win_rate >= 50 ? 'green' : 'red');
+    var rrClass  = (o.avg_rr == null) ? '' : (o.avg_rr >= 0 ? 'green' : 'red');
+    document.getElementById('sigStats').innerHTML =
+      '<div class="stat-card"><div class="label">Active</div><div class="value">' + (o.active_count || 0) + '</div></div>' +
+      '<div class="stat-card green"><div class="label">TP Hits</div><div class="value">' + (o.tp_count || 0) + '</div></div>' +
+      '<div class="stat-card red"><div class="label">SL Hits</div><div class="value">' + (o.sl_count || 0) + '</div></div>' +
+      '<div class="stat-card ' + winClass + '"><div class="label">Win Rate</div><div class="value">' + (o.win_rate == null ? '—' : o.win_rate + '%') + '</div></div>' +
+      '<div class="stat-card ' + rrClass + '"><div class="label">Avg R:R Achieved</div><div class="value">' + (o.avg_rr == null ? '—' : o.avg_rr.toFixed(2) + 'R') + '</div></div>';
+
+    var picker = document.getElementById('symbolPicker');
+    var have = {};
+    picker.querySelectorAll('option').forEach(function(o){ have[o.value] = true; });
+    (data.by_symbol_timeframe || []).forEach(function(r) {
+      if (!have[r.symbol]) { have[r.symbol] = true; _knownSymbols[r.symbol] = true;
+        var opt = document.createElement('option'); opt.value = r.symbol; opt.textContent = r.symbol;
+        picker.appendChild(opt);
+      }
+    });
+  }).catch(function(){});
+}
+
+function rowHtml(r) {
+  var dirBadge = r.direction === 'BUY'
+    ? '<span class="sig-badge buy">BUY</span>' : '<span class="sig-badge sell">SELL</span>';
+  var statusBadge = r.status === 'ACTIVE'
+    ? '<span class="sig-badge active">ACTIVE</span>' : '<span class="sig-badge pending">CLOSED</span>';
+  var outcomeBadge = '—';
+  if (r.outcome === 'TP_HIT') outcomeBadge = '<span class="sig-badge tp">TP HIT</span>';
+  else if (r.outcome === 'SL_HIT') outcomeBadge = '<span class="sig-badge sl">SL HIT</span>';
+  var rr = achievedRR(r);
+  var rrHtml = rr == null ? '—' : '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + rr.toFixed(2) + 'R</span>';
+  return '<tr>' +
+    '<td style="font-weight:600;">' + r.symbol + '</td>' +
+    '<td>' + r.timeframe + '</td>' +
+    '<td>' + dirBadge + '</td>' +
+    '<td class="num">' + fmtNum(r.entry_price) + '</td>' +
+    '<td class="num">' + fmtNum(r.sl_price) + '</td>' +
+    '<td class="num">' + fmtNum(r.tp_price) + '</td>' +
+    '<td class="num">' + fmtNum(r.rsi_value, 1) + '</td>' +
+    '<td>' + statusBadge + '</td>' +
+    '<td>' + outcomeBadge + '</td>' +
+    '<td class="num">' + rrHtml + '</td>' +
+    '<td class="muted">' + fmtTs(r.signal_time) + '</td>' +
+    '<td class="muted">' + fmtTs(r.close_time) + '</td>' +
+    '</tr>';
+}
+
+function loadList() {
+  var params = new URLSearchParams();
+  if (_statusFilter) params.set('status', _statusFilter);
+  if (_dirFilter) params.set('direction', _dirFilter);
+  var symbol = document.getElementById('symbolPicker').value;
+  var tf = document.getElementById('tfPicker').value;
+  if (symbol) params.set('symbol', symbol);
+  if (tf) params.set('timeframe', tf);
+  params.set('page_size', '200');
+
+  fetch('/signals/api/list?' + params.toString()).then(function(r){ return r.json(); }).then(function(data) {
+    if (data.error) {
+      document.getElementById('sigBody').innerHTML = '<tr><td colspan="12" class="empty">' + data.error + '</td></tr>';
+      return;
+    }
+    var rows = data.rows || [];
+    document.getElementById('sigCount').textContent = rows.length + ' of ' + data.total + ' signals';
+    document.getElementById('sigBody').innerHTML = rows.length
+      ? rows.map(rowHtml).join('')
+      : '<tr><td colspan="12" class="empty">No signals match the current filters</td></tr>';
+  }).catch(function() {
+    document.getElementById('sigBody').innerHTML = '<tr><td colspan="12" class="empty">Failed to load</td></tr>';
+  });
+}
+
+function refreshAll() {
+  loadStats();
+  loadList();
+  document.getElementById('sigUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  refreshAll();
+  setInterval(refreshAll, 15000);
+});
+</script>
+{% endblock %}

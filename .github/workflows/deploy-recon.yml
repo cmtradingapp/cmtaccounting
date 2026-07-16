@@ -107,6 +107,10 @@ jobs:
           S_MT5_CRO_DB_PASS: ${{ secrets.MT5_CRO_DB_PASS }}
           S_MT5_CRO_DB_SSLMODE: ${{ secrets.MT5_CRO_DB_SSLMODE }}
           S_DW_PASS: ${{ secrets.DW_PASS }}
+          S_SIGNALS_USER: ${{ secrets.SIGNALS_USER }}
+          S_SIGNALS_PASS: ${{ secrets.SIGNALS_PASS }}
+          S_SIGNALS_API_KEY: ${{ secrets.SIGNALS_API_KEY }}
+          S_SIGNALS_PG_PASS: ${{ secrets.SIGNALS_PG_PASS }}
         run: |
           # echo avoids printf format-string issues (e.g. % in passwords)
           echo "ADMIN_USER=$S_ADMIN_USER"       > /tmp/new_secrets.env
@@ -133,8 +137,12 @@ jobs:
           echo "MT5_CRO_DB_PASS=$S_MT5_CRO_DB_PASS"       >> /tmp/new_secrets.env
           echo "MT5_CRO_DB_SSLMODE=$S_MT5_CRO_DB_SSLMODE" >> /tmp/new_secrets.env
           echo "DW_PASS=$S_DW_PASS"                         >> /tmp/new_secrets.env
+          echo "SIGNALS_USER=$S_SIGNALS_USER"               >> /tmp/new_secrets.env
+          echo "SIGNALS_PASS=$S_SIGNALS_PASS"               >> /tmp/new_secrets.env
+          echo "SIGNALS_API_KEY=$S_SIGNALS_API_KEY"         >> /tmp/new_secrets.env
+          echo "SIGNALS_PG_PASS=$S_SIGNALS_PG_PASS"         >> /tmp/new_secrets.env
           sshpass -e scp -o StrictHostKeyChecking=no /tmp/new_secrets.env root@213.199.45.213:/tmp/new_secrets.env
-          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^DW_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d;/^RETENTION_PASS=/d;/^CRO_USER=/d;/^CRO_PASS=/d;/^PSPS_USER=/d;/^PSPS_PASS=/d;/^CRO_BRIDGE_SECRET=/d;/^MT5_PASSWORD=/d;/^MT5_LOGIN=/d;/^MT5_SERVER=/d;/^MT5_CRO_DB_HOST=/d;/^MT5_CRO_DB_PORT=/d;/^MT5_CRO_DB_NAME=/d;/^MT5_CRO_DB_USER=/d;/^MT5_CRO_DB_PASS=/d;/^MT5_CRO_DB_SSLMODE=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
+          sshpass -e ssh -o StrictHostKeyChecking=no root@213.199.45.213 'sed -i "/^ADMIN_USER=/d;/^ADMIN_PASS=/d;/^CRM_USER=/d;/^CRM_PASS=/d;/^RECON_PASS=/d;/^FEES_PASS=/d;/^FX_PASS=/d;/^DEALIO_PASS=/d;/^FLASK_SECRET=/d;/^PRAXIS_PASS=/d;/^DW_PASS=/d;/^FEES_PG_PASS=/d;/^ANTHROPIC_API_KEY=/d;/^RETENTION_PASS=/d;/^CRO_USER=/d;/^CRO_PASS=/d;/^PSPS_USER=/d;/^PSPS_PASS=/d;/^CRO_BRIDGE_SECRET=/d;/^MT5_PASSWORD=/d;/^MT5_LOGIN=/d;/^MT5_SERVER=/d;/^MT5_CRO_DB_HOST=/d;/^MT5_CRO_DB_PORT=/d;/^MT5_CRO_DB_NAME=/d;/^MT5_CRO_DB_USER=/d;/^MT5_CRO_DB_PASS=/d;/^MT5_CRO_DB_SSLMODE=/d;/^SIGNALS_USER=/d;/^SIGNALS_PASS=/d;/^SIGNALS_API_KEY=/d;/^SIGNALS_PG_PASS=/d" /root/recon-app/.env && cat /tmp/new_secrets.env >> /root/recon-app/.env && rm /tmp/new_secrets.env'
 
       - name: Restart or rebuild container
         env:
@@ -203,6 +211,21 @@ jobs:
             fi
           }
 
+          # PATCH check: sends empty PATCH, expects 401 (signals ingestion route)
+          check_patch() {
+            local url="$BASE$1"
+            local code
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH --max-time 10 "$url")
+            if [ "$code" = "401" ]; then
+              echo "  PASS PATCH $1 → $code"
+            elif [ "$code" = "000" ]; then
+              echo "  WARN PATCH $1 → timeout/unreachable (skipping)"
+            else
+              echo "  FAIL PATCH $1 → $code (expected 401)"
+              FAIL=1
+            fi
+          }
+
           echo "=== Auth gate check (no credentials) ==="
           # Recon auth — GET routes
           check "/"
@@ -247,6 +270,14 @@ jobs:
           check "/psps/merchants"
           check "/psps/settlements"
           check "/psps/reports"
+          # Signals GUI auth (Basic Auth)
+          check "/signals"
+          check "/signals/api/list"
+          check "/signals/api/stats"
+          # Signals ingestion auth (Bearer/apikey — CMTrading_Signals_EA)
+          check "/rest/v1/signals"
+          check_post "/rest/v1/signals"
+          check_patch "/rest/v1/signals?id=eq.1"
           # Admin auth — POST-only routes (GET returns 405, verify POST returns 401)
           check_post "/fees/mode"
           check_post "/fees/admin/snapshot/save"

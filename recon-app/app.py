@@ -1,4 +1,5 @@
 import functools
+import hmac
 import io
 import json
 import os
@@ -39,6 +40,11 @@ try:
     queries.ensure_fee_tables()
 except Exception as e:
     print(f"WARNING: Could not create fee tables: {e}")
+
+try:
+    queries.ensure_signal_tables()
+except Exception as e:
+    print(f"WARNING: Could not create signal tables: {e}")
 
 # Pre-warm the "all" span cache in the background after startup.
 # Warm 1Y and All caches 10s after start (both use background computation path).
@@ -97,6 +103,9 @@ _CRO_USER        = os.environ.get("CRO_USER",        "")
 _CRO_PASS        = os.environ.get("CRO_PASS",        "")
 _PSPS_USER       = os.environ.get("PSPS_USER",       "")
 _PSPS_PASS       = os.environ.get("PSPS_PASS",       "")
+_SIGNALS_USER    = os.environ.get("SIGNALS_USER",    "")
+_SIGNALS_PASS    = os.environ.get("SIGNALS_PASS",    "")
+_SIGNALS_API_KEY = os.environ.get("SIGNALS_API_KEY", "")
 
 
 def _unauthorized(realm):
@@ -213,6 +222,43 @@ def require_psps_auth(f):
         auth = request.authorization
         if not auth or auth.username != _PSPS_USER or auth.password != _PSPS_PASS:
             return _unauthorized("CMT PSPs")
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_signals_auth(f):
+    """Basic Auth for the human-facing /signals GUI — same pattern as every other tab."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _SIGNALS_USER or not _SIGNALS_PASS:
+            abort(500, "SIGNALS_USER and SIGNALS_PASS env vars not set.")
+        auth = request.authorization
+        if not auth or auth.username != _SIGNALS_USER or auth.password != _SIGNALS_PASS:
+            return _unauthorized("CMT Signals")
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_signals_ingest_auth(f):
+    """Bearer-token auth for the EA-facing /rest/v1/signals routes.
+
+    CMTrading_Signals_EA sends both `apikey: <key>` and `Authorization: Bearer <key>`
+    on every request (same value in both, mimicking Supabase) — not Basic Auth, so
+    this checks either header against SIGNALS_API_KEY with a timing-safe compare.
+    """
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _SIGNALS_API_KEY:
+            abort(500, "SIGNALS_API_KEY env var not set.")
+        auth_header = request.headers.get("Authorization", "")
+        bearer_token = auth_header[7:] if auth_header.lower().startswith("bearer ") else ""
+        apikey_header = request.headers.get("apikey", "")
+        ok = (
+            hmac.compare_digest(bearer_token, _SIGNALS_API_KEY)
+            or hmac.compare_digest(apikey_header, _SIGNALS_API_KEY)
+        )
+        if not ok:
+            return Response("Unauthorized", 401)
         return f(*args, **kwargs)
     return wrapper
 
@@ -3014,6 +3060,92 @@ def psps_reports():
     months = queries.available_months()
     return render_template("psps_reports.html", processors=processors, months=months,
                            active_psp_tab="reports")
+
+
+# ── Signals: EA ingestion (Bearer auth, literal PostgREST-shaped paths) ────
+# CMTrading_Signals_EA.mq5 talks to these via InpSupabaseUrl/InpSupabaseKey —
+# the path, query-filter syntax, and response shapes below are load-bearing:
+# changing any of them means the EA's inputs can no longer just be repointed
+# without a recompile. See the Signals feature plan for the full contract.
+
+@app.route("/rest/v1/signals", methods=["POST"])
+@require_signals_ingest_auth
+def signals_ingest_create():
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        new_id = queries.insert_signal(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    # Array-wrapped, matching PostgREST's Prefer: return=representation shape —
+    # the EA's mini JSON parser only needs an "id" key somewhere in the body.
+    return jsonify([{"id": new_id}]), 201
+
+
+@app.route("/rest/v1/signals", methods=["PATCH"])
+@require_signals_ingest_auth
+def signals_ingest_update():
+    id_filter = request.args.get("id", "")
+    if not id_filter.startswith("eq."):
+        return jsonify({"error": "id filter required, e.g. ?id=eq.123"}), 400
+    try:
+        signal_id = int(id_filter[3:])
+    except ValueError:
+        return jsonify({"error": "invalid id filter"}), 400
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        updated = queries.close_signal(signal_id, data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return ("", 204) if updated else ("", 404)
+
+
+@app.route("/rest/v1/signals", methods=["GET"])
+@require_signals_ingest_auth
+def signals_ingest_list():
+    status_filter = request.args.get("status", "")
+    status = status_filter[3:] if status_filter.startswith("eq.") else "ACTIVE"
+    try:
+        rows = queries.list_active_signals(status)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify(rows), 200
+
+
+# ── Signals: GUI (Basic Auth, same convention as every other tab) ─────────
+
+@app.route("/signals")
+@require_signals_auth
+def signals_page():
+    return render_template("signals.html")
+
+
+@app.route("/signals/api/list")
+@require_signals_auth
+def signals_api_list():
+    try:
+        result = queries.list_signals(
+            symbol=request.args.get("symbol") or None,
+            timeframe=request.args.get("timeframe") or None,
+            direction=request.args.get("direction") or None,
+            status=request.args.get("status") or None,
+            outcome=request.args.get("outcome") or None,
+            date_from=request.args.get("date_from") or None,
+            date_to=request.args.get("date_to") or None,
+            page=request.args.get("page", 1, type=int),
+            page_size=request.args.get("page_size", 50, type=int),
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/signals/api/stats")
+@require_signals_auth
+def signals_api_stats():
+    try:
+        return jsonify(queries.get_signal_stats())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import os
 import time
 import threading
 import psycopg2
-from db import dealio, crm, fees_db, FEES_MODE
+from db import dealio, crm, fees_db, FEES_MODE, signals
 
 # Per-cache-key locks prevent thundering herd on cold start:
 # only ONE thread runs each expensive query while others wait for it to finish.
@@ -4758,3 +4758,159 @@ def operator_ftd_stats() -> dict:
     if result:
         _cache_set(key, result)
     return result
+
+
+# ── Signals (CMTrading_Signals_EA ingestion + GUI) ─────────────────────────
+# Dedicated Postgres (signals_postgres); no SQLite mode, unlike fees_db().
+
+_SIGNAL_COLUMNS = [
+    "symbol", "timeframe", "direction", "entry_price", "sl_price", "tp_price",
+    "rsi_value", "status", "signal_time",
+    "resistance_1", "resistance_2", "resistance_3",
+    "support_1", "support_2", "support_3",
+]
+
+
+def ensure_signal_tables():
+    """Idempotent DDL for the signals table — called once at app startup."""
+    ddl = """
+        CREATE TABLE IF NOT EXISTS signals (
+            id            SERIAL PRIMARY KEY,
+            symbol        TEXT NOT NULL,
+            timeframe     TEXT NOT NULL,
+            direction     TEXT NOT NULL,
+            entry_price   DOUBLE PRECISION NOT NULL,
+            sl_price      DOUBLE PRECISION NOT NULL,
+            tp_price      DOUBLE PRECISION NOT NULL,
+            rsi_value     DOUBLE PRECISION,
+            status        TEXT NOT NULL DEFAULT 'ACTIVE',
+            signal_time   TIMESTAMPTZ NOT NULL,
+            resistance_1  DOUBLE PRECISION,
+            resistance_2  DOUBLE PRECISION,
+            resistance_3  DOUBLE PRECISION,
+            support_1     DOUBLE PRECISION,
+            support_2     DOUBLE PRECISION,
+            support_3     DOUBLE PRECISION,
+            outcome       TEXT,
+            close_price   DOUBLE PRECISION,
+            close_time    TIMESTAMPTZ,
+            updated_at    TIMESTAMPTZ,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_signals_status     ON signals (status);
+        CREATE INDEX IF NOT EXISTS idx_signals_symbol_tf  ON signals (symbol, timeframe);
+    """
+    with signals() as cur:
+        cur.execute(ddl)
+
+
+def insert_signal(data: dict) -> int:
+    """Insert a row from the EA's POST /rest/v1/signals body. Returns the new id.
+
+    resistance_1/2/3 and support_1/2/3 are optional in the EA's payload — only
+    the keys BuildSRLevels() actually found (0-3 each) are sent — so they're
+    read with a None default rather than required.
+    """
+    values = [data.get(c) for c in _SIGNAL_COLUMNS]
+    placeholders = ", ".join(["%s"] * len(_SIGNAL_COLUMNS))
+    with signals() as cur:
+        cur.execute(
+            f"INSERT INTO signals ({', '.join(_SIGNAL_COLUMNS)}) VALUES ({placeholders}) RETURNING id",
+            values,
+        )
+        return cur.fetchone()["id"]
+
+
+def close_signal(signal_id: int, data: dict) -> bool:
+    """Apply the EA's PATCH /rest/v1/signals?id=eq.<id> body. Returns True if a row matched."""
+    cols = [c for c in ("status", "outcome", "close_price", "close_time", "updated_at") if c in data]
+    if not cols:
+        return False
+    set_clause = ", ".join(f"{c} = %s" for c in cols)
+    values = [data[c] for c in cols] + [signal_id]
+    with signals() as cur:
+        cur.execute(f"UPDATE signals SET {set_clause} WHERE id = %s", values)
+        return cur.rowcount > 0
+
+
+def list_active_signals(status: str = "ACTIVE") -> list:
+    """Restart-safe reload for the EA's GET /rest/v1/signals?status=eq.<status>."""
+    with signals() as cur:
+        cur.execute("""
+            SELECT id, symbol, timeframe, direction, entry_price, sl_price, tp_price
+            FROM signals WHERE status = %s
+            ORDER BY id
+        """, (status,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def list_signals(symbol=None, timeframe=None, direction=None, status=None, outcome=None,
+                  date_from=None, date_to=None, page=1, page_size=50) -> dict:
+    """Filtered, paginated signal history for the Signals GUI table."""
+    where, params = [], []
+    if symbol:    where.append("symbol = %s");      params.append(symbol)
+    if timeframe: where.append("timeframe = %s");   params.append(timeframe)
+    if direction: where.append("direction = %s");    params.append(direction)
+    if status:    where.append("status = %s");      params.append(status)
+    if outcome:   where.append("outcome = %s");      params.append(outcome)
+    if date_from: where.append("signal_time >= %s"); params.append(date_from)
+    if date_to:   where.append("signal_time < %s");  params.append(date_to)
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 500)
+
+    with signals() as cur:
+        cur.execute(f"SELECT COUNT(*) AS n FROM signals {where_sql}", params)
+        total = cur.fetchone()["n"]
+        cur.execute(
+            f"SELECT * FROM signals {where_sql} ORDER BY signal_time DESC LIMIT %s OFFSET %s",
+            params + [page_size, (page - 1) * page_size],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    for r in rows:
+        for k in ("signal_time", "close_time", "updated_at", "created_at"):
+            if r.get(k) is not None:
+                r[k] = r[k].isoformat()
+
+    return {"rows": rows, "total": total, "page": page, "page_size": page_size}
+
+
+def get_signal_stats() -> dict:
+    """Win-rate / R:R aggregates for the Signals GUI — overall + per symbol/timeframe."""
+    achieved_rr_expr = """
+        CASE WHEN status = 'CLOSED' THEN
+            (CASE WHEN direction = 'BUY' THEN (close_price - entry_price) ELSE (entry_price - close_price) END)
+            / NULLIF(CASE WHEN direction = 'BUY' THEN (entry_price - sl_price) ELSE (sl_price - entry_price) END, 0)
+        END
+    """
+    with signals() as cur:
+        cur.execute(f"""
+            SELECT
+                symbol, timeframe,
+                COUNT(*) FILTER (WHERE status = 'ACTIVE')  AS active_count,
+                COUNT(*) FILTER (WHERE outcome = 'TP_HIT') AS tp_count,
+                COUNT(*) FILTER (WHERE outcome = 'SL_HIT') AS sl_count,
+                AVG({achieved_rr_expr})                     AS avg_rr
+            FROM signals
+            GROUP BY symbol, timeframe
+            ORDER BY symbol, timeframe
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+
+    for r in rows:
+        closed = (r["tp_count"] or 0) + (r["sl_count"] or 0)
+        r["win_rate"] = round(100.0 * r["tp_count"] / closed, 1) if closed else None
+        r["avg_rr"] = round(float(r["avg_rr"]), 2) if r["avg_rr"] is not None else None
+
+    overall = {
+        "active_count": sum(r["active_count"] for r in rows),
+        "tp_count":     sum(r["tp_count"] for r in rows),
+        "sl_count":     sum(r["sl_count"] for r in rows),
+    }
+    closed = overall["tp_count"] + overall["sl_count"]
+    overall["win_rate"] = round(100.0 * overall["tp_count"] / closed, 1) if closed else None
+    rr_values = [r["avg_rr"] for r in rows if r["avg_rr"] is not None]
+    overall["avg_rr"] = round(sum(rr_values) / len(rr_values), 2) if rr_values else None
+
+    return {"overall": overall, "by_symbol_timeframe": rows}

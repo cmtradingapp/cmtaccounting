@@ -67,6 +67,15 @@ services:
       - FEES_PG_DB=fees
       - FEES_PG_USER=fees
       - FEES_PG_PASS=${FEES_PG_PASS}
+      # Signals tab — dedicated Postgres for CMTrading_Signals_EA ingestion + GUI
+      - SIGNALS_USER=${SIGNALS_USER:-SigManager}
+      - SIGNALS_PASS=${SIGNALS_PASS}
+      - SIGNALS_API_KEY=${SIGNALS_API_KEY}
+      - SIGNALS_PG_HOST=signals_postgres
+      - SIGNALS_PG_PORT=5432
+      - SIGNALS_PG_DB=signals
+      - SIGNALS_PG_USER=signals
+      - SIGNALS_PG_PASS=${SIGNALS_PG_PASS}
     volumes:
       - /root/recon-app:/app   # mount source → container; rsync + restart is sufficient
       - /root/recon-certs:/app/certs:ro  # dealio mTLS client certs (permissions: key=600, crt=644)
@@ -75,6 +84,7 @@ services:
       - backoffice_net
     depends_on:
       - fees_postgres
+      - signals_postgres
 
   fees_postgres:
     image: postgres:16-alpine
@@ -107,9 +117,26 @@ services:
     networks:
       - recon_net
 
+  signals_postgres:
+    # Dedicated Postgres for the CMTrading_Signals_EA ingestion API + GUI.
+    # Internal-only (no host port publish) — the EA talks HTTP to the `recon`
+    # container, never to Postgres directly, so no external reachability needed
+    # (unlike cro_postgres, which the Windows MT5-CRO-Backend host must reach).
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       signals
+      POSTGRES_USER:     signals
+      POSTGRES_PASSWORD: ${SIGNALS_PG_PASS}
+    volumes:
+      - signals_pgdata:/var/lib/postgresql/data
+    networks:
+      - recon_net
+
 volumes:
   fees_pgdata:
   cro_pgdata:
+  signals_pgdata:
 
 networks:
   recon_net:

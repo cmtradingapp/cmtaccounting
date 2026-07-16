@@ -3,6 +3,7 @@ echo Starting SSH tunnels...
 echo   15432 ^> dealio replica DB
 echo   15433 ^> backoffice postgres
 echo   15435 ^> fees postgres (FEES_MODE=live only)
+echo   15436 ^> signals postgres
 echo.
 echo NOTE: Praxis now connects DIRECTLY to the reporting replica
 echo       13.140.163.221:5434 (reporting_ro) -- no tunnel needed.
@@ -17,6 +18,7 @@ echo.
   -L 15432:cmtrading-replicadb.dealio.ai:5106 ^
   -L 15433:172.18.0.2:5432 ^
   -L 15435:fees_postgres:5432 ^
+  -L 15436:signals_postgres:5432 ^
   -N
 
 pause
