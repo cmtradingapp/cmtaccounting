@@ -140,6 +140,10 @@
   </select>
   <button class="sig-linklike" id="expandAllBtn" onclick="expandAll()" style="margin-left:8px;">Expand all</button>
   <button class="sig-linklike" id="collapseAllBtn" onclick="collapseAll()">Collapse all</button>
+  <span id="chartTypeToggle" style="display:none;align-items:center;gap:6px;margin-left:8px;">
+    <button class="filter-btn active" data-chart-type="candle" onclick="setChartType('candle',this)">Candles</button>
+    <button class="filter-btn" data-chart-type="line" onclick="setChartType('line',this)">Line</button>
+  </span>
   <span id="sigCount" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
 </div>
 
@@ -215,7 +219,20 @@ function setView(v, btn) {
   document.getElementById('sigBoxes').style.display   = (v === 'boxes') ? '' : 'none';
   document.getElementById('expandAllBtn').style.display   = (v === 'table') ? '' : 'none';
   document.getElementById('collapseAllBtn').style.display = (v === 'table') ? '' : 'none';
+  document.getElementById('chartTypeToggle').style.display = (v === 'boxes') ? 'inline-flex' : 'none';
   if (v === 'boxes') { _lastBoxSignature = ''; renderCurrentView(); }
+}
+function setChartType(type, btn) {
+  _chartType = type;
+  btn.parentNode.querySelectorAll('[data-chart-type]').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  // Re-render every currently-instantiated chart from its cached data — no
+  // need to re-fetch, switching type doesn't change the underlying bars.
+  Object.keys(_chartInstances).forEach(function(idStr) {
+    var id = parseInt(idStr, 10);
+    var cached = _chartCache[id];
+    if (cached) renderChart(id, cached.data);
+  });
 }
 function setStatusFilter(v, btn) {
   _statusFilter = v;
@@ -305,12 +322,12 @@ function bracketHtml(r) {
     '</div>';
 }
 
-function rsiGaugeHtml(v) {
+function rsiGaugeHtml(v, showLabel) {
   if (v == null) return '<span class="muted">—</span>';
   var pct = Math.max(0, Math.min(100, v));
   return '<div class="rsi-gauge" title="RSI ' + v.toFixed(1) + '">' +
     '<div class="track"><div class="marker" style="left:' + pct.toFixed(1) + '%"></div></div>' +
-    '<div class="val">' + v.toFixed(1) + '</div>' +
+    '<div class="val">' + (showLabel ? 'RSI ' : '') + v.toFixed(1) + '</div>' +
   '</div>';
 }
 
@@ -394,6 +411,7 @@ function renderRows() {
 var _lastBoxSignature = '';
 var _chartCache = {};      // id -> { data, fetchedAt }
 var _chartInstances = {};  // id -> { chart, series, observer }
+var _chartType = 'candle'; // 'candle' | 'line' — global, applies to every box
 
 var _lwBaseOpts = {
   layout:    { background: { type: 'solid', color: 'transparent' }, textColor: '#5d6b82' },
@@ -420,7 +438,7 @@ function boxCardHtml(r) {
       '<span class="sig-rr">' + rrHtml + '</span>' +
     '</div>' +
     '<div class="sig-box-chart" id="sig-chart-' + r.id + '"><div class="sig-box-chart-msg">Loading chart…</div></div>' +
-    '<div class="sig-box-foot">' + rsiGaugeHtml(r.rsi_value) +
+    '<div class="sig-box-foot">' + rsiGaugeHtml(r.rsi_value, true) +
       '<span class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</span>' +
     '</div>' +
   '</div>';
@@ -488,20 +506,37 @@ function renderChart(id, data) {
 
   var chart = LightweightCharts.createChart(container, Object.assign({}, _lwBaseOpts, { autoSize: true }));
 
-  // Real candlesticks — the backend now buckets at a fixed 1 hour regardless
-  // of the signal's own M1/M5/M15/M30 label, since dealio.ticks is a 30-min
-  // snapshot feed (verified against production) and anything finer than that
-  // degenerates to open==high==low==close. A 1-hour bucket reliably spans
-  // 2-3 real snapshots, so these are genuine bars, not synthesized ones.
-  var series = chart.addCandlestickSeries({
-    upColor: '#34d399', downColor: '#f87171',
-    borderUpColor: '#34d399', borderDownColor: '#f87171',
-    wickUpColor: '#34d399', wickDownColor: '#f87171',
-  });
+  // The backend buckets at a fixed 1 hour regardless of the signal's own
+  // M1/M5/M15/M30 label, since dealio.ticks is a 30-min snapshot feed
+  // (verified against production) and anything finer than that degenerates
+  // to open==high==low==close. A 1-hour bucket reliably spans 2-3 real
+  // snapshots, so these are genuine bars, not synthesized ones — real
+  // candlesticks by default, with a line/area option (_chartType, toggled
+  // globally in the filter bar) for whichever reads cleaner to the viewer.
   var barTimes = data.bars.map(function(b) { return Math.floor(new Date(b.ts).getTime() / 1000); });
-  series.setData(data.bars.map(function(b, i) {
-    return { time: barTimes[i], open: b.o, high: b.h, low: b.l, close: b.c };
-  }));
+  var series;
+  if (_chartType === 'line') {
+    var closes = data.bars.map(function(b) { return b.c; });
+    var trendUp = closes.length < 2 || closes[closes.length - 1] >= closes[0];
+    series = chart.addAreaSeries({
+      lineColor: trendUp ? '#34d399' : '#f87171', lineWidth: 2,
+      topColor:    trendUp ? 'rgba(52,211,153,.22)' : 'rgba(248,113,113,.18)',
+      bottomColor: trendUp ? 'rgba(52,211,153,0)'   : 'rgba(248,113,113,0)',
+      crosshairMarkerVisible: true, priceLineVisible: false,
+    });
+    series.setData(data.bars.map(function(b, i) {
+      return { time: barTimes[i], value: b.c };
+    }));
+  } else {
+    series = chart.addCandlestickSeries({
+      upColor: '#34d399', downColor: '#f87171',
+      borderUpColor: '#34d399', borderDownColor: '#f87171',
+      wickUpColor: '#34d399', wickDownColor: '#f87171',
+    });
+    series.setData(data.bars.map(function(b, i) {
+      return { time: barTimes[i], open: b.o, high: b.h, low: b.l, close: b.c };
+    }));
+  }
 
   // Arrow markers anchored to actual bars, not just the vertical cutoff line:
   // entry (colored by direction) and, once closed, an orange exit marker.
