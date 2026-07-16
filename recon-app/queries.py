@@ -2237,6 +2237,7 @@ def psp_distinct_processors(date_from=None, date_to=None) -> list:
     if cached is not None:
         return cached
 
+    oc = outcome_case_sql()
     try:
         from db import praxis as praxis_ctx
         def _fetch():
@@ -2248,16 +2249,26 @@ def psp_distinct_processors(date_from=None, date_to=None) -> list:
                     where.append("created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)")
                     params = [date_from, date_to]
                 cur.execute(f"""
-                    SELECT payment_processor                AS psp,
-                           COUNT(*)                          AS tx_count,
-                           SUM(usd_amount)                   AS volume,
-                           SUM(fee / 100.0)                  AS actual_fees
-                    FROM praxis_transactions
-                    WHERE {' AND '.join(where)}
+                    SELECT payment_processor                          AS psp,
+                           COUNT(*)                                    AS tx_count,
+                           SUM(usd_amount)                             AS volume,
+                           SUM(fee / 100.0)                            AS actual_fees,
+                           COUNT(*) FILTER (WHERE outcome='approved')  AS approved,
+                           COUNT(*) FILTER (WHERE outcome='declined')  AS declined
+                    FROM (SELECT payment_processor, usd_amount, fee, {oc} AS outcome
+                          FROM praxis_transactions
+                          WHERE {' AND '.join(where)}) t
                     GROUP BY payment_processor
                     ORDER BY volume DESC NULLS LAST
                 """, params)
-                return [_num_row(dict(r), ("volume", "actual_fees")) for r in cur.fetchall()]
+                rows = []
+                for r in cur.fetchall():
+                    row = _num_row(dict(r), ("volume", "actual_fees"))
+                    decided = (row.get("approved") or 0) + (row.get("declined") or 0)
+                    row["decided"] = decided
+                    row["success_rate"] = round(100.0 * row["approved"] / decided, 1) if decided else None
+                    rows.append(row)
+                return rows
         result = _db_retry(_fetch)
     except Exception:
         result = []

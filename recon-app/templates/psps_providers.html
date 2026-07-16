@@ -1,6 +1,19 @@
 {% extends "base.html" %}
 {% block title %} — PSP Providers{% endblock %}
 {% block content %}
+<style>
+  .prov-succ  { display:flex; align-items:center; gap:8px; }
+  .prov-track { width:64px; height:7px; background:var(--surface-alt); border-radius:999px; overflow:hidden; flex:none; }
+  .prov-fill  { display:block; height:100%; width:var(--w); border-radius:999px; }
+  .prov-val   { font:700 12px/1 var(--font-mono); }
+  .prov-n     { font:500 10px/1 var(--font-mono); margin-top:3px; }
+  .prov-succ.hi  .prov-fill { background:linear-gradient(90deg,#1fae7d,#34d399); }
+  .prov-succ.mid .prov-fill { background:linear-gradient(90deg,#d99a24,#fbbf24); }
+  .prov-succ.lo  .prov-fill { background:linear-gradient(90deg,#e0464b,#f87171); }
+  .prov-succ.hi  .prov-val { color:var(--green);  }
+  .prov-succ.mid .prov-val { color:var(--yellow); }
+  .prov-succ.lo  .prov-val { color:var(--red);    }
+</style>
 
 <div class="page-header">
   <div>
@@ -16,7 +29,7 @@
     <thead>
       <tr>
         <th>Processor</th><th>Mapping</th><th class="num">Transactions</th>
-        <th class="num">Volume (USD)</th><th class="num">Fees (USD)</th><th></th>
+        <th class="num">Volume (USD)</th><th class="num">Fees (USD)</th><th>Success Rate</th><th></th>
       </tr>
     </thead>
     <tbody>
@@ -34,6 +47,18 @@
         <td class="num">${{ '{:,.2f}'.format(p.volume) }}</td>
         <td class="num muted">${{ '{:,.2f}'.format(p.actual_fees) }}</td>
         <td>
+          {% if p.success_rate is not none %}
+          {% set tier = 'hi' if p.success_rate >= 75 else ('mid' if p.success_rate >= 50 else 'lo') %}
+          <div class="prov-succ {{ tier }}">
+            <div class="prov-track"><span class="prov-fill" style="--w:{{ p.success_rate }}%"></span></div>
+            <span class="prov-val">{{ '{:.0f}'.format(p.success_rate) }}%</span>
+          </div>
+          <div class="prov-n muted">{{ '{:,}'.format(p.approved) }}/{{ '{:,}'.format(p.decided) }} decided</div>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td>
           {% if p.mapped %}
           <a class="btn-ghost btn" href="/fees/{{ p.agreement_id }}">View agreement</a>
           {% else %}
@@ -42,7 +67,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="empty">No processor activity in this range.</td></tr>
+      <tr><td colspan="7" class="empty">No processor activity in this range.</td></tr>
       {% endfor %}
     </tbody>
   </table>

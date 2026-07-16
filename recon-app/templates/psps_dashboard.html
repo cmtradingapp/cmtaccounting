@@ -55,6 +55,15 @@
   .dl-item i { width:8px; height:8px; border-radius:2px; display:inline-block; }
   .dl-item b { color:var(--text); font-family:var(--font-mono); font-weight:600; }
 
+  /* ── volume-by-provider meter list (all PSPs, always labelled) ── */
+  .vbp-count { font:600 11px/1 var(--font-mono); color:var(--muted); margin-left:6px; }
+  .vbp-list  { display:grid; grid-template-columns:1fr; gap:6px; max-height:296px; overflow-y:auto; padding-right:4px; }
+  .vbp-row   { display:grid; grid-template-columns:minmax(96px,150px) 1fr 82px; align-items:center; gap:10px; }
+  .vbp-name  { font:500 12px/1.1 var(--font-body); color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vbp-track { height:8px; background:var(--surface-alt); border-radius:999px; overflow:hidden; }
+  .vbp-fill  { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#2bb6d4,#22d3ee); }
+  .vbp-val   { font:600 11px/1 var(--font-mono); text-align:right; color:var(--text); }
+
   /* ── signature: approval leaderboard ────────────────────────── */
   .appr-list { display:grid; grid-template-columns:repeat(2,1fr); gap:6px 26px; }
   .appr-row  { display:grid; grid-template-columns:38px 1fr 38px 52px; align-items:center; gap:9px; }
@@ -203,8 +212,19 @@
 
 <div class="psp-charts-row">
   <div class="card psp-chart-card">
-    <h3>Volume by Provider</h3>
-    <div class="chart-box tall"><canvas id="pspChart"></canvas></div>
+    <h3>Volume by Provider<span class="vbp-count">{{ by_psp|length }} PSPs</span></h3>
+    {% set maxvol = by_psp[0].volume if by_psp else 0 %}
+    <div class="vbp-list">
+      {% for p in by_psp %}
+      <div class="vbp-row">
+        <span class="vbp-name" title="{{ p.psp }}">{{ p.psp }}</span>
+        <div class="vbp-track"><span class="vbp-fill" style="width:{{ (100 * p.volume / maxvol) if maxvol else 0 }}%"></span></div>
+        <span class="vbp-val" title="${{ '{:,.2f}'.format(p.volume) }}">{{ money(p.volume) }}</span>
+      </div>
+      {% else %}
+      <div class="empty">No processor activity in this range.</div>
+      {% endfor %}
+    </div>
   </div>
   <div class="card psp-chart-card">
     <h3>By Currency</h3>
@@ -254,7 +274,6 @@
 (function () {
   var volumeDay  = {{ volume_day | tojson }};
   var statusDist = {{ status_dist | tojson }};
-  var byPsp      = {{ by_psp | tojson }};
   var byCcy      = {{ by_ccy | tojson }};
 
   var C = { accent:'#5b9dff', accent2:'#22d3ee', green:'#34d399', red:'#f87171',
@@ -292,20 +311,6 @@
                          backgroundColor: statusDist.map(function (d) { return OUTCOME_COLORS[d.outcome] || C.muted; }),
                          borderWidth: 0 }] },
     options: Object.assign({}, base, { cutout:'72%', plugins:{ legend:{ display:false } } })
-  });
-
-  new Chart(document.getElementById('pspChart'), {
-    type: 'bar',
-    data: { labels: byPsp.map(function (d) { return d.psp; }),
-            datasets: [{ data: byPsp.map(function (d) { return d.volume; }),
-                         backgroundColor: C.accent2, borderRadius: 3, maxBarThickness: 15 }] },
-    options: Object.assign({}, base, {
-      indexAxis: 'y',
-      plugins: { legend:{ display:false },
-                 tooltip:{ callbacks:{ label:function (c) { return usd(c.parsed.x); } } } },
-      scales: { x:{ grid:{ color:C.grid }, beginAtZero:true, ticks:{ maxTicksLimit:5, callback:function (v) { return usd(v); } } },
-                y:{ grid:{ display:false } } }
-    })
   });
 
   new Chart(document.getElementById('ccyChart'), {

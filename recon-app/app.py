@@ -2899,7 +2899,7 @@ def psps_dashboard():
     return render_template("psps_dashboard.html",
                            stats=stats, volume_day=volume_day, status_dist=status_dist,
                            approval=approval, approval_group=approval_group,
-                           by_ccy=by_ccy, by_psp=processors[:10], processors=processors,
+                           by_ccy=by_ccy, by_psp=processors, processors=processors,
                            recent=recent, exp_fees=exp_fees, deltas=deltas,
                            processor=processor, range_label=range_label,
                            date_from=date_from, date_to=date_to_incl, active_psp_tab="dashboard")
