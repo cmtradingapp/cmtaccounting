@@ -64,18 +64,21 @@
   .vbp-fill  { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#2bb6d4,#22d3ee); }
   .vbp-val   { font:600 11px/1 var(--font-mono); text-align:right; color:var(--text); }
 
-  /* ── signature: approval leaderboard ────────────────────────── */
-  .appr-list { display:grid; grid-template-columns:repeat(2,1fr); gap:6px 26px; }
-  .appr-row  { display:grid; grid-template-columns:38px 1fr 38px 52px; align-items:center; gap:9px; }
-  .appr-cc   { font:600 11px/1 var(--font-mono); color:var(--text-2); background:var(--surface-alt);
-               border:1px solid var(--border); border-radius:6px; padding:4px 0; text-align:center;
-               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .appr-list.by-psp .appr-row { grid-template-columns:132px 1fr 38px 52px; }
-  .appr-list.by-psp .appr-cc  { text-align:left; padding:4px 7px; }
+  /* ── signature: approval leaderboard (aligned two-column table) ─ */
+  .appr-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 34px; }
+  .appr-col  { min-width:0; }
+  .appr-col + .appr-col { border-left:1px solid var(--border); padding-left:34px; }
+  .appr-head, .appr-row { display:grid; grid-template-columns:54px 1fr 40px 84px; align-items:center; gap:11px; }
+  .appr-grid.by-psp .appr-head, .appr-grid.by-psp .appr-row { grid-template-columns:150px 1fr 40px 84px; }
+  .appr-head { padding-bottom:7px; margin-bottom:8px; border-bottom:1px solid var(--border); }
+  .appr-head span { font:600 9.5px/1 var(--font-body); text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  .appr-head span:nth-child(3), .appr-head span:nth-child(4) { text-align:right; }
+  .appr-row  { height:25px; }
+  .appr-name { font:500 11.5px/1 var(--font-mono); color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   .appr-track{ height:7px; background:var(--surface-alt); border-radius:999px; overflow:hidden; }
   .appr-fill { display:block; height:100%; width:var(--w); border-radius:999px; animation:apprFill .8s cubic-bezier(.22,.61,.36,1) forwards; }
   .appr-val  { font:700 12px/1 var(--font-mono); text-align:right; }
-  .appr-n    { font:500 10px/1 var(--font-mono); color:var(--muted); text-align:right; }
+  .appr-n    { font:500 10.5px/1 var(--font-mono); color:var(--muted); text-align:right; }
   .appr-row.hi  .appr-fill { background:linear-gradient(90deg,#1fae7d,#34d399); box-shadow:0 0 10px -3px rgba(52,211,153,.6);  }
   .appr-row.mid .appr-fill { background:linear-gradient(90deg,#d99a24,#fbbf24); box-shadow:0 0 10px -3px rgba(251,191,36,.55); }
   .appr-row.lo  .appr-fill { background:linear-gradient(90deg,#e0464b,#f87171); box-shadow:0 0 10px -3px rgba(248,113,113,.55);}
@@ -90,7 +93,8 @@
 
   @media (max-width:900px) {
     .psp-charts-row { grid-template-columns:1fr; }
-    .appr-list { grid-template-columns:1fr; }
+    .appr-grid { grid-template-columns:1fr; }
+    .appr-col + .appr-col { border-left:none; padding-left:0; padding-top:10px; }
   }
   @media (prefers-reduced-motion: reduce) { .appr-fill { animation:none; } }
 </style>
@@ -193,15 +197,23 @@
     </div>
   </div>
   {% if approval %}
-  <div class="appr-list {{ 'by-psp' if approval_group=='psp' }}">
-    {% for a in approval %}
-    {% set decided = a.approved + a.declined %}
-    {% set tier = 'hi' if a.ratio >= 75 else ('mid' if a.ratio >= 50 else 'lo') %}
-    <div class="appr-row {{ tier }}">
-      <span class="appr-cc" title="{{ a.name }}">{{ a.name }}</span>
-      <div class="appr-track"><span class="appr-fill" style="--w:{{ a.ratio }}%; animation-delay:{{ loop.index0 * 22 }}ms"></span></div>
-      <span class="appr-val">{{ '{:.0f}'.format(a.ratio) }}%</span>
-      <span class="appr-n">{{ '{:,}'.format(a.approved) }}/{{ '{:,}'.format(decided) }}</span>
+  {% set half = ((approval|length + 1) / 2) | int %}
+  {% set columns = [approval[:half], approval[half:]] %}
+  {% set name_label = 'Provider' if approval_group=='psp' else 'Country' %}
+  <div class="appr-grid {{ 'by-psp' if approval_group=='psp' }}">
+    {% for col in columns %}
+    <div class="appr-col">
+      <div class="appr-head"><span>{{ name_label }}</span><span></span><span>Rate</span><span>Approved</span></div>
+      {% for a in col %}
+      {% set decided = a.approved + a.declined %}
+      {% set tier = 'hi' if a.ratio >= 75 else ('mid' if a.ratio >= 50 else 'lo') %}
+      <div class="appr-row {{ tier }}">
+        <span class="appr-name" title="{{ a.name }}">{{ a.name }}</span>
+        <div class="appr-track"><span class="appr-fill" style="--w:{{ a.ratio }}%; animation-delay:{{ loop.index0 * 28 }}ms"></span></div>
+        <span class="appr-val">{{ '{:.0f}'.format(a.ratio) }}%</span>
+        <span class="appr-n">{{ '{:,}'.format(a.approved) }}/{{ '{:,}'.format(decided) }}</span>
+      </div>
+      {% endfor %}
     </div>
     {% endfor %}
   </div>
