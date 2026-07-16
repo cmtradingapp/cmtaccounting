@@ -488,23 +488,18 @@ function renderChart(id, data) {
 
   var chart = LightweightCharts.createChart(container, Object.assign({}, _lwBaseOpts, { autoSize: true }));
 
-  // Candlesticks imply real open/high/low/close movement within each bar, but
-  // this feed (dealio.ticks) updates roughly every 20-30 minutes for several
-  // of these instruments — confirmed on real data (USTECH: 4 ticks in a 2-hour
-  // window). At that frequency a 1-5 minute bucket almost always holds 0-1
-  // ticks, so "candles" degenerate to flat dashes no matter how they're
-  // bucketed. A line/area of the actual tick closes is honest about that
-  // density instead of faking OHLC structure that isn't really there.
-  var closes = data.bars.map(function(b) { return b.c; });
-  var trendUp = closes.length < 2 || closes[closes.length - 1] >= closes[0];
-  var series = chart.addAreaSeries({
-    lineColor: trendUp ? '#34d399' : '#f87171', lineWidth: 2,
-    topColor:    trendUp ? 'rgba(52,211,153,.22)' : 'rgba(248,113,113,.18)',
-    bottomColor: trendUp ? 'rgba(52,211,153,0)'   : 'rgba(248,113,113,0)',
-    crosshairMarkerVisible: true, priceLineVisible: false,
+  // Real candlesticks — the backend now buckets at a fixed 1 hour regardless
+  // of the signal's own M1/M5/M15/M30 label, since dealio.ticks is a 30-min
+  // snapshot feed (verified against production) and anything finer than that
+  // degenerates to open==high==low==close. A 1-hour bucket reliably spans
+  // 2-3 real snapshots, so these are genuine bars, not synthesized ones.
+  var series = chart.addCandlestickSeries({
+    upColor: '#34d399', downColor: '#f87171',
+    borderUpColor: '#34d399', borderDownColor: '#f87171',
+    wickUpColor: '#34d399', wickDownColor: '#f87171',
   });
   series.setData(data.bars.map(function(b) {
-    return { time: Math.floor(new Date(b.ts).getTime() / 1000), value: b.c };
+    return { time: Math.floor(new Date(b.ts).getTime() / 1000), open: b.o, high: b.h, low: b.l, close: b.c };
   }));
 
   // By default Lightweight Charts autoscales the price axis to the candle data

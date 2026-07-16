@@ -4935,20 +4935,28 @@ def get_signal_by_id(signal_id: int) -> dict:
 # Bucket size per the EA's own timeframe labels — distinct from the FX tab's
 # period vocabulary (5m/15m/1h/...), since a signal's chart is anchored on its
 # own bar size, not a fixed set of zoom levels.
-_SIGNAL_TF_BUCKET_SECS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800}
+# dealio.ticks is a periodic snapshot, not a real tick stream — verified
+# directly against production: every row lands exactly 1800s (30 min) apart,
+# for every symbol checked, at every time of day. Below that interval a bar
+# can hold at most one snapshot (open == high == low == close, a flat dash
+# no matter how it's bucketed); above it, a bar spans multiple snapshots and
+# gets genuine range. A fixed 1-hour bucket reliably captures 2-3 snapshots
+# per bar (confirmed on real data) — so charts use this uniformly rather than
+# the EA's own M1/M5/M15/M30 label, none of which survive a 30-min data floor.
+_CHART_BUCKET_SECS = 3600
 
 
-def get_signal_chart(sig: dict, lookback_bars: int = 50, max_bars: int = 300) -> dict:
-    """Historical OHLC for a signal's own symbol/timeframe, anchored on its own
-    signal_time (and close_time) rather than "now" — reuses get_fx_ohlc()'s
-    epoch-bucketing technique against dealio.ticks, which carries live data
-    under the EA's own symbol strings (BTCUSD, CRUDE.OIL, USTECH, GOLD, SILVER,
-    EURUSD — verified directly against production, not assumed from FX_GROUPS).
+def get_signal_chart(sig: dict, lookback_bars: int = 24, max_bars: int = 72) -> dict:
+    """Historical OHLC anchored on a signal's own signal_time (and close_time)
+    rather than "now" — reuses get_fx_ohlc()'s epoch-bucketing technique
+    against dealio.ticks, which carries live data under the EA's own symbol
+    strings (BTCUSD, CRUDE.OIL, USTECH, GOLD, SILVER, EURUSD — verified
+    directly against production, not assumed from FX_GROUPS).
 
     Cached briefly for ACTIVE signals (price still moving) and effectively
     permanently for CLOSED ones (history is final).
     """
-    bucket_secs = _SIGNAL_TF_BUCKET_SECS.get(sig["timeframe"], 300)
+    bucket_secs = _CHART_BUCKET_SECS
     is_active = sig["status"] == "ACTIVE"
     key = f"sig_chart:{sig['id']}:{sig.get('updated_at')}"
     cached = _cache_get(key, 25 if is_active else 24 * 3600)
