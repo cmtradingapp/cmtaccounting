@@ -4980,6 +4980,18 @@ def get_signal_chart(sig: dict, min_half_span_hours: int = 12, max_bars: int = 7
     if start_time < min_start:
         start_time = min_start
 
+    # dealio.ticks.lastmodified is `timestamp without time zone`, and this
+    # connection's session timezone is Europe/Nicosia (+3) — confirmed via
+    # SHOW TIMEZONE. EXTRACT(EPOCH FROM lastmodified) treats that naive value
+    # as UTC directly (Postgres semantics for naive timestamps), but comparing
+    # it against a timezone-AWARE bind parameter implicitly casts through the
+    # *session* timezone instead — a different rule, ~3 hours apart, verified
+    # directly (a query bounded to end at 20:52 UTC was returning bars up to
+    # 23:00 UTC). Binding naive UTC wall-clock values instead keeps both the
+    # bucketing and the WHERE-clause bounds on the same rule.
+    start_naive = start_time.replace(tzinfo=None)
+    end_naive = end_time.replace(tzinfo=None)
+
     with dealio() as cur:
         cur.execute("""
             SELECT
@@ -4994,7 +5006,7 @@ def get_signal_chart(sig: dict, min_half_span_hours: int = 12, max_bars: int = 7
               AND lastmodified <= %(end)s
             GROUP BY 1
             ORDER BY 1
-        """, {"b": bucket_secs, "sym": sig["symbol"], "start": start_time, "end": end_time})
+        """, {"b": bucket_secs, "sym": sig["symbol"], "start": start_naive, "end": end_naive})
         bars = [
             {"ts": r["ts"].isoformat(), "o": float(r["o"]), "h": float(r["h"]), "l": float(r["l"]), "c": float(r["c"])}
             for r in cur.fetchall()
