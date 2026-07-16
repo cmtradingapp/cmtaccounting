@@ -1,0 +1,31 @@
+{# Shared PSPs date-range control: preset pills (7D/30D/90D/All) + custom from–to + Apply.
+   Requires range_label, date_from, date_to in context. Links target the current page
+   (request.endpoint), preserving every other query arg (processor/search/direction/…)
+   and resetting pagination. #}
+{%- macro _rurl(ov) -%}
+  {%- set a = {} -%}
+  {%- for k, v in request.args.items() -%}{%- set _ = a.update({k: v}) -%}{%- endfor -%}
+  {%- for k, v in ov.items() -%}
+    {%- if v -%}{%- set _ = a.update({k: v}) -%}{%- else -%}{%- set _ = a.pop(k, None) -%}{%- endif -%}
+  {%- endfor -%}
+  {{- url_for(request.endpoint, **a) -}}
+{%- endmacro -%}
+<div class="psp-rangebar">
+  <div class="psp-range-links">
+    <a class="filter-btn {{ 'active' if range_label=='7d' }}"  href="{{ _rurl({'range':'7d', 'from':'', 'to':'', 'page':''}) }}">7D</a>
+    <a class="filter-btn {{ 'active' if range_label=='30d' }}" href="{{ _rurl({'range':'30d','from':'', 'to':'', 'page':''}) }}">30D</a>
+    <a class="filter-btn {{ 'active' if range_label=='90d' }}" href="{{ _rurl({'range':'90d','from':'', 'to':'', 'page':''}) }}">90D</a>
+    <a class="filter-btn {{ 'active' if range_label=='all' }}" href="{{ _rurl({'range':'all','from':'', 'to':'', 'page':''}) }}">All</a>
+  </div>
+  <form method="get" class="psp-custom" action="{{ url_for(request.endpoint) }}">
+    {%- for k, v in request.args.items() -%}
+      {%- if k not in ['range', 'from', 'to', 'page'] -%}<input type="hidden" name="{{ k }}" value="{{ v }}">{%- endif -%}
+    {%- endfor -%}
+    <input type="hidden" name="range" value="custom">
+    <label class="psp-custom-lbl">Custom</label>
+    <input type="date" name="from" value="{{ date_from.strftime('%Y-%m-%d') }}" aria-label="From date">
+    <span class="psp-dash">–</span>
+    <input type="date" name="to" value="{{ date_to.strftime('%Y-%m-%d') }}" aria-label="To date">
+    <button class="btn {{ 'btn-primary' if range_label=='custom' }}" type="submit">Apply</button>
+  </form>
+</div>

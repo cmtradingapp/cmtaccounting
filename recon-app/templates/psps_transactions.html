@@ -11,20 +11,17 @@
     <div class="page-title">Transactions</div>
     <div class="page-sub">{{ '{:,}'.format(result.total_count) }} transactions in range</div>
   </div>
-  <a class="btn" href="{{ url_for('psps_transactions_export', range=range_label, processor=processor or '', direction=direction or '', q=search or '') }}">Export CSV</a>
+  <a class="btn" href="{{ url_for('psps_transactions_export', range=range_label, processor=processor or '', direction=direction or '', q=search or '', **{'from': request.args.get('from') or '', 'to': request.args.get('to') or ''}) }}">Export CSV</a>
 </div>
 
 {% include "_psps_subnav.html" %}
 
-<div class="psp-range-links" style="display:flex; gap:6px; margin-bottom:var(--sp-3);">
-  <a class="filter-btn {{ 'active' if range_label=='7d' }}"  href="{{ url_for('psps_transactions', range='7d',  processor=processor or '', direction=direction or '', q=search or '') }}">7D</a>
-  <a class="filter-btn {{ 'active' if range_label=='30d' }}" href="{{ url_for('psps_transactions', range='30d', processor=processor or '', direction=direction or '', q=search or '') }}">30D</a>
-  <a class="filter-btn {{ 'active' if range_label=='90d' }}" href="{{ url_for('psps_transactions', range='90d', processor=processor or '', direction=direction or '', q=search or '') }}">90D</a>
-  <a class="filter-btn {{ 'active' if range_label=='all' }}" href="{{ url_for('psps_transactions', range='all', processor=processor or '', direction=direction or '', q=search or '') }}">All</a>
-</div>
+{% include "_psp_rangebar.html" %}
 
-<form method="get" class="filter-bar" style="align-items:center;">
-  <input type="hidden" name="range" value="{{ range_label }}">
+<form method="get" class="filter-bar" style="align-items:center;" action="{{ url_for('psps_transactions') }}">
+  {%- for k, v in request.args.items() -%}
+    {%- if k not in ['q', 'processor', 'direction', 'page'] -%}<input type="hidden" name="{{ k }}" value="{{ v }}">{%- endif -%}
+  {%- endfor -%}
   <input type="text" name="q" value="{{ search }}" placeholder="Search TID, order ID, name, email, CID…" style="min-width:260px;">
   <select name="processor" onchange="this.form.submit()">
     <option value="">All Providers</option>

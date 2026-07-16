@@ -86,18 +86,15 @@
     <a href="/fees" class="back-link">← Fees</a>
     <div class="page-title" style="margin-top:4px;">Fee Calculator</div>
     <div style="font-size:13px;color:var(--muted);margin-top:3px;">
-      {{ data.date_from }} → {{ data.date_to }} &middot; {{ span_label }}
+      {{ date_from.strftime('%d %b %Y') }} → {{ date_to.strftime('%d %b %Y') }}
       &middot; Actual vs expected fees from Praxis transactions
     </div>
-  </div>
-  <div style="display:flex;gap:6px;">
-    {% for s,lbl in [('1w','1W'),('1m','1M'),('3m','3M'),('6m','6M'),('1y','1Y')] %}
-    <a class="fc-span-btn {% if span==s %}active{% endif %}" href="/fees/calculator?span={{ s }}">{{ lbl }}</a>
-    {% endfor %}
   </div>
 </div>
 
 {% include "_psps_subnav.html" %}
+
+{% include "_psp_rangebar.html" %}
 
 {% set t = data.totals %}
 
@@ -279,7 +276,7 @@
 </div>
 
 <script>
-var _ucSpan = '{{ span }}';
+var _ucQS = 'range=custom&from={{ date_from }}&to={{ date_to }}';
 
 function openUncovered(processor) {
   document.getElementById('ucTitle').textContent = processor + ' — Uncovered';
@@ -288,7 +285,7 @@ function openUncovered(processor) {
   document.getElementById('ucOverlay').classList.add('open');
   document.getElementById('ucDrawer').classList.add('open');
 
-  fetch('/fees/calculator/uncovered?processor=' + encodeURIComponent(processor) + '&span=' + _ucSpan)
+  fetch('/fees/calculator/uncovered?processor=' + encodeURIComponent(processor) + '&' + _ucQS)
     .then(function(r){ return r.json(); })
     .then(function(d){
       if (d.error) {

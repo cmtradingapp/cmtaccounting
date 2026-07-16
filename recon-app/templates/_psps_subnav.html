@@ -1,11 +1,13 @@
 {# Shared sub-nav for every /psps/* page. Include right after the page-header
-   and pass active_psp_tab from the route: dashboard|transactions|providers|merchants|settlements|reports #}
+   and pass active_psp_tab from the route: dashboard|transactions|providers|merchants|settlements|reports
+   Each pill carries psp_nav_args (the shared date-range + processor filter) so the
+   selection transitions between pages. psp_nav_args is injected globally by app.py. #}
 <div class="filter-bar" style="margin-bottom:var(--sp-4);">
-  <a class="filter-btn {{ 'active' if active_psp_tab == 'dashboard' }}"     href="/psps">Dashboard</a>
-  <a class="filter-btn {{ 'active' if active_psp_tab == 'transactions' }}" href="/psps/transactions">Transactions</a>
-  <a class="filter-btn {{ 'active' if active_psp_tab == 'providers' }}"    href="/psps/providers">Providers</a>
-  <a class="filter-btn {{ 'active' if active_psp_tab == 'fees' or request.path.startswith('/fees') }}" href="/fees">Fees</a>
-  <a class="filter-btn {{ 'active' if active_psp_tab == 'merchants' }}"    href="/psps/merchants">Merchants</a>
-  <a class="filter-btn {{ 'active' if active_psp_tab == 'settlements' }}"  href="/psps/settlements">Settlements</a>
-  <a class="filter-btn {{ 'active' if active_psp_tab == 'reports' }}"      href="/psps/reports">Reports</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'dashboard' }}"     href="{{ url_for('psps_dashboard', **psp_nav_args) }}">Dashboard</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'transactions' }}" href="{{ url_for('psps_transactions', **psp_nav_args) }}">Transactions</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'providers' }}"    href="{{ url_for('psps_providers', **psp_nav_args) }}">Providers</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'fees' or request.path.startswith('/fees') }}" href="{{ url_for('fees_list', **psp_nav_args) }}">Fees</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'merchants' }}"    href="{{ url_for('psps_merchants', **psp_nav_args) }}">Merchants</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'settlements' }}"  href="{{ url_for('psps_settlements', **psp_nav_args) }}">Settlements</a>
+  <a class="filter-btn {{ 'active' if active_psp_tab == 'reports' }}"      href="{{ url_for('psps_reports', **psp_nav_args) }}">Reports</a>
 </div>

@@ -55,7 +55,7 @@
     <div class="page-title">PSP Fee Agreements</div>
     <a id="btnUpload" class="btn btn-ghost" href="/fees/upload" style="border:1px solid rgba(79,142,247,.3);">⬆ Upload Agreement</a>
     <a id="btnManual" class="btn btn-ghost" href="/fees/add" style="border:1px solid rgba(79,142,247,.3);">✎ Manual Entry</a>
-    <a class="btn" href="/fees/calculator" style="border-color:rgba(34,197,94,.3);color:rgba(34,197,94,.9);">⚖ Fee Calculator</a>
+    <a class="btn" href="{{ url_for('fees_calculator', **psp_nav_args) }}" style="border-color:rgba(34,197,94,.3);color:rgba(34,197,94,.9);">⚖ Fee Calculator</a>
     <a class="btn" href="/fees/processor-map" style="border-color:rgba(167,139,250,.3);color:rgba(167,139,250,.9);">⚙ Processor Map</a>
     <a href="/fees/admin"
        style="display:inline-flex;align-items:center;gap:7px;padding:4px 12px;

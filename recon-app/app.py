@@ -263,6 +263,15 @@ def require_signals_ingest_auth(f):
     return wrapper
 
 
+@app.context_processor
+def _inject_psp_nav():
+    """Expose the shared PSPs filter (date range + processor) present in the current
+    URL so cross-page links (sub-nav, Fee Calculator link) can carry it forward — this
+    is what makes the date range 'transition between pages'."""
+    keep = {k: v for k in ("range", "from", "to", "processor") if (v := request.args.get(k))}
+    return {"psp_nav_args": keep}
+
+
 @app.route("/")
 @require_recon_auth
 def index():
@@ -1372,36 +1381,28 @@ def fees_processor_map_auto():
 @app.route("/fees/calculator")
 @require_fees_auth
 def fees_calculator():
-    import datetime as _dt
-    span = request.args.get("span", "1m")
-    span_map = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365}
-    span_labels = {"1w":"1 Week","1m":"1 Month","3m":"3 Months","6m":"6 Months","1y":"1 Year"}
-    today = _dt.date.today()
-    date_from = today - _dt.timedelta(days=span_map.get(span,31))
-    date_to   = today + _dt.timedelta(days=1)
+    # Uses the shared PSPs date-range filter (same as the analytics pages), so the
+    # selected window transitions in from the dashboard/transactions/providers.
+    date_from, date_to, date_to_incl, range_label = _psp_date_range()
     try:
         data = queries.fee_calculator(date_from, date_to)
     except Exception as e:
-        data = {"by_psp":[],"by_method":[],"totals":{},"unmatched_processors":[],"date_from":str(date_from),"date_to":str(date_to)}
-    return render_template("fee_calculator.html", data=data, span=span,
-                           span_label=span_labels.get(span,span))
+        data = {"by_psp":[],"by_method":[],"totals":{},"unmatched_processors":[],
+                "date_from":str(date_from),"date_to":str(date_to_incl)}
+    return render_template("fee_calculator.html", data=data,
+                           range_label=range_label, date_from=date_from, date_to=date_to_incl)
 
 
 @app.route("/fees/calculator/uncovered")
 @require_fees_auth
 def fees_calculator_uncovered():
-    import datetime as _dt
     processor = request.args.get("processor", "").strip()
-    span      = request.args.get("span", "1m")
-    span_map  = {"1w":7,"1m":31,"3m":92,"6m":183,"1y":365}
-    today     = _dt.date.today()
-    date_from = today - _dt.timedelta(days=span_map.get(span, 31))
-    date_to   = today + _dt.timedelta(days=1)
+    date_from, date_to, date_to_incl, range_label = _psp_date_range()
     if not processor:
         return jsonify({"error": "processor param required"}), 400
     try:
         rows = queries.fee_uncovered_transactions(processor, date_from, date_to)
-        return jsonify({"processor": processor, "span": span, "transactions": rows})
+        return jsonify({"processor": processor, "range": range_label, "transactions": rows})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

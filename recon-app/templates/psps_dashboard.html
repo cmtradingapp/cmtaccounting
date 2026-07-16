@@ -65,7 +65,7 @@
   .vbp-val   { font:600 11px/1 var(--font-mono); text-align:right; color:var(--text); }
 
   /* ── signature: approval leaderboard (aligned two-column table) ─ */
-  .appr-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 34px; }
+  .appr-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 34px; max-height:360px; overflow-y:auto; }
   .appr-col  { min-width:0; }
   .appr-col + .appr-col { border-left:1px solid var(--border); padding-left:34px; }
   .appr-head, .appr-row { display:grid; grid-template-columns:54px 1fr 40px 84px; align-items:center; gap:11px; }
@@ -85,6 +85,7 @@
   .appr-row.hi  .appr-val { color:var(--green);  }
   .appr-row.mid .appr-val { color:var(--yellow); }
   .appr-row.lo  .appr-val { color:var(--red);    }
+  .appr-row.na  .appr-val { color:var(--muted);  }
   @keyframes apprFill { from { width:0; } to { width:var(--w); } }
 
   /* ── compact recent table ───────────────────────────────────── */
@@ -105,14 +106,10 @@
     <div class="page-sub">Live Praxis · {{ date_from.strftime('%d %b') }} – {{ date_to.strftime('%d %b %Y') }}</div>
   </div>
   <div class="psp-toolbar">
-    <div class="psp-range-links">
-      <a class="filter-btn {{ 'active' if range_label=='7d' }}"  href="{{ url_for('psps_dashboard', range='7d',  processor=processor or '') }}">7D</a>
-      <a class="filter-btn {{ 'active' if range_label=='30d' }}" href="{{ url_for('psps_dashboard', range='30d', processor=processor or '') }}">30D</a>
-      <a class="filter-btn {{ 'active' if range_label=='90d' }}" href="{{ url_for('psps_dashboard', range='90d', processor=processor or '') }}">90D</a>
-      <a class="filter-btn {{ 'active' if range_label=='all' }}" href="{{ url_for('psps_dashboard', range='all', processor=processor or '') }}">All</a>
-    </div>
-    <form method="get" style="display:flex;">
-      <input type="hidden" name="range" value="{{ range_label }}">
+    <form method="get" style="display:flex;" action="{{ url_for('psps_dashboard') }}">
+      {%- for k, v in request.args.items() -%}
+        {%- if k not in ['processor', 'page'] -%}<input type="hidden" name="{{ k }}" value="{{ v }}">{%- endif -%}
+      {%- endfor -%}
       <select name="processor" onchange="this.form.submit()">
         <option value="">All Providers</option>
         {% for p in processors %}
@@ -124,6 +121,8 @@
 </div>
 
 {% include "_psps_subnav.html" %}
+
+{% include "_psp_rangebar.html" %}
 
 <div class="stats-grid">
   <div class="stat-card k-accent">
@@ -206,11 +205,11 @@
       <div class="appr-head"><span>{{ name_label }}</span><span></span><span>Rate</span><span>Approved</span></div>
       {% for a in col %}
       {% set decided = a.approved + a.declined %}
-      {% set tier = 'hi' if a.ratio >= 75 else ('mid' if a.ratio >= 50 else 'lo') %}
+      {% if a.ratio is none %}{% set tier = 'na' %}{% else %}{% set tier = 'hi' if a.ratio >= 75 else ('mid' if a.ratio >= 50 else 'lo') %}{% endif %}
       <div class="appr-row {{ tier }}">
         <span class="appr-name" title="{{ a.name }}">{{ a.name }}</span>
-        <div class="appr-track"><span class="appr-fill" style="--w:{{ a.ratio }}%; animation-delay:{{ loop.index0 * 28 }}ms"></span></div>
-        <span class="appr-val">{{ '{:.0f}'.format(a.ratio) }}%</span>
+        <div class="appr-track">{% if a.ratio is not none %}<span class="appr-fill" style="--w:{{ a.ratio }}%; animation-delay:{{ loop.index0 * 28 }}ms"></span>{% endif %}</div>
+        <span class="appr-val">{% if a.ratio is none %}—{% else %}{{ '{:.0f}'.format(a.ratio) }}%{% endif %}</span>
         <span class="appr-n">{{ '{:,}'.format(a.approved) }}/{{ '{:,}'.format(decided) }}</span>
       </div>
       {% endfor %}

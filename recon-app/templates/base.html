@@ -194,6 +194,33 @@
     }
     .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); }
 
+    /* ── Shared PSPs date-range bar ──────────────────────────── */
+    .psp-rangebar {
+      display: flex; align-items: center; gap: var(--sp-3);
+      flex-wrap: wrap; margin-bottom: var(--sp-3);
+    }
+    .psp-rangebar .psp-range-links { display: flex; gap: 5px; }
+    .psp-custom {
+      display: flex; align-items: center; gap: 7px;
+      padding-left: var(--sp-3); border-left: 1px solid var(--border);
+    }
+    .psp-custom-lbl {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted);
+    }
+    .psp-custom .psp-dash { color: var(--muted); }
+    .psp-rangebar input[type="date"] {
+      background: var(--surface-alt); border: 1px solid var(--border);
+      color: var(--text); height: 30px; padding: 0 8px;
+      border-radius: var(--radius-sm); font-size: 12px;
+      font-family: var(--font-mono, monospace); color-scheme: dark;
+    }
+    .psp-rangebar input[type="date"]:hover { border-color: var(--accent); }
+    .psp-rangebar .btn { height: 30px; }
+    @media (max-width: 640px) {
+      .psp-custom { padding-left: 0; border-left: none; }
+    }
+
     /* ── Utility ─────────────────────────────────────────────── */
     .num   { text-align: right; font-variant-numeric: tabular-nums; }
     .pos   { color: var(--green); }

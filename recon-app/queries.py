@@ -2385,12 +2385,14 @@ def psp_status_distribution(date_from, date_to, processor: str = None) -> list:
 
 
 def psp_approval_ratio(date_from, date_to, processor: str = None, group_by: str = "country",
-                       limit: int = 15, min_decided: int = 20) -> list:
+                       limit: int = 200, min_decided: int = 0) -> list:
     """Approval rate (approved / (approved+declined)) grouped by customer country or
-    processor, for the dashboard approval-ratio bar (country/PSP toggle). Cached 5 min."""
+    processor, for the dashboard approval-ratio panel (country/PSP toggle). Returns
+    EVERY group so the panel matches the Providers list — rated groups first (rate desc),
+    then rate-less groups (0 decided, ratio=None → rendered as '—') by activity. Cached 5 min."""
     group_by = "psp" if group_by == "psp" else "country"
     dim = "payment_processor" if group_by == "psp" else "customer_country"
-    key = f"psp_appratio:{date_from}:{date_to}:{processor}:{group_by}:{limit}"
+    key = f"psp_appratio:{date_from}:{date_to}:{processor}:{group_by}:{limit}:{min_decided}"
     cached = _cache_get(key, _TTL_RECONCILE)
     if cached is not None:
         return cached
@@ -2414,16 +2416,18 @@ def psp_approval_ratio(date_from, date_to, processor: str = None, group_by: str 
                           FROM praxis_transactions WHERE {' AND '.join(where)}) t
                     GROUP BY name
                 """, params)
-                out = []
+                rated, unrated = [], []
                 for r in cur.fetchall():
                     decided = (r["approved"] or 0) + (r["declined"] or 0)
                     if decided < min_decided:
                         continue
-                    out.append({"name": r["name"], "approved": r["approved"] or 0,
-                                "declined": r["declined"] or 0, "total": r["total"],
-                                "ratio": round(100.0 * (r["approved"] or 0) / decided, 1)})
-                out.sort(key=lambda x: x["ratio"], reverse=True)
-                return out[:limit]
+                    row = {"name": r["name"], "approved": r["approved"] or 0,
+                           "declined": r["declined"] or 0, "total": r["total"], "decided": decided,
+                           "ratio": round(100.0 * (r["approved"] or 0) / decided, 1) if decided else None}
+                    (rated if decided else unrated).append(row)
+                rated.sort(key=lambda x: x["ratio"], reverse=True)
+                unrated.sort(key=lambda x: x["total"], reverse=True)
+                return (rated + unrated)[:limit]
         result = _db_retry(_fetch)
     except Exception:
         result = []
