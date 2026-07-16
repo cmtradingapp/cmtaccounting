@@ -11,10 +11,24 @@
   .sig-badge.pending  { background:rgba(100,116,139,.14); color:var(--muted); }
   .sig-rr.pos { color:var(--green); font-weight:600; }
   .sig-rr.neg { color:var(--red);   font-weight:600; }
+  .sig-live-dot {
+    width:8px; height:8px; border-radius:50%; background:var(--green); flex-shrink:0;
+    box-shadow:0 0 0 0 rgba(34,197,94,.4); animation:sig-pulse 2s infinite;
+  }
+  @keyframes sig-pulse {
+    0%   { box-shadow:0 0 0 0 rgba(34,197,94,.5); }
+    70%  { box-shadow:0 0 0 7px rgba(34,197,94,0); }
+    100% { box-shadow:0 0 0 0 rgba(34,197,94,0); }
+  }
 </style>
 
 <div class="page-header">
-  <div class="page-title">Signals</div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div class="page-title">Signals</div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
+      <span class="sig-live-dot"></span><span>Live</span>
+    </div>
+  </div>
   <div style="font-size:12px;color:var(--muted);" id="sigUpdated"></div>
 </div>
 
@@ -42,13 +56,31 @@
   <table>
     <thead>
       <tr>
-        <th>Symbol</th><th>TF</th><th>Direction</th>
-        <th class="num">Entry</th><th class="num">SL</th><th class="num">TP</th><th class="num">RSI</th>
-        <th>Status</th><th>Outcome</th><th class="num">R:R</th>
-        <th>Signal Time</th><th>Close Time</th>
+        <th rowspan="2" class="num">ID</th>
+        <th rowspan="2">Symbol</th>
+        <th rowspan="2">TF</th>
+        <th rowspan="2">Direction</th>
+        <th rowspan="2" class="num">Entry</th>
+        <th rowspan="2" class="num">SL</th>
+        <th rowspan="2" class="num">TP</th>
+        <th rowspan="2" class="num">RSI</th>
+        <th rowspan="2">Status</th>
+        <th rowspan="2">Outcome</th>
+        <th rowspan="2" class="num">Close Price</th>
+        <th rowspan="2" class="num">R:R</th>
+        <th rowspan="2">Signal Time</th>
+        <th rowspan="2">Close Time</th>
+        <th rowspan="2">Created</th>
+        <th rowspan="2">Updated</th>
+        <th colspan="3" style="text-align:center;">Resistance Level</th>
+        <th colspan="3" style="text-align:center;">Support Level</th>
+      </tr>
+      <tr>
+        <th class="num">1</th><th class="num">2</th><th class="num">3</th>
+        <th class="num">1</th><th class="num">2</th><th class="num">3</th>
       </tr>
     </thead>
-    <tbody id="sigBody"><tr><td colspan="12" class="empty">Loading…</td></tr></tbody>
+    <tbody id="sigBody"><tr><td colspan="22" class="empty">Loading…</td></tr></tbody>
   </table>
 </div>
 
@@ -122,6 +154,7 @@ function rowHtml(r) {
   var rr = achievedRR(r);
   var rrHtml = rr == null ? '—' : '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + rr.toFixed(2) + 'R</span>';
   return '<tr>' +
+    '<td class="num muted">' + r.id + '</td>' +
     '<td style="font-weight:600;">' + r.symbol + '</td>' +
     '<td>' + r.timeframe + '</td>' +
     '<td>' + dirBadge + '</td>' +
@@ -131,9 +164,18 @@ function rowHtml(r) {
     '<td class="num">' + fmtNum(r.rsi_value, 1) + '</td>' +
     '<td>' + statusBadge + '</td>' +
     '<td>' + outcomeBadge + '</td>' +
+    '<td class="num">' + fmtNum(r.close_price) + '</td>' +
     '<td class="num">' + rrHtml + '</td>' +
     '<td class="muted">' + fmtTs(r.signal_time) + '</td>' +
     '<td class="muted">' + fmtTs(r.close_time) + '</td>' +
+    '<td class="muted">' + fmtTs(r.created_at) + '</td>' +
+    '<td class="muted">' + fmtTs(r.updated_at) + '</td>' +
+    '<td class="num muted">' + fmtNum(r.resistance_1) + '</td>' +
+    '<td class="num muted">' + fmtNum(r.resistance_2) + '</td>' +
+    '<td class="num muted">' + fmtNum(r.resistance_3) + '</td>' +
+    '<td class="num muted">' + fmtNum(r.support_1) + '</td>' +
+    '<td class="num muted">' + fmtNum(r.support_2) + '</td>' +
+    '<td class="num muted">' + fmtNum(r.support_3) + '</td>' +
     '</tr>';
 }
 
@@ -149,16 +191,16 @@ function loadList() {
 
   fetch('/signals/api/list?' + params.toString()).then(function(r){ return r.json(); }).then(function(data) {
     if (data.error) {
-      document.getElementById('sigBody').innerHTML = '<tr><td colspan="12" class="empty">' + data.error + '</td></tr>';
+      document.getElementById('sigBody').innerHTML = '<tr><td colspan="22" class="empty">' + data.error + '</td></tr>';
       return;
     }
     var rows = data.rows || [];
     document.getElementById('sigCount').textContent = rows.length + ' of ' + data.total + ' signals';
     document.getElementById('sigBody').innerHTML = rows.length
       ? rows.map(rowHtml).join('')
-      : '<tr><td colspan="12" class="empty">No signals match the current filters</td></tr>';
+      : '<tr><td colspan="22" class="empty">No signals match the current filters</td></tr>';
   }).catch(function() {
-    document.getElementById('sigBody').innerHTML = '<tr><td colspan="12" class="empty">Failed to load</td></tr>';
+    document.getElementById('sigBody').innerHTML = '<tr><td colspan="22" class="empty">Failed to load</td></tr>';
   });
 }
 
@@ -170,7 +212,9 @@ function refreshAll() {
 
 document.addEventListener('DOMContentLoaded', function() {
   refreshAll();
-  setInterval(refreshAll, 15000);
+  // 2s poll — faster than the EA's own 5s signal-check timer, so a new/closed
+  // signal shows up here within a couple seconds of being written.
+  setInterval(refreshAll, 2000);
 });
 </script>
 {% endblock %}
