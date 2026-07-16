@@ -3,6 +3,7 @@
 import os
 import time
 import threading
+from datetime import datetime, timedelta, timezone
 import psycopg2
 from db import dealio, crm, fees_db, FEES_MODE, signals
 
@@ -4921,3 +4922,74 @@ def get_signal_stats() -> dict:
     overall["avg_rr"] = round(sum(rr_values) / len(rr_values), 2) if rr_values else None
 
     return {"overall": overall, "by_symbol_timeframe": rows}
+
+
+def get_signal_by_id(signal_id: int) -> dict:
+    """Single signal row, for the Boxes-view chart endpoint."""
+    with signals() as cur:
+        cur.execute("SELECT * FROM signals WHERE id = %s", (signal_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+# Bucket size per the EA's own timeframe labels — distinct from the FX tab's
+# period vocabulary (5m/15m/1h/...), since a signal's chart is anchored on its
+# own bar size, not a fixed set of zoom levels.
+_SIGNAL_TF_BUCKET_SECS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800}
+
+
+def get_signal_chart(sig: dict, lookback_bars: int = 50, max_bars: int = 300) -> dict:
+    """Historical OHLC for a signal's own symbol/timeframe, anchored on its own
+    signal_time (and close_time) rather than "now" — reuses get_fx_ohlc()'s
+    epoch-bucketing technique against dealio.ticks, which carries live data
+    under the EA's own symbol strings (BTCUSD, CRUDE.OIL, USTECH, GOLD, SILVER,
+    EURUSD — verified directly against production, not assumed from FX_GROUPS).
+
+    Cached briefly for ACTIVE signals (price still moving) and effectively
+    permanently for CLOSED ones (history is final).
+    """
+    bucket_secs = _SIGNAL_TF_BUCKET_SECS.get(sig["timeframe"], 300)
+    is_active = sig["status"] == "ACTIVE"
+    key = f"sig_chart:{sig['id']}:{sig.get('updated_at')}"
+    cached = _cache_get(key, 25 if is_active else 24 * 3600)
+    if cached is not None:
+        return cached
+
+    signal_time = sig["signal_time"]
+    end_time = sig.get("close_time") or datetime.now(timezone.utc)
+    start_time = signal_time - timedelta(seconds=lookback_bars * bucket_secs)
+    min_start = end_time - timedelta(seconds=max_bars * bucket_secs)
+    if start_time < min_start:
+        start_time = min_start
+
+    with dealio() as cur:
+        cur.execute("""
+            SELECT
+                TO_TIMESTAMP(FLOOR(EXTRACT(EPOCH FROM lastmodified) / %(b)s) * %(b)s) AS ts,
+                ROUND(((array_agg((bid+ask) ORDER BY lastmodified))[1] / 2.0)::numeric, 5)      AS o,
+                ROUND((MAX(bid+ask) / 2.0)::numeric, 5)                                          AS h,
+                ROUND((MIN(bid+ask) / 2.0)::numeric, 5)                                          AS l,
+                ROUND(((array_agg((bid+ask) ORDER BY lastmodified DESC))[1] / 2.0)::numeric, 5) AS c
+            FROM dealio.ticks
+            WHERE symbol = %(sym)s
+              AND lastmodified >= %(start)s
+              AND lastmodified <= %(end)s
+            GROUP BY 1
+            ORDER BY 1
+        """, {"b": bucket_secs, "sym": sig["symbol"], "start": start_time, "end": end_time})
+        bars = [
+            {"ts": r["ts"].isoformat(), "o": float(r["o"]), "h": float(r["h"]), "l": float(r["l"]), "c": float(r["c"])}
+            for r in cur.fetchall()
+        ]
+
+    result = {
+        "bars": bars,
+        "entry_price": sig["entry_price"], "sl_price": sig["sl_price"], "tp_price": sig["tp_price"],
+        "resistance_1": sig.get("resistance_1"), "resistance_2": sig.get("resistance_2"), "resistance_3": sig.get("resistance_3"),
+        "support_1": sig.get("support_1"), "support_2": sig.get("support_2"), "support_3": sig.get("support_3"),
+        "signal_time": signal_time.isoformat(),
+        "close_time": sig["close_time"].isoformat() if sig.get("close_time") else None,
+        "direction": sig["direction"], "status": sig["status"], "outcome": sig.get("outcome"),
+    }
+    _cache_set(key, result)
+    return result

@@ -274,6 +274,7 @@ jobs:
           check "/signals"
           check "/signals/api/list"
           check "/signals/api/stats"
+          check "/signals/api/chart/1"
           # Signals ingestion auth (Bearer/apikey — CMTrading_Signals_EA)
           check "/rest/v1/signals"
           check_post "/rest/v1/signals"

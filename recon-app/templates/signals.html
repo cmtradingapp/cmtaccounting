@@ -2,31 +2,106 @@
 {% block title %} — Signals{% endblock %}
 {% block content %}
 <style>
-  .sig-badge { display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:600; }
-  .sig-badge.buy      { background:rgba(34,197,94,.12);  color:var(--green); }
-  .sig-badge.sell     { background:rgba(239,68,68,.12);  color:var(--red); }
-  .sig-badge.active   { background:rgba(79,142,247,.12); color:var(--accent); }
-  .sig-badge.tp       { background:rgba(34,197,94,.12);  color:var(--green); }
-  .sig-badge.sl       { background:rgba(239,68,68,.12);  color:var(--red); }
-  .sig-badge.pending  { background:rgba(100,116,139,.14); color:var(--muted); }
-  .sig-rr.pos { color:var(--green); font-weight:600; }
-  .sig-rr.neg { color:var(--red);   font-weight:600; }
-  .sig-live-dot {
-    width:8px; height:8px; border-radius:50%; background:var(--green); flex-shrink:0;
-    box-shadow:0 0 0 0 rgba(34,197,94,.4); animation:sig-pulse 2s infinite;
+  .sig-rr.pos { color:var(--green); font-weight:700; }
+  .sig-rr.neg { color:var(--red);   font-weight:700; }
+
+  /* ── Recent-form strip ───────────────────────────────────────────────── */
+  .sig-form-card .value { display:flex; align-items:center; gap:4px; flex-wrap:wrap; height:20px; }
+  .sig-form-dot { width:7px; height:7px; flex-shrink:0; }
+  .sig-form-dot.win  { background:var(--green); border-radius:50%; }
+  .sig-form-dot.loss { background:var(--red);   border-radius:2px; }
+  .sig-form-empty { font-size:11px; color:var(--muted); font-weight:400; }
+
+  /* ── Table row accents ──────────────────────────────────────────────── */
+  .sig-table { table-layout:fixed; }
+  .sig-table th, .sig-table td { overflow:hidden; text-overflow:ellipsis; }
+  .sig-table th.sig-col-x { width:26px; padding:7px 4px; }
+  .sig-row { border-left:3px solid transparent; }
+  .sig-row.st-active { border-left-color:var(--accent); }
+  .sig-row.st-tp     { border-left-color:var(--green); }
+  .sig-row.st-sl      { border-left-color:var(--red); }
+  @keyframes sig-flash { 0% { background:rgba(91,157,255,.24); } 100% { background:transparent; } }
+  .sig-row.flash-new { animation:sig-flash 1.8s ease-out; }
+  @media (prefers-reduced-motion:reduce) {
+    .sig-row.flash-new { animation:none; }
   }
-  @keyframes sig-pulse {
-    0%   { box-shadow:0 0 0 0 rgba(34,197,94,.5); }
-    70%  { box-shadow:0 0 0 7px rgba(34,197,94,0); }
-    100% { box-shadow:0 0 0 0 rgba(34,197,94,0); }
+
+  /* ── Expand toggle + detail row ──────────────────────────────────────── */
+  .sig-expand-btn {
+    background:none; border:none; color:var(--muted); cursor:pointer;
+    font-size:10px; padding:3px 5px; line-height:1; border-radius:4px;
+    transition:transform .15s, color .15s, background .15s;
   }
+  .sig-expand-btn:hover { color:var(--text); background:rgba(255,255,255,.06); }
+  .sig-expand-btn.open { transform:rotate(90deg); color:var(--accent); }
+  .sig-expand-btn:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .sig-detail-row td { background:rgba(255,255,255,.015); padding:12px 16px 16px 34px; }
+  .sig-detail-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(100px,1fr)); gap:10px 22px; }
+  .sig-detail-item .k { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
+  .sig-detail-item .v { font-family:var(--font-mono); font-size:12px; color:var(--text); margin-top:2px; }
+
+  /* ── Trade bracket (SL — Entry — TP — exit) ─────────────────────────── */
+  .bracket { position:relative; width:100%; min-width:80px; height:22px; cursor:default; }
+  .bracket .track { position:absolute; left:3px; right:3px; top:50%; height:2px; background:var(--border-2); transform:translateY(-50%); border-radius:2px; }
+  .bracket .tick { position:absolute; top:50%; width:2px; height:12px; transform:translate(-50%,-50%); border-radius:1px; }
+  .bracket .tick.sl { background:var(--red); }
+  .bracket .tick.tp { background:var(--green); }
+  .bracket .dot { position:absolute; width:6px; height:6px; border-radius:50%; transform:translate(-50%,-50%); border:2px solid var(--surface); }
+  /* Entry sits slightly above the SL/TP tick line so it never fully occludes a
+     tick when entry_price coincides with sl_price or tp_price. */
+  .bracket .dot.entry { top:32%; background:var(--text-2); }
+  .bracket .dot.exit  { top:50%; background:var(--text-2); } /* fallback if outcome is missing/unrecognized */
+  .bracket .dot.exit.tp { background:var(--green); }
+  .bracket .dot.exit.sl { background:var(--red); }
+
+  /* ── RSI gauge ───────────────────────────────────────────────────────── */
+  .rsi-gauge { width:56px; max-width:100%; }
+  .rsi-gauge .track {
+    position:relative; height:5px; border-radius:3px;
+    background:linear-gradient(90deg,
+      rgba(52,211,153,.55) 0%, rgba(52,211,153,.55) 30%,
+      rgba(255,255,255,.07) 30%, rgba(255,255,255,.07) 70%,
+      rgba(248,113,113,.55) 70%, rgba(248,113,113,.55) 100%);
+  }
+  .rsi-gauge .marker { position:absolute; top:-2px; width:2px; height:9px; background:var(--text); border-radius:1px; transform:translateX(-50%); }
+  .rsi-gauge .val { font-family:var(--font-mono); font-size:10px; color:var(--muted); margin-top:3px; }
+
+  /* ── Instrument cell ─────────────────────────────────────────────────── */
+  .sig-instrument .sym { font-weight:700; }
+  .sig-instrument .tf  { font-size:10px; color:var(--muted); margin-left:5px; }
+
+  /* ── Filter bar extras ───────────────────────────────────────────────── */
+  .sig-linklike {
+    background:none; border:none; color:var(--muted); font-size:11px; font-weight:600;
+    cursor:pointer; padding:0; transition:color .15s;
+  }
+  .sig-linklike:hover { color:var(--accent); }
+
+  /* ── Boxes view ──────────────────────────────────────────────────────── */
+  .sig-boxes-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr)); gap:14px; }
+  .sig-box { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow); overflow:hidden; }
+  .sig-box-head { display:flex; align-items:center; gap:7px; padding:10px 12px; border-bottom:1px solid var(--border); }
+  .sig-box-head .sig-rr { margin-left:auto; font-family:var(--font-mono); font-size:12px; }
+  .sig-box-chart { height:170px; position:relative; background:var(--bg); }
+  .sig-box-chart-msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px; text-align:center; padding:0 12px; }
+  .sig-box-overlay { position:absolute; inset:0; pointer-events:none; }
+  .sig-cutoff-shade { position:absolute; top:0; bottom:0; right:0; background:rgba(91,157,255,.05); border-left:1px dashed rgba(91,157,255,.55); }
+  .sig-cutoff-label {
+    position:absolute; top:2px; transform:translateX(-100%);
+    font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--accent); background:rgba(9,11,16,.75); padding:1px 4px; border-radius:3px; white-space:nowrap;
+  }
+  .sig-tri { position:absolute; right:1px; width:0; height:0; transform:translateY(-50%); }
+  .sig-tri-sl { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid var(--red); }
+  .sig-tri-tp { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid var(--green); }
+  .sig-box-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border-top:1px solid var(--border); }
 </style>
 
 <div class="page-header">
   <div style="display:flex;align-items:center;gap:10px;">
     <div class="page-title">Signals</div>
     <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
-      <span class="sig-live-dot"></span><span>Live</span>
+      <span class="live-dot"></span><span>Live</span>
     </div>
   </div>
   <div style="font-size:12px;color:var(--muted);" id="sigUpdated"></div>
@@ -35,6 +110,9 @@
 <div class="stats-grid" id="sigStats"></div>
 
 <div class="filter-bar">
+  <button class="filter-btn active" data-view="table" onclick="setView('table',this)">Table</button>
+  <button class="filter-btn" data-view="boxes" onclick="setView('boxes',this)">Boxes</button>
+  <span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>
   <button class="filter-btn active" data-status="" onclick="setStatusFilter('',this)">All</button>
   <button class="filter-btn" data-status="ACTIVE" onclick="setStatusFilter('ACTIVE',this)">Active</button>
   <button class="filter-btn" data-status="CLOSED" onclick="setStatusFilter('CLOSED',this)">Closed</button>
@@ -49,45 +127,49 @@
     <option value="M1">M1</option><option value="M5">M5</option>
     <option value="M15">M15</option><option value="M30">M30</option>
   </select>
+  <button class="sig-linklike" id="expandAllBtn" onclick="expandAll()" style="margin-left:8px;">Expand all</button>
+  <button class="sig-linklike" id="collapseAllBtn" onclick="collapseAll()">Collapse all</button>
   <span id="sigCount" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
 </div>
 
-<div class="table-wrap">
-  <table>
+<div class="table-wrap" id="tableWrap">
+  <table class="sig-table table-dense">
+    <colgroup>
+      <col style="width:26px"><col style="width:44px"><col style="width:108px"><col style="width:70px">
+      <col><col style="width:76px"><col style="width:82px"><col style="width:70px"><col style="width:92px">
+    </colgroup>
     <thead>
       <tr>
-        <th rowspan="2" class="num">ID</th>
-        <th rowspan="2">Symbol</th>
-        <th rowspan="2">TF</th>
-        <th rowspan="2">Direction</th>
-        <th rowspan="2" class="num">Entry</th>
-        <th rowspan="2" class="num">SL</th>
-        <th rowspan="2" class="num">TP</th>
-        <th rowspan="2" class="num">RSI</th>
-        <th rowspan="2">Status</th>
-        <th rowspan="2">Outcome</th>
-        <th rowspan="2" class="num">Close Price</th>
-        <th rowspan="2" class="num">R:R</th>
-        <th rowspan="2">Signal Time</th>
-        <th rowspan="2">Close Time</th>
-        <th rowspan="2">Created</th>
-        <th rowspan="2">Updated</th>
-        <th colspan="3" style="text-align:center;">Resistance Level</th>
-        <th colspan="3" style="text-align:center;">Support Level</th>
-      </tr>
-      <tr>
-        <th class="num">1</th><th class="num">2</th><th class="num">3</th>
-        <th class="num">1</th><th class="num">2</th><th class="num">3</th>
+        <th class="sig-col-x"></th>
+        <th class="num">#</th>
+        <th>Instrument</th>
+        <th>Dir</th>
+        <th>Trade</th>
+        <th>RSI</th>
+        <th>Result</th>
+        <th class="num">R:R</th>
+        <th>Signal</th>
       </tr>
     </thead>
-    <tbody id="sigBody"><tr><td colspan="22" class="empty">Loading…</td></tr></tbody>
+    <tbody id="sigBody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
   </table>
 </div>
 
+<div class="sig-boxes-grid" id="sigBoxes" style="display:none;"></div>
+
+<!-- TradingView Lightweight Charts — same version/CDN already used by the FX tab -->
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script>
+var _view = 'table';
 var _statusFilter = '';
 var _dirFilter = '';
 var _knownSymbols = {};
+var _rows = [];
+var _seenIds = new Set();
+var _expandedIds = new Set();
+var _hasRenderedOnce = false;
+var _listReqSeq = 0;
+var _formRows = null; // cached recent-closed signals for the Recent Form strip
 
 function fmtNum(v, d) {
   if (v === null || v === undefined) return '—';
@@ -97,6 +179,15 @@ function fmtTs(v) {
   if (!v) return '—';
   return String(v).replace('T', ' ').slice(0, 16);
 }
+function relTime(iso) {
+  if (!iso) return '—';
+  var mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  var hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.floor(hrs / 24) + 'd ago';
+}
 function achievedRR(row) {
   if (row.status !== 'CLOSED' || row.close_price == null) return null;
   var reward = row.direction === 'BUY' ? (row.close_price - row.entry_price) : (row.entry_price - row.close_price);
@@ -105,6 +196,16 @@ function achievedRR(row) {
   return reward / risk;
 }
 
+function setView(v, btn) {
+  _view = v;
+  btn.parentNode.querySelectorAll('[data-view]').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  document.getElementById('tableWrap').style.display = (v === 'table') ? '' : 'none';
+  document.getElementById('sigBoxes').style.display   = (v === 'boxes') ? '' : 'none';
+  document.getElementById('expandAllBtn').style.display   = (v === 'table') ? '' : 'none';
+  document.getElementById('collapseAllBtn').style.display = (v === 'table') ? '' : 'none';
+  if (v === 'boxes') { _lastBoxSignature = ''; renderCurrentView(); }
+}
 function setStatusFilter(v, btn) {
   _statusFilter = v;
   btn.parentNode.querySelectorAll('[data-status]').forEach(function(b){ b.classList.remove('active'); });
@@ -117,6 +218,24 @@ function setDirFilter(v, btn) {
   btn.classList.add('active');
   loadList();
 }
+function expandAll()   { _rows.forEach(function(r){ _expandedIds.add(r.id); });    renderRows(); }
+function collapseAll() { _expandedIds.clear(); renderRows(); }
+function toggleExpand(id) {
+  if (_expandedIds.has(id)) _expandedIds.delete(id); else _expandedIds.add(id);
+  renderRows();
+}
+
+function renderForm() {
+  var el = document.getElementById('sigForm');
+  if (!el) return;
+  if (_formRows === null) return; // not fetched yet — leave whatever's there (usually nothing, briefly)
+  if (!_formRows.length) { el.innerHTML = '<span class="sig-form-empty">No closed signals yet</span>'; return; }
+  el.innerHTML = _formRows.map(function(r) {
+    var win = r.outcome === 'TP_HIT';
+    var label = r.symbol + ' ' + r.timeframe + ' — ' + (win ? 'win' : 'loss');
+    return '<span class="sig-form-dot ' + (win ? 'win' : 'loss') + '" role="img" aria-label="' + label + '" title="' + label + '"></span>';
+  }).join('');
+}
 
 function loadStats() {
   fetch('/signals/api/stats').then(function(r){ return r.json(); }).then(function(data) {
@@ -125,11 +244,13 @@ function loadStats() {
     var winClass = (o.win_rate == null) ? '' : (o.win_rate >= 50 ? 'green' : 'red');
     var rrClass  = (o.avg_rr == null) ? '' : (o.avg_rr >= 0 ? 'green' : 'red');
     document.getElementById('sigStats').innerHTML =
-      '<div class="stat-card"><div class="label">Active</div><div class="value">' + (o.active_count || 0) + '</div></div>' +
-      '<div class="stat-card green"><div class="label">TP Hits</div><div class="value">' + (o.tp_count || 0) + '</div></div>' +
-      '<div class="stat-card red"><div class="label">SL Hits</div><div class="value">' + (o.sl_count || 0) + '</div></div>' +
-      '<div class="stat-card ' + winClass + '"><div class="label">Win Rate</div><div class="value">' + (o.win_rate == null ? '—' : o.win_rate + '%') + '</div></div>' +
-      '<div class="stat-card ' + rrClass + '"><div class="label">Avg R:R Achieved</div><div class="value">' + (o.avg_rr == null ? '—' : o.avg_rr.toFixed(2) + 'R') + '</div></div>';
+      '<div class="stat-card compact"><div class="label">Active</div><div class="value">' + (o.active_count || 0) + '</div></div>' +
+      '<div class="stat-card compact green"><div class="label">TP Hits</div><div class="value">' + (o.tp_count || 0) + '</div></div>' +
+      '<div class="stat-card compact red"><div class="label">SL Hits</div><div class="value">' + (o.sl_count || 0) + '</div></div>' +
+      '<div class="stat-card compact ' + winClass + '"><div class="label">Win Rate</div><div class="value">' + (o.win_rate == null ? '—' : o.win_rate + '%') + '</div></div>' +
+      '<div class="stat-card compact ' + rrClass + '"><div class="label">Avg R:R Achieved</div><div class="value">' + (o.avg_rr == null ? '—' : o.avg_rr.toFixed(2) + 'R') + '</div></div>' +
+      '<div class="stat-card compact sig-form-card"><div class="label">Recent Form</div><div class="value" id="sigForm"></div></div>';
+    renderForm(); // repaint from whatever's cached — decoupled from fetch order below
 
     var picker = document.getElementById('symbolPicker');
     var have = {};
@@ -141,45 +262,309 @@ function loadStats() {
       }
     });
   }).catch(function(){});
+
+  // Recent-form strip: always global (unfiltered), independent of table filters.
+  // Cached in _formRows + repainted via renderForm() so this can resolve in
+  // either order relative to the /stats fetch above without a race.
+  fetch('/signals/api/list?status=CLOSED&page_size=14').then(function(r){ return r.json(); }).then(function(data) {
+    _formRows = (data.rows || []).slice().reverse(); // API is DESC; reverse to chronological
+    renderForm();
+  }).catch(function(){});
 }
 
-function rowHtml(r) {
-  var dirBadge = r.direction === 'BUY'
-    ? '<span class="sig-badge buy">BUY</span>' : '<span class="sig-badge sell">SELL</span>';
-  var statusBadge = r.status === 'ACTIVE'
-    ? '<span class="sig-badge active">ACTIVE</span>' : '<span class="sig-badge pending">CLOSED</span>';
-  var outcomeBadge = '—';
-  if (r.outcome === 'TP_HIT') outcomeBadge = '<span class="sig-badge tp">TP HIT</span>';
-  else if (r.outcome === 'SL_HIT') outcomeBadge = '<span class="sig-badge sl">SL HIT</span>';
-  var rr = achievedRR(r);
-  var rrHtml = rr == null ? '—' : '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + rr.toFixed(2) + 'R</span>';
-  return '<tr>' +
-    '<td class="num muted">' + r.id + '</td>' +
-    '<td style="font-weight:600;">' + r.symbol + '</td>' +
-    '<td>' + r.timeframe + '</td>' +
-    '<td>' + dirBadge + '</td>' +
-    '<td class="num">' + fmtNum(r.entry_price) + '</td>' +
-    '<td class="num">' + fmtNum(r.sl_price) + '</td>' +
-    '<td class="num">' + fmtNum(r.tp_price) + '</td>' +
-    '<td class="num">' + fmtNum(r.rsi_value, 1) + '</td>' +
-    '<td>' + statusBadge + '</td>' +
-    '<td>' + outcomeBadge + '</td>' +
-    '<td class="num">' + fmtNum(r.close_price) + '</td>' +
-    '<td class="num">' + rrHtml + '</td>' +
-    '<td class="muted">' + fmtTs(r.signal_time) + '</td>' +
-    '<td class="muted">' + fmtTs(r.close_time) + '</td>' +
-    '<td class="muted">' + fmtTs(r.created_at) + '</td>' +
-    '<td class="muted">' + fmtTs(r.updated_at) + '</td>' +
-    '<td class="num muted">' + fmtNum(r.resistance_1) + '</td>' +
-    '<td class="num muted">' + fmtNum(r.resistance_2) + '</td>' +
-    '<td class="num muted">' + fmtNum(r.resistance_3) + '</td>' +
-    '<td class="num muted">' + fmtNum(r.support_1) + '</td>' +
-    '<td class="num muted">' + fmtNum(r.support_2) + '</td>' +
-    '<td class="num muted">' + fmtNum(r.support_3) + '</td>' +
-    '</tr>';
+function bracketHtml(r) {
+  var vals = [r.sl_price, r.entry_price, r.tp_price];
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  var pad = (hi - lo) * 0.2 || Math.abs(r.entry_price) * 0.01 || 1;
+  lo -= pad; hi += pad;
+  function pos(v) { return (((v - lo) / (hi - lo)) * 100).toFixed(1); }
+  var exitDot = '';
+  if (r.close_price != null) {
+    var cls = r.outcome === 'TP_HIT' ? 'tp' : (r.outcome === 'SL_HIT' ? 'sl' : '');
+    exitDot = '<div class="dot exit ' + cls + '" style="left:' + pos(r.close_price) + '%"></div>';
+  }
+  var title = 'SL ' + fmtNum(r.sl_price) + '  ·  Entry ' + fmtNum(r.entry_price) + '  ·  TP ' + fmtNum(r.tp_price) +
+    (r.close_price != null ? ('  ·  Exit ' + fmtNum(r.close_price)) : '');
+  return '<div class="bracket" title="' + title + '">' +
+    '<div class="track"></div>' +
+    '<div class="tick sl" style="left:' + pos(r.sl_price) + '%"></div>' +
+    '<div class="tick tp" style="left:' + pos(r.tp_price) + '%"></div>' +
+    '<div class="dot entry" style="left:' + pos(r.entry_price) + '%"></div>' +
+    exitDot +
+    '</div>';
 }
+
+function rsiGaugeHtml(v) {
+  if (v == null) return '<span class="muted">—</span>';
+  var pct = Math.max(0, Math.min(100, v));
+  return '<div class="rsi-gauge" title="RSI ' + v.toFixed(1) + '">' +
+    '<div class="track"><div class="marker" style="left:' + pct.toFixed(1) + '%"></div></div>' +
+    '<div class="val">' + v.toFixed(1) + '</div>' +
+  '</div>';
+}
+
+function resultBadgeHtml(r) {
+  if (r.status === 'ACTIVE') return '<span class="badge active">ACTIVE</span>';
+  if (r.outcome === 'TP_HIT') return '<span class="badge tp">TP HIT</span>';
+  if (r.outcome === 'SL_HIT') return '<span class="badge sl">SL HIT</span>';
+  return '<span class="badge">CLOSED</span>';
+}
+function directionBadgeHtml(r) {
+  return r.direction === 'BUY' ? '<span class="badge buy">▲ BUY</span>' : '<span class="badge sell">▼ SELL</span>';
+}
+
+function detailItem(k, v) {
+  return '<div class="sig-detail-item"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>';
+}
+
+function rowHtml(r, flashEnabled) {
+  var rr = achievedRR(r);
+  var rrHtml = rr == null ? '<span class="muted">—</span>' :
+    '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + (rr >= 0 ? '+' : '') + rr.toFixed(2) + 'R</span>';
+  var stateCls = r.status === 'ACTIVE' ? 'st-active' : (r.outcome === 'TP_HIT' ? 'st-tp' : (r.outcome === 'SL_HIT' ? 'st-sl' : ''));
+  var isNew = !_seenIds.has(r.id);
+  _seenIds.add(r.id);
+  var expanded = _expandedIds.has(r.id);
+  var detailId = 'sig-detail-' + r.id;
+
+  var main = '<tr class="sig-row ' + stateCls + (isNew && flashEnabled ? ' flash-new' : '') + '">' +
+    '<td class="sig-col-x"><button class="sig-expand-btn' + (expanded ? ' open' : '') + '" data-id="' + r.id + '" ' +
+      'onclick="toggleExpand(' + r.id + ')" aria-label="Toggle details for signal ' + r.id + '" ' +
+      'aria-expanded="' + (expanded ? 'true' : 'false') + '" aria-controls="' + detailId + '">▸</button></td>' +
+    '<td class="num muted">' + r.id + '</td>' +
+    '<td class="sig-instrument"><span class="sym">' + r.symbol + '</span><span class="tf">' + r.timeframe + '</span></td>' +
+    '<td>' + directionBadgeHtml(r) + '</td>' +
+    '<td>' + bracketHtml(r) + '</td>' +
+    '<td>' + rsiGaugeHtml(r.rsi_value) + '</td>' +
+    '<td>' + resultBadgeHtml(r) + '</td>' +
+    '<td class="num">' + rrHtml + '</td>' +
+    '<td class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</td>' +
+    '</tr>';
+
+  var detail = '<tr class="sig-detail-row" id="' + detailId + '" style="' + (expanded ? '' : 'display:none;') + '">' +
+    '<td colspan="9"><div class="sig-detail-grid">' +
+      detailItem('Entry', fmtNum(r.entry_price)) +
+      detailItem('Stop Loss', fmtNum(r.sl_price)) +
+      detailItem('Take Profit', fmtNum(r.tp_price)) +
+      detailItem('Close Price', fmtNum(r.close_price)) +
+      detailItem('Signal Time', fmtTs(r.signal_time)) +
+      detailItem('Close Time', fmtTs(r.close_time)) +
+      detailItem('Created', fmtTs(r.created_at)) +
+      detailItem('Updated', fmtTs(r.updated_at)) +
+      detailItem('Resistance 1', fmtNum(r.resistance_1)) +
+      detailItem('Resistance 2', fmtNum(r.resistance_2)) +
+      detailItem('Resistance 3', fmtNum(r.resistance_3)) +
+      detailItem('Support 1', fmtNum(r.support_1)) +
+      detailItem('Support 2', fmtNum(r.support_2)) +
+      detailItem('Support 3', fmtNum(r.support_3)) +
+    '</div></td></tr>';
+
+  return main + detail;
+}
+
+function renderRows() {
+  var flashEnabled = _hasRenderedOnce;
+  var active = document.activeElement;
+  var focusedId = (active && active.classList && active.classList.contains('sig-expand-btn'))
+    ? active.getAttribute('data-id') : null;
+
+  document.getElementById('sigBody').innerHTML = _rows.length
+    ? _rows.map(function(r) { return rowHtml(r, flashEnabled); }).join('')
+    : '<tr><td colspan="9" class="empty">No signals match the current filters</td></tr>';
+  _hasRenderedOnce = true;
+
+  if (focusedId) {
+    var btn = document.querySelector('.sig-expand-btn[data-id="' + focusedId + '"]');
+    if (btn) btn.focus();
+  }
+}
+
+// ── Boxes view: annotated per-signal trade charts ──────────────────────────
+var _lastBoxSignature = '';
+var _chartCache = {};      // id -> { data, fetchedAt }
+var _chartInstances = {};  // id -> { chart, series, observer }
+
+var _lwBaseOpts = {
+  layout:    { background: { type: 'solid', color: 'transparent' }, textColor: '#5d6b82' },
+  grid:      { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
+  crosshair: { mode: 1 },
+  rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.15, bottom: 0.1 } },
+  timeScale:       { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false, rightOffset: 2 },
+  handleScroll:    { vertTouchDrag: false },
+  handleScale:     { axisPressedMouseMove: { time: true, price: false } },
+};
+
+function boxCardHtml(r) {
+  var rr = achievedRR(r);
+  var rrHtml = rr == null ? '<span class="muted">—</span>' :
+    '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + (rr >= 0 ? '+' : '') + rr.toFixed(2) + 'R</span>';
+  return '<div class="sig-box" data-id="' + r.id + '">' +
+    '<div class="sig-box-head">' +
+      '<div class="sig-instrument"><span class="sym">' + r.symbol + '</span><span class="tf">' + r.timeframe + '</span></div>' +
+      directionBadgeHtml(r) + resultBadgeHtml(r) +
+      '<span class="sig-rr">' + rrHtml + '</span>' +
+    '</div>' +
+    '<div class="sig-box-chart" id="sig-chart-' + r.id + '"><div class="sig-box-chart-msg">Loading chart…</div></div>' +
+    '<div class="sig-box-foot">' + rsiGaugeHtml(r.rsi_value) +
+      '<span class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</span>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderBoxes() {
+  var el = document.getElementById('sigBoxes');
+  // Dispose any existing chart instances before rebuilding the grid.
+  Object.keys(_chartInstances).forEach(function(id) {
+    var inst = _chartInstances[id];
+    if (inst.observer) inst.observer.disconnect();
+    if (inst.chart) { try { inst.chart.remove(); } catch (e) {} }
+  });
+  _chartInstances = {};
+
+  el.innerHTML = _rows.length
+    ? _rows.map(boxCardHtml).join('')
+    : '<div class="empty" style="grid-column:1/-1;">No signals match the current filters</div>';
+
+  document.querySelectorAll('.sig-box').forEach(function(box) {
+    var id = parseInt(box.getAttribute('data-id'), 10);
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) { loadChart(id, false); }
+      });
+    }, { rootMargin: '150px' });
+    observer.observe(box);
+    _chartInstances[id] = { observer: observer };
+  });
+}
+
+function renderCurrentView() {
+  if (_view === 'table') { renderRows(); return; }
+  var sig = _rows.map(function(r){ return r.id; }).sort(function(a,b){ return a - b; }).join(',');
+  if (sig !== _lastBoxSignature) { _lastBoxSignature = sig; renderBoxes(); }
+}
+
+function loadChart(id, force) {
+  var row = _rows.find(function(r){ return r.id === id; });
+  if (!row) return;
+  var cached = _chartCache[id];
+  var isActive = row.status === 'ACTIVE';
+  if (!force && cached && (!isActive || (Date.now() - cached.fetchedAt) < 15000)) {
+    renderChart(id, cached.data);
+    return;
+  }
+  fetch('/signals/api/chart/' + id).then(function(r){ return r.json(); }).then(function(data) {
+    if (data.error) { showChartMsg(id, data.error); return; }
+    _chartCache[id] = { data: data, fetchedAt: Date.now() };
+    renderChart(id, data);
+  }).catch(function() { showChartMsg(id, 'Failed to load chart'); });
+}
+
+function showChartMsg(id, msg) {
+  var container = document.getElementById('sig-chart-' + id);
+  if (container) container.innerHTML = '<div class="sig-box-chart-msg">' + msg + '</div>';
+}
+
+function renderChart(id, data) {
+  var container = document.getElementById('sig-chart-' + id);
+  if (!container) return;
+  if (!data.bars || !data.bars.length) { showChartMsg(id, 'No price history for this window'); return; }
+  container.innerHTML = '';
+  container.style.position = 'relative';
+
+  var chart = LightweightCharts.createChart(container, Object.assign({}, _lwBaseOpts, { autoSize: true }));
+  var series = chart.addCandlestickSeries({
+    upColor: '#34d399', downColor: '#f87171',
+    borderUpColor: '#34d399', borderDownColor: '#f87171',
+    wickUpColor: '#34d399', wickDownColor: '#f87171',
+  });
+  series.setData(data.bars.map(function(b) {
+    return { time: Math.floor(new Date(b.ts).getTime() / 1000), open: b.o, high: b.h, low: b.l, close: b.c };
+  }));
+
+  // By default Lightweight Charts autoscales the price axis to the candle data
+  // only — price lines (SL/TP/R/S) don't expand it. A TP far from the current
+  // price would then fall off the visible range entirely (and its triangle
+  // marker with it). Force the visible range to always include every level.
+  var _levelKeys = ['entry_price', 'sl_price', 'tp_price',
+    'resistance_1', 'resistance_2', 'resistance_3', 'support_1', 'support_2', 'support_3'];
+  series.applyOptions({
+    autoscaleInfoProvider: function(original) {
+      var res = original();
+      if (!res || !res.priceRange) return res;
+      var min = res.priceRange.minValue, max = res.priceRange.maxValue;
+      _levelKeys.forEach(function(k) {
+        if (data[k] != null) { min = Math.min(min, data[k]); max = Math.max(max, data[k]); }
+      });
+      res.priceRange.minValue = min;
+      res.priceRange.maxValue = max;
+      return res;
+    },
+  });
+
+  series.createPriceLine({ price: data.entry_price, color: '#9aa9c2', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Entry' });
+  series.createPriceLine({ price: data.sl_price,    color: '#f87171', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'SL' });
+  series.createPriceLine({ price: data.tp_price,    color: '#34d399', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'TP' });
+  [['resistance_1','R1'], ['resistance_2','R2'], ['resistance_3','R3']].forEach(function(p) {
+    if (data[p[0]] != null) series.createPriceLine({ price: data[p[0]], color: 'rgba(251,191,36,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
+  });
+  [['support_1','S1'], ['support_2','S2'], ['support_3','S3']].forEach(function(p) {
+    if (data[p[0]] != null) series.createPriceLine({ price: data[p[0]], color: 'rgba(91,157,255,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
+  });
+
+  var overlay = document.createElement('div');
+  overlay.className = 'sig-box-overlay';
+  container.appendChild(overlay);
+
+  function paintOverlay() {
+    overlay.innerHTML = '';
+    var signalUnix = Math.floor(new Date(data.signal_time).getTime() / 1000);
+    var x = chart.timeScale().timeToCoordinate(signalUnix);
+    if (x != null) {
+      // Shade the post-signal region so "history before" vs. "the actual trade
+      // after" reads at a glance, not just as a thin line easily mistaken for
+      // a chart gridline.
+      var shade = document.createElement('div');
+      shade.className = 'sig-cutoff-shade';
+      shade.style.left = x + 'px';
+      overlay.appendChild(shade);
+      var label = document.createElement('div');
+      label.className = 'sig-cutoff-label';
+      label.style.left = x + 'px';
+      label.textContent = 'Signal';
+      overlay.appendChild(label);
+    }
+    [['sl_price', 'sl'], ['tp_price', 'tp']].forEach(function(p) {
+      var y = series.priceToCoordinate(data[p[0]]);
+      if (y != null) {
+        var tri = document.createElement('div');
+        tri.className = 'sig-tri sig-tri-' + p[1];
+        tri.style.top = y + 'px';
+        overlay.appendChild(tri);
+      }
+    });
+  }
+  paintOverlay();
+  chart.timeScale().fitContent();
+  chart.timeScale().subscribeVisibleTimeRangeChange(paintOverlay);
+  chart.subscribeCrosshairMove(function() {}); // keeps the instance interactive
+
+  var prevObserver = _chartInstances[id] && _chartInstances[id].observer;
+  _chartInstances[id] = { chart: chart, series: series, observer: prevObserver };
+}
+
+// Refresh ACTIVE signals' charts on a slower, independent cadence — no need to
+// tie chart repaints to the fast 2s table poll.
+setInterval(function() {
+  if (_view !== 'boxes') return;
+  _rows.forEach(function(r) {
+    if (r.status === 'ACTIVE' && _chartInstances[r.id] && _chartInstances[r.id].chart) {
+      loadChart(r.id, true);
+    }
+  });
+}, 20000);
 
 function loadList() {
+  var mySeq = ++_listReqSeq;
   var params = new URLSearchParams();
   if (_statusFilter) params.set('status', _statusFilter);
   if (_dirFilter) params.set('direction', _dirFilter);
@@ -190,17 +575,17 @@ function loadList() {
   params.set('page_size', '200');
 
   fetch('/signals/api/list?' + params.toString()).then(function(r){ return r.json(); }).then(function(data) {
+    if (mySeq !== _listReqSeq) return; // a newer request has already superseded this one
     if (data.error) {
-      document.getElementById('sigBody').innerHTML = '<tr><td colspan="22" class="empty">' + data.error + '</td></tr>';
+      document.getElementById('sigBody').innerHTML = '<tr><td colspan="9" class="empty">' + data.error + '</td></tr>';
       return;
     }
-    var rows = data.rows || [];
-    document.getElementById('sigCount').textContent = rows.length + ' of ' + data.total + ' signals';
-    document.getElementById('sigBody').innerHTML = rows.length
-      ? rows.map(rowHtml).join('')
-      : '<tr><td colspan="22" class="empty">No signals match the current filters</td></tr>';
+    _rows = data.rows || [];
+    document.getElementById('sigCount').textContent = _rows.length + ' of ' + data.total + ' signals';
+    renderCurrentView();
   }).catch(function() {
-    document.getElementById('sigBody').innerHTML = '<tr><td colspan="22" class="empty">Failed to load</td></tr>';
+    if (mySeq !== _listReqSeq) return;
+    document.getElementById('sigBody').innerHTML = '<tr><td colspan="9" class="empty">Failed to load</td></tr>';
   });
 }
 

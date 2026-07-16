@@ -182,6 +182,12 @@
     .badge.refunded::before, .badge.chargeback::before, .badge.unknown::before {
       content:''; width:6px; height:6px; border-radius:999px; margin-right:6px; background: currentColor;
     }
+    /* Signals tab: direction / trade-result badges */
+    .badge.buy    { background: rgba(52,211,153,.14);  color: var(--green);  }
+    .badge.sell   { background: rgba(248,113,113,.14); color: var(--red);    }
+    .badge.active { background: rgba(91,157,255,.16);  color: var(--accent); }
+    .badge.tp     { background: rgba(52,211,153,.14);  color: var(--green);  }
+    .badge.sl     { background: rgba(248,113,113,.14); color: var(--red);    }
 
     /* ── Filter pills ────────────────────────────────────────── */
     .filter-bar { display: flex; gap: 6px; margin-bottom: var(--sp-3); flex-wrap: wrap; }
@@ -569,6 +575,11 @@
     .stat-card.green::before  { background: linear-gradient(90deg, var(--green),  transparent 72%); }
     .stat-card.red::before    { background: linear-gradient(90deg, var(--red),    transparent 72%); }
     .stat-card.yellow::before { background: linear-gradient(90deg, var(--yellow), transparent 72%); }
+    /* Compact variant — for fast-moving/live tabs (e.g. Signals) that need a denser
+       KPI row. A documented, shared opt-in rather than a page-scoped override. */
+    .stat-card.compact { padding: 11px 14px; }
+    .stat-card.compact .label { margin-bottom: 3px; }
+    .stat-card.compact .value { font-size: 20px; }
 
     /* ── Tables ───────────────────────────────────────────────── */
     .table-wrap { box-shadow: var(--shadow); }
@@ -576,6 +587,22 @@
     td { font-family: var(--font-body); }
     td.num, td .num { font-family: var(--font-mono); }
     tbody tr:hover { background: rgba(91,157,255,.05); }
+    /* Dense variant — shared opt-in for fast-scrolling/live tables (e.g. Signals). */
+    .table-dense th, .table-dense td { padding: 7px 10px; font-size: 12.5px; }
+
+    /* ── Live indicator dot ──────────────────────────────────────
+       Shared by every "live polling" tab (FX Rates, Signals) so the
+       indicator is pixel-identical wherever it appears. */
+    .live-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0;
+      box-shadow: 0 0 0 0 rgba(52,211,153,.4); animation: live-pulse 2s infinite;
+    }
+    @keyframes live-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(52,211,153,.5); }
+      70%  { box-shadow: 0 0 0 6px rgba(52,211,153,0); }
+      100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
 
     /* ── Buttons ──────────────────────────────────────────────── */
     .btn { font-family: var(--font-body); border-radius: 9px; }
