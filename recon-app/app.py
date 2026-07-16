@@ -3149,18 +3149,6 @@ def signals_api_stats():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/signals/api/chart/<int:signal_id>")
-@require_signals_auth
-def signals_api_chart(signal_id):
-    try:
-        sig = queries.get_signal_by_id(signal_id)
-        if not sig:
-            return jsonify({"error": "signal not found"}), 404
-        return jsonify(queries.get_signal_chart(sig))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(host="0.0.0.0", port=5050, debug=debug)

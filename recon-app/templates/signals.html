@@ -93,46 +93,35 @@
   .sig-box.st-sl::before     { background:linear-gradient(90deg, var(--red),    transparent 75%); }
   .sig-box-head { position:relative; display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--border); }
   .sig-box-head .sig-rr { margin-left:auto; font-family:var(--font-mono); font-size:12px; }
-  .sig-box-chart { height:260px; position:relative; background:var(--bg); box-shadow:inset 0 1px 8px rgba(0,0,0,.35); }
-  .sig-box-chart-msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px; text-align:center; padding:0 12px; }
-  .sig-box-overlay { position:absolute; inset:0; pointer-events:none; }
-  .sig-cutoff-shade { position:absolute; top:0; bottom:0; right:0; background:rgba(91,157,255,.05); border-left:1px dashed rgba(91,157,255,.55); }
-  .sig-cutoff-label {
-    position:absolute; top:2px; transform:translateX(-100%);
-    font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
-    color:var(--accent); background:rgba(9,11,16,.75); padding:1px 4px; border-radius:3px; white-space:nowrap;
-  }
-  .sig-tri { position:absolute; right:1px; width:0; height:0; transform:translateY(-50%); }
-  .sig-tri-sl { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid var(--red); }
-  .sig-tri-tp { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid var(--green); }
-  .sig-tri-resistance { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid #fbbf24; }
-
-  /* Signal-entry pointer — a slim banner tapering to a point, tip anchored
-     exactly on the entry candle/price. Kept small on purpose; the direction
-     label lives in .sig-signal-label just above it, not crammed inside. */
-  .sig-signal-flag {
-    position:absolute; width:14px; height:16px; transform:translate(-50%,-100%);
-    clip-path: polygon(8% 0%, 92% 0%, 100% 55%, 50% 100%, 0% 55%);
-    box-shadow:0 1px 4px rgba(0,0,0,.45);
-  }
-  /* Below-bar variant (BUY): same banner, vertically mirrored — tip now at
-     the TOP (touching the entry price from underneath) instead of the
-     bottom, box sitting below the anchor instead of above it. */
-  .sig-signal-flag.below {
-    transform:translate(-50%,0%);
-    clip-path: polygon(8% 100%, 92% 100%, 100% 45%, 50% 0%, 0% 45%);
-  }
-  .sig-signal-flag.buy  { background:var(--green); }
-  .sig-signal-flag.sell { background:var(--red); }
-  .sig-signal-label {
-    position:absolute; transform:translate(-50%,-100%); white-space:nowrap;
-    font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.03em;
-    padding:1px 4px; border-radius:3px; background:rgba(9,11,16,.85);
-  }
-  /* Mirrors .sig-signal-flag.below — label sits just under the flag instead of above it. */
-  .sig-signal-label.below { transform:translate(-50%,0%); }
-  .sig-signal-label.buy  { color:var(--green); }
-  .sig-signal-label.sell { color:var(--red); }
+  /* Trade-anatomy panel (inline SVG). Replaces the old candlestick chart: the
+     only price feed (dealio.ticks) is a 30-min snapshot, far too coarse to draw
+     an M1/M5 trade that resolves in seconds, so instead of pretending, we draw
+     the trade itself from the signal's own numbers — reward/risk zones to real
+     price scale, the entry as the accent anchor, and the entry→close path.
+     Everything comes from the signal row; no price feed, no charting library. */
+  .sig-box-plot { height:230px; position:relative; background:var(--bg); box-shadow:inset 0 1px 8px rgba(0,0,0,.35); }
+  .sig-box-plot svg { display:block; width:100%; height:100%; }
+  /* Dark halo behind every label so prices stay legible where the resolution
+     path or a zone edge crosses them. */
+  .sig-box-plot text { paint-order:stroke; stroke:rgba(9,11,16,.9); stroke-width:2.5px; stroke-linejoin:round; }
+  .sig-box-plot text.sig-plot-glyph { stroke:none; }
+  .sig-plot-band-tp { fill:rgba(52,211,153,.11); }
+  .sig-plot-band-sl { fill:rgba(248,113,113,.11); }
+  .sig-plot-line-tp    { stroke:var(--green); stroke-width:1; stroke-dasharray:4 3; }
+  .sig-plot-line-sl    { stroke:var(--red);   stroke-width:1; stroke-dasharray:4 3; }
+  .sig-plot-line-entry { stroke:var(--accent); stroke-width:1.5; }
+  .sig-plot-path      { fill:none; stroke:var(--text-2); stroke-width:1.75; stroke-dasharray:3 3; }
+  .sig-plot-path.tp   { stroke:var(--green); }
+  .sig-plot-path.sl   { stroke:var(--red); }
+  .sig-plot-label       { font-family:var(--font-mono); font-size:10px; font-weight:600; }
+  .sig-plot-label.tp    { fill:var(--green); }
+  .sig-plot-label.sl    { fill:var(--red); }
+  .sig-plot-label.entry { fill:var(--accent); }
+  .sig-plot-delta       { font-family:var(--font-mono); font-size:9.5px; fill:var(--muted); }
+  .sig-plot-entry-dot   { fill:var(--accent); }
+  .sig-plot-entry-dot.live { animation:sig-plot-pulse 1.6s ease-in-out infinite; }
+  @keyframes sig-plot-pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+  @media (prefers-reduced-motion:reduce) { .sig-plot-entry-dot.live { animation:none; } }
   .sig-box-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border-top:1px solid var(--border); }
 </style>
 
@@ -168,10 +157,6 @@
   </select>
   <button class="sig-linklike" id="expandAllBtn" onclick="expandAll()" style="margin-left:8px;">Expand all</button>
   <button class="sig-linklike" id="collapseAllBtn" onclick="collapseAll()">Collapse all</button>
-  <span id="chartTypeToggle" style="display:none;align-items:center;gap:6px;margin-left:8px;">
-    <button class="filter-btn active" data-chart-type="candle" onclick="setChartType('candle',this)">Candles</button>
-    <button class="filter-btn" data-chart-type="line" onclick="setChartType('line',this)">Line</button>
-  </span>
   <span id="sigCount" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
 </div>
 
@@ -200,8 +185,6 @@
 
 <div class="sig-boxes-grid" id="sigBoxes" style="display:none;"></div>
 
-<!-- TradingView Lightweight Charts — same version/CDN already used by the FX tab -->
-<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 var _view = 'table';
 var _statusFilter = '';
@@ -238,6 +221,28 @@ function achievedRR(row) {
   if (!risk) return null;
   return reward / risk;
 }
+function fmtDuration(ms) {
+  var s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  var m = Math.round(s / 60);
+  if (m < 60) return m + 'm';
+  var h = Math.round(m / 60);
+  if (h < 48) return h + 'h';
+  return Math.round(h / 24) + 'd';
+}
+// Sensible decimal precision from the price magnitude: 2dp for indices/metals
+// like GOLD (2401.05) and USTECH, 3dp for mid-range like SILVER (55.550), 5dp
+// for FX majors like EURUSD (1.08500) that carry pip/pipette precision.
+function priceDecimals(r) {
+  var m = Math.max(Math.abs(r.entry_price || 0), Math.abs(r.tp_price || 0), Math.abs(r.sl_price || 0));
+  if (m >= 100) return 2;
+  if (m >= 10)  return 3;
+  return 5;
+}
+function tradeDurationText(r) {
+  if (r.status === 'CLOSED' && r.close_time) return 'closed in ' + fmtDuration(new Date(r.close_time) - new Date(r.signal_time));
+  return 'active ' + fmtDuration(Date.now() - new Date(r.signal_time));
+}
 
 function setView(v, btn) {
   _view = v;
@@ -247,20 +252,7 @@ function setView(v, btn) {
   document.getElementById('sigBoxes').style.display   = (v === 'boxes') ? '' : 'none';
   document.getElementById('expandAllBtn').style.display   = (v === 'table') ? '' : 'none';
   document.getElementById('collapseAllBtn').style.display = (v === 'table') ? '' : 'none';
-  document.getElementById('chartTypeToggle').style.display = (v === 'boxes') ? 'inline-flex' : 'none';
   if (v === 'boxes') { _lastBoxSignature = ''; renderCurrentView(); }
-}
-function setChartType(type, btn) {
-  _chartType = type;
-  btn.parentNode.querySelectorAll('[data-chart-type]').forEach(function(b){ b.classList.remove('active'); });
-  btn.classList.add('active');
-  // Re-render every currently-instantiated chart from its cached data — no
-  // need to re-fetch, switching type doesn't change the underlying bars.
-  Object.keys(_chartInstances).forEach(function(idStr) {
-    var id = parseInt(idStr, 10);
-    var cached = _chartCache[id];
-    if (cached) renderChart(id, cached.data);
-  });
 }
 function setStatusFilter(v, btn) {
   _statusFilter = v;
@@ -437,19 +429,6 @@ function renderRows() {
 
 // ── Boxes view: annotated per-signal trade charts ──────────────────────────
 var _lastBoxSignature = '';
-var _chartCache = {};      // id -> { data, fetchedAt }
-var _chartInstances = {};  // id -> { chart, series, observer }
-var _chartType = 'candle'; // 'candle' | 'line' — global, applies to every box
-
-var _lwBaseOpts = {
-  layout:    { background: { type: 'solid', color: 'transparent' }, textColor: '#5d6b82' },
-  grid:      { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
-  crosshair: { mode: 1 },
-  rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.06, bottom: 0.06 } },
-  timeScale:       { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false, rightOffset: 2 },
-  handleScroll:    { vertTouchDrag: false },
-  handleScale:     { axisPressedMouseMove: { time: true, price: false } },
-};
 
 function stateClass(r) {
   return r.status === 'ACTIVE' ? 'st-active' : (r.outcome === 'TP_HIT' ? 'st-tp' : (r.outcome === 'SL_HIT' ? 'st-sl' : ''));
@@ -465,280 +444,133 @@ function boxCardHtml(r) {
       directionBadgeHtml(r) + resultBadgeHtml(r) +
       '<span class="sig-rr">' + rrHtml + '</span>' +
     '</div>' +
-    '<div class="sig-box-chart" id="sig-chart-' + r.id + '"><div class="sig-box-chart-msg">Loading chart…</div></div>' +
+    '<div class="sig-box-plot" id="sig-plot-' + r.id + '"></div>' +
     '<div class="sig-box-foot">' + rsiGaugeHtml(r.rsi_value, true) +
-      '<span class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</span>' +
+      '<span class="muted" title="' + fmtTs(r.signal_time) + '">' + tradeDurationText(r) + ' · ' + relTime(r.signal_time) + '</span>' +
     '</div>' +
   '</div>';
 }
 
 function renderBoxes() {
   var el = document.getElementById('sigBoxes');
-  // Dispose any existing chart instances before rebuilding the grid.
-  Object.keys(_chartInstances).forEach(function(id) {
-    var inst = _chartInstances[id];
-    if (inst.observer) inst.observer.disconnect();
-    if (inst.chart) { try { inst.chart.remove(); } catch (e) {} }
-  });
-  _chartInstances = {};
-
   el.innerHTML = _rows.length
     ? _rows.map(boxCardHtml).join('')
     : '<div class="empty" style="grid-column:1/-1;">No signals match the current filters</div>';
-
-  document.querySelectorAll('.sig-box').forEach(function(box) {
-    var id = parseInt(box.getAttribute('data-id'), 10);
-    var observer = new IntersectionObserver(function(entries) {
-      entries.forEach(function(entry) {
-        if (entry.isIntersecting) { loadChart(id, false); }
-      });
-    }, { rootMargin: '150px' });
-    observer.observe(box);
-    _chartInstances[id] = { observer: observer };
+  // Anatomy panels are cheap DOM/SVG (no chart library, no per-card fetch), so
+  // draw them all immediately — no IntersectionObserver deferral needed.
+  _rows.forEach(function(r) {
+    var plot = document.getElementById('sig-plot-' + r.id);
+    if (plot) renderAnatomy(r, plot);
   });
 }
 
 function renderCurrentView() {
   if (_view === 'table') { renderRows(); return; }
-  var sig = _rows.map(function(r){ return r.id; }).sort(function(a,b){ return a - b; }).join(',');
+  // Signature includes the mutable fields the panel depends on, not just id, so
+  // a signal repaints when the 2s poll flips it ACTIVE→CLOSED (status/outcome/
+  // close_price all change what the panel draws).
+  var sig = _rows.map(function(r){
+    return r.id + ':' + r.status + ':' + (r.outcome || '') + ':' + (r.close_price == null ? '' : r.close_price);
+  }).join(',');
   if (sig !== _lastBoxSignature) { _lastBoxSignature = sig; renderBoxes(); }
 }
 
-function loadChart(id, force) {
-  var row = _rows.find(function(r){ return r.id === id; });
-  if (!row) return;
-  var cached = _chartCache[id];
-  var isActive = row.status === 'ACTIVE';
-  if (!force && cached && (!isActive || (Date.now() - cached.fetchedAt) < 15000)) {
-    renderChart(id, cached.data);
+function ariaLabel(r) {
+  var dec = priceDecimals(r);
+  var out = r.status === 'ACTIVE' ? 'active'
+    : (r.outcome === 'TP_HIT' ? 'take-profit hit' : (r.outcome === 'SL_HIT' ? 'stop-loss hit' : 'closed'));
+  return r.symbol + ' ' + r.timeframe + ' ' + r.direction +
+    ' — entry ' + r.entry_price.toFixed(dec) + ', TP ' + r.tp_price.toFixed(dec) +
+    ', SL ' + r.sl_price.toFixed(dec) + ', ' + out;
+}
+
+// Draws the trade-anatomy panel for one signal into `el` (a .sig-box-plot), as
+// a single inline SVG built purely from the signal row — reward/risk zones to
+// real price scale (their relative heights ARE the R:R), the entry as the
+// accent anchor line, and, once closed, a straight entry→close resolution path
+// ending on the level that was hit. No price feed, no charting library: the
+// only tick source is a 30-min snapshot, far too coarse to render a trade that
+// resolves in seconds, so we draw what we actually know instead of faking bars.
+function renderAnatomy(r, el) {
+  var isBuy = r.direction === 'BUY';
+  var dec = priceDecimals(r);
+  var entry = r.entry_price, sl = r.sl_price, tp = r.tp_price;
+  if (entry == null || sl == null || tp == null) {
+    el.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">No trade levels</div>';
     return;
   }
-  fetch('/signals/api/chart/' + id).then(function(r){ return r.json(); }).then(function(data) {
-    if (data.error) { showChartMsg(id, data.error); return; }
-    _chartCache[id] = { data: data, fetchedAt: Date.now() };
-    renderChart(id, data);
-  }).catch(function() { showChartMsg(id, 'Failed to load chart'); });
-}
+  var closed = r.status === 'CLOSED' && r.close_price != null;
 
-function showChartMsg(id, msg) {
-  var container = document.getElementById('sig-chart-' + id);
-  if (container) container.innerHTML = '<div class="sig-box-chart-msg">' + msg + '</div>';
-}
+  // Price scale spans entry/SL/TP (plus the close price, so its marker is always
+  // in view) with padding. S/R levels are deliberately excluded — they often sit
+  // thousands of points away and would crush the trade into a sliver.
+  var vals = [entry, sl, tp];
+  if (closed) vals.push(r.close_price);
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  var range = (hi - lo) || (Math.abs(entry) * 0.01) || 1;
+  var padP = range * 0.18;
+  lo -= padP; hi += padP;
 
-function renderChart(id, data) {
-  var container = document.getElementById('sig-chart-' + id);
-  if (!container) return;
-  if (!data.bars || !data.bars.length) { showChartMsg(id, 'No price history for this window'); return; }
-  container.innerHTML = '';
-  container.style.position = 'relative';
+  // Real-pixel geometry: viewBox == measured container size, so text stays crisp
+  // and the bands fill the width (re-rendered on resize, see the listener below).
+  var W = el.clientWidth || 320, H = el.clientHeight || 230;
+  var mL = 6, mR = 6, mT = 8, mB = 8;
+  var pL = mL, pR = W - mR, pW = pR - pL;
+  function Y(price) { return mT + (hi - price) / (hi - lo) * (H - mT - mB); }
 
-  var chart = LightweightCharts.createChart(container, Object.assign({}, _lwBaseOpts, { autoSize: true }));
+  var entryY = Y(entry), tpY = Y(tp), slY = Y(sl);
+  // Entry anchors at the far left ("signal fires here") and the resolution path
+  // travels rightward to the close, so the panel reads left-to-right in time.
+  var entryX = pL + 5;
+  var closeX = pL + pW * 0.88;
 
-  // The backend buckets at a fixed 1 hour regardless of the signal's own
-  // M1/M5/M15/M30 label, since dealio.ticks is a 30-min snapshot feed
-  // (verified against production) and anything finer than that degenerates
-  // to open==high==low==close. A 1-hour bucket reliably spans 2-3 real
-  // snapshots, so these are genuine bars, not synthesized ones — real
-  // candlesticks by default, with a line/area option (_chartType, toggled
-  // globally in the filter bar) for whichever reads cleaner to the viewer.
-  var barTimes = data.bars.map(function(b) { return Math.floor(new Date(b.ts).getTime() / 1000); });
-  var series;
-  if (_chartType === 'line') {
-    var closes = data.bars.map(function(b) { return b.c; });
-    var trendUp = closes.length < 2 || closes[closes.length - 1] >= closes[0];
-    series = chart.addAreaSeries({
-      lineColor: trendUp ? '#34d399' : '#f87171', lineWidth: 2,
-      topColor:    trendUp ? 'rgba(52,211,153,.22)' : 'rgba(248,113,113,.18)',
-      bottomColor: trendUp ? 'rgba(52,211,153,0)'   : 'rgba(248,113,113,0)',
-      crosshairMarkerVisible: true, priceLineVisible: false,
-    });
-    series.setData(data.bars.map(function(b, i) {
-      return { time: barTimes[i], value: b.c };
-    }));
+  var reward = isBuy ? (tp - entry) : (entry - tp);
+  var risk   = isBuy ? (entry - sl) : (sl - entry);
+  function fmtDelta(v) { return (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(dec); }
+
+  var p = [];
+  // reward / risk zones (entry↔TP, entry↔SL) — heights are the real distances
+  p.push('<rect class="sig-plot-band-tp" x="' + pL + '" y="' + Math.min(entryY, tpY) + '" width="' + pW + '" height="' + Math.abs(tpY - entryY) + '"/>');
+  p.push('<rect class="sig-plot-band-sl" x="' + pL + '" y="' + Math.min(entryY, slY) + '" width="' + pW + '" height="' + Math.abs(slY - entryY) + '"/>');
+  // level lines
+  p.push('<line class="sig-plot-line-tp" x1="' + pL + '" y1="' + tpY + '" x2="' + pR + '" y2="' + tpY + '"/>');
+  p.push('<line class="sig-plot-line-sl" x1="' + pL + '" y1="' + slY + '" x2="' + pR + '" y2="' + slY + '"/>');
+  p.push('<line class="sig-plot-line-entry" x1="' + pL + '" y1="' + entryY + '" x2="' + pR + '" y2="' + entryY + '"/>');
+  // labels sit on the entry-facing side of each line, so they land inside the zone
+  var tpDy = (tpY < entryY) ? 12 : -4;
+  var slDy = (slY < entryY) ? 12 : -4;
+  p.push('<text class="sig-plot-label tp" x="' + (pL + 3) + '" y="' + (tpY + tpDy) + '">TP ' + tp.toFixed(dec) + '</text>');
+  p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (tpY + tpDy) + '" text-anchor="end">' + fmtDelta(reward) + '</text>');
+  p.push('<text class="sig-plot-label sl" x="' + (pL + 3) + '" y="' + (slY + slDy) + '">SL ' + sl.toFixed(dec) + '</text>');
+  p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (slY + slDy) + '" text-anchor="end">' + fmtDelta(-risk) + '</text>');
+  // Entry label starts just right of the anchor dot so the two never overlap.
+  p.push('<text class="sig-plot-label entry" x="' + (entryX + 9) + '" y="' + (entryY - 5) + '">ENTRY ' + entry.toFixed(dec) + '</text>');
+
+  if (closed) {
+    var closeY = Y(r.close_price);
+    var pcls = r.outcome === 'TP_HIT' ? 'tp' : (r.outcome === 'SL_HIT' ? 'sl' : '');
+    p.push('<polyline class="sig-plot-path ' + pcls + '" points="' + entryX + ',' + entryY + ' ' + closeX + ',' + closeY + '"/>');
+    p.push('<circle class="sig-plot-entry-dot" cx="' + entryX + '" cy="' + entryY + '" r="4"/>');
+    var glyph = r.outcome === 'TP_HIT' ? '✓' : (r.outcome === 'SL_HIT' ? '✕' : '●');
+    var gcol  = r.outcome === 'TP_HIT' ? 'var(--green)' : (r.outcome === 'SL_HIT' ? 'var(--red)' : 'var(--text-2)');
+    p.push('<circle cx="' + closeX + '" cy="' + closeY + '" r="6.5" fill="' + gcol + '"/>');
+    p.push('<text class="sig-plot-glyph" x="' + closeX + '" y="' + (closeY + 3.2) + '" text-anchor="middle" font-size="9" font-weight="700" fill="#0b0d12">' + glyph + '</text>');
   } else {
-    series = chart.addCandlestickSeries({
-      upColor: '#34d399', downColor: '#f87171',
-      borderUpColor: '#34d399', borderDownColor: '#f87171',
-      wickUpColor: '#34d399', wickDownColor: '#f87171',
-    });
-    series.setData(data.bars.map(function(b, i) {
-      return { time: barTimes[i], open: b.o, high: b.h, low: b.l, close: b.c };
-    }));
+    // Active — no path yet; a pulsing accent dot marks the live entry.
+    p.push('<circle class="sig-plot-entry-dot live" cx="' + entryX + '" cy="' + entryY + '" r="4.5"/>');
   }
 
-  // Arrow markers anchored to actual bars, not just the vertical cutoff line:
-  // entry (colored by direction) and, once closed, an orange exit marker.
-  // The underlying feed only buckets at 1 hour (see _CHART_BUCKET_SECS), but
-  // this EA's trades often resolve in seconds to minutes — far finer than
-  // that bucket — so entry and exit routinely land on the *same* bar. Always
-  // place them on opposite sides of the bar (never both above or both below)
-  // so they never visually stack, and label the exit with the actual elapsed
-  // time when they do share a bar, so it reads as "fast trade" rather than
-  // a confusing coincidence.
-  function closestBarTime(iso) {
-    var unix = Math.floor(new Date(iso).getTime() / 1000);
-    return barTimes.reduce(function(closest, t) {
-      return Math.abs(t - unix) < Math.abs(closest - unix) ? t : closest;
-    }, barTimes[0]);
-  }
-  function fmtDuration(ms) {
-    var s = Math.round(ms / 1000);
-    if (s < 60) return s + 's';
-    var m = Math.round(s / 60);
-    if (m < 60) return m + 'm';
-    return Math.round(m / 60) + 'h';
-  }
-  // Entry itself is drawn as a custom flag pointer in paintOverlay() below
-  // (a shape + explicit BUY/SELL SIGNAL label the built-in marker shapes
-  // can't express) — only the exit uses a native Lightweight Charts marker.
-  var entryPosition = data.direction === 'BUY' ? 'belowBar' : 'aboveBar';
-  var exitPosition = entryPosition === 'belowBar' ? 'aboveBar' : 'belowBar';
-  var entryBarTime = closestBarTime(data.signal_time);
-  var markers = [];
-  if (data.close_time) {
-    var exitBarTime = closestBarTime(data.close_time);
-    var exitText = 'Exit';
-    if (exitBarTime === entryBarTime) {
-      exitText = 'Exit (' + fmtDuration(new Date(data.close_time).getTime() - new Date(data.signal_time).getTime()) + ')';
-    }
-    markers.push({
-      time: exitBarTime,
-      position: exitPosition,
-      color: '#fb923c',
-      shape: exitPosition === 'belowBar' ? 'arrowUp' : 'arrowDown',
-      text: exitText,
-    });
-  }
-  markers.sort(function(a, b) { return a.time - b.time; }); // Lightweight Charts requires markers in ascending time order
-  series.setMarkers(markers);
-
-  // By default Lightweight Charts autoscales the price axis to the candle data
-  // only — price lines (SL/TP/R/S) don't expand it. A TP far from the current
-  // price would then fall off the visible range entirely (and its triangle
-  // marker with it), so always force entry/SL/TP into view — they're the core
-  // trade parameters and by construction are close to the actual price.
-  //
-  // Resistance/support are a different story: BuildSRLevels() in the EA scans
-  // up to 120 weekly bars back for pivots, so support_2/support_3 in particular
-  // can legitimately sit thousands of points away from a trade that's only a
-  // few hundred points wide (a real EA signal was seen with entry/SL/TP/R1
-  // clustered within ~400 points while support_2/3 sat ~3,100+ points below).
-  // Forcing those into view would crush the actual price action into a sliver
-  // of the chart — flat-looking candles. Only pull a level into view if it's
-  // within 2x the core (entry/SL/TP) span; further-out levels just won't be
-  // visible on this zoomed-in trade review (their exact values are still in
-  // the card header's tooltip / the table's detail panel).
-  var _coreKeys  = ['entry_price', 'sl_price', 'tp_price'];
-  var _levelKeys = ['resistance_1', 'resistance_2', 'resistance_3', 'support_1', 'support_2', 'support_3'];
-  series.applyOptions({
-    autoscaleInfoProvider: function(original) {
-      var res = original();
-      if (!res || !res.priceRange) return res;
-      var min = res.priceRange.minValue, max = res.priceRange.maxValue;
-      _coreKeys.forEach(function(k) {
-        if (data[k] != null) { min = Math.min(min, data[k]); max = Math.max(max, data[k]); }
-      });
-      var coreSpan = Math.max(max - min, 1e-9);
-      _levelKeys.forEach(function(k) {
-        var v = data[k];
-        if (v == null) return;
-        var dist = v < min ? (min - v) : (v > max ? (v - max) : 0);
-        if (dist <= coreSpan * 2) { min = Math.min(min, v); max = Math.max(max, v); }
-      });
-      res.priceRange.minValue = min;
-      res.priceRange.maxValue = max;
-      return res;
-    },
-  });
-
-  series.createPriceLine({ price: data.entry_price, color: '#9aa9c2', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Entry' });
-  series.createPriceLine({ price: data.sl_price,    color: '#f87171', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'SL' });
-  series.createPriceLine({ price: data.tp_price,    color: '#34d399', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'TP' });
-  [['resistance_1','R1'], ['resistance_2','R2'], ['resistance_3','R3']].forEach(function(p) {
-    if (data[p[0]] != null) series.createPriceLine({ price: data[p[0]], color: 'rgba(251,191,36,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
-  });
-  [['support_1','S1'], ['support_2','S2'], ['support_3','S3']].forEach(function(p) {
-    if (data[p[0]] != null) series.createPriceLine({ price: data[p[0]], color: 'rgba(91,157,255,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
-  });
-
-  var overlay = document.createElement('div');
-  overlay.className = 'sig-box-overlay';
-  container.appendChild(overlay);
-
-  function paintOverlay() {
-    overlay.innerHTML = '';
-    var signalUnix = Math.floor(new Date(data.signal_time).getTime() / 1000);
-    var x = chart.timeScale().timeToCoordinate(signalUnix);
-    if (x != null) {
-      // Shade the post-signal region so "history before" vs. "the actual trade
-      // after" reads at a glance, not just as a thin line easily mistaken for
-      // a chart gridline.
-      var shade = document.createElement('div');
-      shade.className = 'sig-cutoff-shade';
-      shade.style.left = x + 'px';
-      overlay.appendChild(shade);
-      var label = document.createElement('div');
-      label.className = 'sig-cutoff-label';
-      label.style.left = x + 'px';
-      label.textContent = 'Signal';
-      overlay.appendChild(label);
-    }
-    [['sl_price', 'sl'], ['tp_price', 'tp'], ['resistance_1', 'resistance']].forEach(function(p) {
-      var y = series.priceToCoordinate(data[p[0]]);
-      if (y != null) {
-        var tri = document.createElement('div');
-        tri.className = 'sig-tri sig-tri-' + p[1];
-        tri.style.top = y + 'px';
-        overlay.appendChild(tri);
-      }
-    });
-
-    // Signal-entry pointer: tip anchored exactly on (entry bar, entry price).
-    // Small on purpose — the direction label sits just above/below it as its
-    // own compact tag rather than crammed inside the shape. Matches
-    // entryPosition (belowBar for BUY, aboveBar for SELL, same convention as
-    // the exit marker below and the ▲/▼ table badges): a BUY signal sits
-    // below the candle pointing up into it; SELL stays above pointing down.
-    var entryX = chart.timeScale().timeToCoordinate(entryBarTime);
-    var entryY = series.priceToCoordinate(data.entry_price);
-    if (entryX != null && entryY != null) {
-      var dirCls = data.direction === 'BUY' ? 'buy' : 'sell';
-      var below = entryPosition === 'belowBar';
-      var flag = document.createElement('div');
-      flag.className = 'sig-signal-flag ' + dirCls + (below ? ' below' : '');
-      flag.style.left = entryX + 'px';
-      flag.style.top = entryY + 'px';
-      overlay.appendChild(flag);
-
-      var label = document.createElement('div');
-      label.className = 'sig-signal-label ' + dirCls + (below ? ' below' : '');
-      label.style.left = entryX + 'px';
-      // Sits just clear of the 16px-tall flag — above it normally, below it
-      // when the flag itself is flipped below the candle.
-      label.style.top = (below ? entryY + 19 : entryY - 19) + 'px';
-      label.textContent = (data.direction === 'BUY' ? 'Buy' : 'Sell') + ' Signal';
-      overlay.appendChild(label);
-    }
-  }
-  paintOverlay();
-  chart.timeScale().fitContent();
-  chart.timeScale().subscribeVisibleTimeRangeChange(paintOverlay);
-  chart.subscribeCrosshairMove(function() {}); // keeps the instance interactive
-
-  var prevObserver = _chartInstances[id] && _chartInstances[id].observer;
-  _chartInstances[id] = { chart: chart, series: series, observer: prevObserver };
+  el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + ariaLabel(r) + '">' + p.join('') + '</svg>';
 }
 
-// Refresh ACTIVE signals' charts on a slower, independent cadence — no need to
-// tie chart repaints to the fast 2s table poll.
-setInterval(function() {
+// Re-render anatomy panels on resize so each SVG's viewBox tracks its container
+// (keeps text crisp and the bands full-width instead of letterboxing).
+var _boxResizeTimer = null;
+window.addEventListener('resize', function() {
   if (_view !== 'boxes') return;
-  _rows.forEach(function(r) {
-    if (r.status === 'ACTIVE' && _chartInstances[r.id] && _chartInstances[r.id].chart) {
-      loadChart(r.id, true);
-    }
-  });
-}, 20000);
+  clearTimeout(_boxResizeTimer);
+  _boxResizeTimer = setTimeout(function() { _lastBoxSignature = ''; renderCurrentView(); }, 150);
+});
 
 function loadList() {
   var mySeq = ++_listReqSeq;
