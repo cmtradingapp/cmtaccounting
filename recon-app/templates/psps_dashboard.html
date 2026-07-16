@@ -13,117 +13,219 @@
 {%- else -%}${{ '{:,.2f}'.format(v) }}
 {%- endif -%}
 {%- endmacro -%}
+{%- set oc_colors = {'approved':'#34d399','declined':'#f87171','pending':'#fbbf24','refunded':'#22d3ee','chargeback':'#a78bfa','unknown':'#5d6b82'} -%}
+{%- set pal = ['#5b9dff','#22d3ee','#34d399','#fbbf24','#f87171','#a78bfa','#fb923c','#94a3b8'] -%}
 <style>
-  .psp-charts-row { display:grid; grid-template-columns:2fr 1fr; gap:var(--sp-4); margin-bottom:var(--sp-4); }
-  .psp-chart-card { padding:20px; }
-  .psp-chart-card h3 { margin-bottom:14px; }
-  .psp-chart-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  /* ── header + toolbar ───────────────────────────────────────── */
+  .psp-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .psp-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .psp-toolbar .psp-range-links { display:flex; gap:5px; }
+  .psp-toolbar select { height:30px; font-size:12px; }
+  .psp-head .filter-btn { height:28px; padding:0 11px; }
+
+  /* ── compact KPI strip ──────────────────────────────────────── */
+  .stats-grid { grid-template-columns:repeat(auto-fit,minmax(146px,1fr)); gap:8px; margin-bottom:var(--sp-3); }
+  .stat-card { padding:10px 13px; box-shadow:inset 3px 0 0 0 var(--border); }
+  .stat-card .label { font-size:10px; margin-bottom:3px; }
+  .stat-card .value { font-size:19px; white-space:nowrap; letter-spacing:-.01em; }
+  .stat-card .delta { font-size:11px; font-weight:600; margin-top:2px; font-family:var(--font-mono); }
+  .stat-card .delta.up { color:var(--green); } .stat-card .delta.down { color:var(--red); }
+  .stat-card .sub { font-size:10px; color:var(--muted); margin-top:2px; }
+  .stat-card.k-accent { box-shadow:inset 3px 0 0 0 var(--accent);   }
+  .stat-card.k-cyan   { box-shadow:inset 3px 0 0 0 var(--accent-2); }
+  .stat-card.k-green  { box-shadow:inset 3px 0 0 0 var(--green);    }
+  .stat-card.k-red    { box-shadow:inset 3px 0 0 0 var(--red);      }
+  .stat-card.k-muted  { box-shadow:inset 3px 0 0 0 var(--muted);    }
+
+  /* ── chart bento ────────────────────────────────────────────── */
+  .psp-charts-row { display:grid; grid-template-columns:2fr 1fr; gap:var(--sp-3); margin-bottom:var(--sp-3); }
+  .psp-chart-card { padding:14px 16px; }
+  .psp-chart-card h3 { margin:0 0 10px; }
+  .psp-chart-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
   .psp-chart-head h3 { margin:0; }
-  .psp-range-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:var(--sp-2); }
-  .psp-range-links { display:flex; gap:6px; }
-  .stat-card .value { font-size:21px; white-space:nowrap; }
-  .stat-card .delta { font-size:12px; font-weight:600; margin-top:3px; font-family:var(--font-mono); }
-  .stat-card .delta.up   { color:var(--green); }
-  .stat-card .delta.down { color:var(--red); }
-  .stat-card .delta.flat { color:var(--muted); }
-  .stat-card .sub { font-size:11px; color:var(--muted); margin-top:3px; }
-  @media (max-width:900px) { .psp-charts-row { grid-template-columns:1fr; } }
+  .chart-box { position:relative; height:158px; }
+  .chart-box.tall { height:184px; }
+
+  /* doughnut with center total + html legend */
+  .donut-center { position:absolute; inset:0 0 0 0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; gap:1px; }
+  .donut-center .dc-val { font:700 17px/1 var(--font-mono); color:var(--text); letter-spacing:-.02em; }
+  .donut-center .dc-lbl { font:600 9px/1 var(--font-body); text-transform:uppercase; letter-spacing:.09em; color:var(--muted); }
+  .donut-legend { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:11px; font-size:11px; color:var(--text-2); }
+  .dl-item { display:inline-flex; align-items:center; gap:5px; }
+  .dl-item i { width:8px; height:8px; border-radius:2px; display:inline-block; }
+  .dl-item b { color:var(--text); font-family:var(--font-mono); font-weight:600; }
+
+  /* ── signature: approval leaderboard ────────────────────────── */
+  .appr-list { display:grid; grid-template-columns:repeat(2,1fr); gap:6px 26px; }
+  .appr-row  { display:grid; grid-template-columns:38px 1fr 38px 52px; align-items:center; gap:9px; }
+  .appr-cc   { font:600 11px/1 var(--font-mono); color:var(--text-2); background:var(--surface-alt);
+               border:1px solid var(--border); border-radius:6px; padding:4px 0; text-align:center;
+               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .appr-list.by-psp .appr-row { grid-template-columns:132px 1fr 38px 52px; }
+  .appr-list.by-psp .appr-cc  { text-align:left; padding:4px 7px; }
+  .appr-track{ height:7px; background:var(--surface-alt); border-radius:999px; overflow:hidden; }
+  .appr-fill { display:block; height:100%; width:var(--w); border-radius:999px; animation:apprFill .8s cubic-bezier(.22,.61,.36,1) forwards; }
+  .appr-val  { font:700 12px/1 var(--font-mono); text-align:right; }
+  .appr-n    { font:500 10px/1 var(--font-mono); color:var(--muted); text-align:right; }
+  .appr-row.hi  .appr-fill { background:linear-gradient(90deg,#1fae7d,#34d399); box-shadow:0 0 10px -3px rgba(52,211,153,.6);  }
+  .appr-row.mid .appr-fill { background:linear-gradient(90deg,#d99a24,#fbbf24); box-shadow:0 0 10px -3px rgba(251,191,36,.55); }
+  .appr-row.lo  .appr-fill { background:linear-gradient(90deg,#e0464b,#f87171); box-shadow:0 0 10px -3px rgba(248,113,113,.55);}
+  .appr-row.hi  .appr-val { color:var(--green);  }
+  .appr-row.mid .appr-val { color:var(--yellow); }
+  .appr-row.lo  .appr-val { color:var(--red);    }
+  @keyframes apprFill { from { width:0; } to { width:var(--w); } }
+
+  /* ── compact recent table ───────────────────────────────────── */
+  .psp-recent thead th { padding:7px 12px; }
+  .psp-recent td { padding:7px 12px; font-size:12px; }
+
+  @media (max-width:900px) {
+    .psp-charts-row { grid-template-columns:1fr; }
+    .appr-list { grid-template-columns:1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) { .appr-fill { animation:none; } }
 </style>
 
-<div class="page-header">
+<div class="page-header psp-head">
   <div>
     <div class="page-title">PSPs</div>
-    <div class="page-sub">Live Praxis processing volume, approvals &amp; fees</div>
+    <div class="page-sub">Live Praxis · {{ date_from.strftime('%d %b') }} – {{ date_to.strftime('%d %b %Y') }}</div>
+  </div>
+  <div class="psp-toolbar">
+    <div class="psp-range-links">
+      <a class="filter-btn {{ 'active' if range_label=='7d' }}"  href="{{ url_for('psps_dashboard', range='7d',  processor=processor or '') }}">7D</a>
+      <a class="filter-btn {{ 'active' if range_label=='30d' }}" href="{{ url_for('psps_dashboard', range='30d', processor=processor or '') }}">30D</a>
+      <a class="filter-btn {{ 'active' if range_label=='90d' }}" href="{{ url_for('psps_dashboard', range='90d', processor=processor or '') }}">90D</a>
+      <a class="filter-btn {{ 'active' if range_label=='all' }}" href="{{ url_for('psps_dashboard', range='all', processor=processor or '') }}">All</a>
+    </div>
+    <form method="get" style="display:flex;">
+      <input type="hidden" name="range" value="{{ range_label }}">
+      <select name="processor" onchange="this.form.submit()">
+        <option value="">All Providers</option>
+        {% for p in processors %}
+        <option value="{{ p.psp }}" {{ 'selected' if p.psp == processor }}>{{ p.psp }}</option>
+        {% endfor %}
+      </select>
+    </form>
   </div>
 </div>
 
 {% include "_psps_subnav.html" %}
 
-<div class="psp-range-bar">
-  <div class="psp-range-links">
-    <a class="filter-btn {{ 'active' if range_label=='7d' }}"  href="{{ url_for('psps_dashboard', range='7d',  processor=processor or '') }}">7D</a>
-    <a class="filter-btn {{ 'active' if range_label=='30d' }}" href="{{ url_for('psps_dashboard', range='30d', processor=processor or '') }}">30D</a>
-    <a class="filter-btn {{ 'active' if range_label=='90d' }}" href="{{ url_for('psps_dashboard', range='90d', processor=processor or '') }}">90D</a>
-    <a class="filter-btn {{ 'active' if range_label=='all' }}" href="{{ url_for('psps_dashboard', range='all', processor=processor or '') }}">All</a>
-  </div>
-  <form method="get" style="display:flex;gap:8px;align-items:center;">
-    <input type="hidden" name="range" value="{{ range_label }}">
-    <select name="processor" onchange="this.form.submit()">
-      <option value="">All Providers</option>
-      {% for p in processors %}
-      <option value="{{ p.psp }}" {{ 'selected' if p.psp == processor }}>{{ p.psp }}</option>
-      {% endfor %}
-    </select>
-  </form>
-</div>
-<div class="legend">{{ date_from.strftime('%Y-%m-%d') }} → {{ date_to.strftime('%Y-%m-%d') }}</div>
-
 <div class="stats-grid">
-  <div class="stat-card">
+  <div class="stat-card k-accent">
     <div class="label">Total Volume</div>
     <div class="value num" title="${{ '{:,.2f}'.format(stats.total_volume_usd) }}">{{ money(stats.total_volume_usd) }}</div>
     {% if deltas.volume is not none %}<div class="delta {{ 'up' if deltas.volume>=0 else 'down' }}">{{ '▲' if deltas.volume>=0 else '▼' }} {{ '{:+.1f}'.format(deltas.volume) }}% vs prev</div>{% endif %}
   </div>
-  <div class="stat-card">
+  <div class="stat-card k-cyan">
     <div class="label">Transactions</div>
     <div class="value num">{{ '{:,}'.format(stats.tx_count) }}</div>
     {% if deltas.tx is not none %}<div class="delta {{ 'up' if deltas.tx>=0 else 'down' }}">{{ '▲' if deltas.tx>=0 else '▼' }} {{ '{:+.1f}'.format(deltas.tx) }}% vs prev</div>{% endif %}
   </div>
-  <div class="stat-card">
+  <div class="stat-card k-green">
     <div class="label">Success Rate</div>
     <div class="value num">{{ '{:.1f}'.format(stats.success_rate) }}%</div>
     {% if deltas.success is not none %}<div class="delta {{ 'up' if deltas.success>=0 else 'down' }}">{{ '{:+.1f}'.format(deltas.success) }}pp vs prev</div>{% endif %}
     <div class="sub">approved of {{ '{:,}'.format(stats.decided_count) }} decided</div>
   </div>
-  <div class="stat-card">
+  <div class="stat-card k-accent">
     <div class="label">Est. Fees</div>
     <div class="value num" title="${{ '{:,.2f}'.format(exp_fees.total) }}">{{ money(exp_fees.total) }}</div>
-    <div class="sub">{% if exp_fees.total > 0 %}from fee agreements{% else %}needs active agreement mapping{% endif %}</div>
+    <div class="sub">{% if exp_fees.total > 0 %}from fee agreements{% else %}needs agreement mapping{% endif %}</div>
   </div>
-  <div class="stat-card {{ 'red' if stats.chargeback_rate > 0 }}">
+  <div class="stat-card k-red {{ 'red' if stats.chargeback_rate > 0 }}">
     <div class="label">Chargeback Rate</div>
     <div class="value num">{{ '{:.2f}'.format(stats.chargeback_rate) }}%</div>
     <div class="sub">{{ '{:,}'.format(stats.chargeback_count) }} chargebacks</div>
   </div>
-  <div class="stat-card {{ 'green' if stats.net_usd >= 0 else 'red' }}">
+  <div class="stat-card {{ 'green k-green' if stats.net_usd >= 0 else 'red k-red' }}">
     <div class="label">Net Position</div>
     <div class="value num" title="${{ '{:,.2f}'.format(stats.net_usd) }}">{{ money(stats.net_usd) }}</div>
   </div>
-  <div class="stat-card">
+  <div class="stat-card k-muted">
     <div class="label">Avg Ticket</div>
     <div class="value num">${{ '{:,.2f}'.format(stats.avg_ticket_usd) }}</div>
   </div>
-  <div class="stat-card">
+  <div class="stat-card k-cyan">
     <div class="label">Distinct Customers</div>
     <div class="value num">{{ '{:,}'.format(stats.distinct_customers) }}</div>
   </div>
 </div>
 
 <div class="psp-charts-row">
-  <div class="card psp-chart-card"><h3>Transaction Volume</h3><canvas id="volChart" height="90"></canvas></div>
-  <div class="card psp-chart-card"><h3>Status Distribution</h3><canvas id="statusChart" height="90"></canvas></div>
+  <div class="card psp-chart-card">
+    <h3>Transaction Volume</h3>
+    <div class="chart-box tall"><canvas id="volChart"></canvas></div>
+  </div>
+  <div class="card psp-chart-card">
+    <h3>Status Distribution</h3>
+    <div class="chart-box">
+      <canvas id="statusChart"></canvas>
+      <div class="donut-center">
+        <span class="dc-val">{{ '{:,}'.format(status_dist|sum(attribute='tx_count')) }}</span>
+        <span class="dc-lbl">transactions</span>
+      </div>
+    </div>
+    <div class="donut-legend">
+      {% for s in status_dist %}
+      <span class="dl-item"><i style="background:{{ oc_colors.get(s.outcome,'#5d6b82') }}"></i>{{ s.outcome }} <b>{{ '{:,}'.format(s.tx_count) }}</b></span>
+      {% endfor %}
+    </div>
+  </div>
 </div>
 
-<div class="card psp-chart-card" style="margin-bottom:var(--sp-4);">
+<div class="card psp-chart-card" style="margin-bottom:var(--sp-3);">
   <div class="psp-chart-head">
     <h3>Approval Ratio</h3>
-    <div class="psp-range-links">
+    <div class="psp-range-links" style="display:flex;gap:5px;">
       <a class="filter-btn {{ 'active' if approval_group=='country' }}" href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='country') }}">By Country</a>
       <a class="filter-btn {{ 'active' if approval_group=='psp' }}"     href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='psp') }}">By PSP</a>
     </div>
   </div>
-  {% if approval %}<canvas id="approvalChart" height="{{ [approval|length * 26, 120]|max }}"></canvas>
-  {% else %}<div class="empty">Not enough decided transactions to compute approval ratios in this range.</div>{% endif %}
+  {% if approval %}
+  <div class="appr-list {{ 'by-psp' if approval_group=='psp' }}">
+    {% for a in approval %}
+    {% set decided = a.approved + a.declined %}
+    {% set tier = 'hi' if a.ratio >= 75 else ('mid' if a.ratio >= 50 else 'lo') %}
+    <div class="appr-row {{ tier }}">
+      <span class="appr-cc" title="{{ a.name }}">{{ a.name }}</span>
+      <div class="appr-track"><span class="appr-fill" style="--w:{{ a.ratio }}%; animation-delay:{{ loop.index0 * 22 }}ms"></span></div>
+      <span class="appr-val">{{ '{:.0f}'.format(a.ratio) }}%</span>
+      <span class="appr-n">{{ '{:,}'.format(a.approved) }}/{{ '{:,}'.format(decided) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">Not enough decided transactions to compute approval ratios in this range.</div>
+  {% endif %}
 </div>
 
 <div class="psp-charts-row">
-  <div class="card psp-chart-card"><h3>Volume by Provider</h3><canvas id="pspChart" height="110"></canvas></div>
-  <div class="card psp-chart-card"><h3>By Currency</h3><canvas id="ccyChart" height="110"></canvas></div>
+  <div class="card psp-chart-card">
+    <h3>Volume by Provider</h3>
+    <div class="chart-box tall"><canvas id="pspChart"></canvas></div>
+  </div>
+  <div class="card psp-chart-card">
+    <h3>By Currency</h3>
+    <div class="chart-box">
+      <canvas id="ccyChart"></canvas>
+      <div class="donut-center">
+        <span class="dc-val">{{ money(by_ccy|sum(attribute='volume')) }}</span>
+        <span class="dc-lbl">volume</span>
+      </div>
+    </div>
+    <div class="donut-legend">
+      {% for c in by_ccy %}
+      <span class="dl-item"><i style="background:{{ pal[loop.index0 % 8] }}"></i>{{ c.currency or '—' }}</span>
+      {% endfor %}
+    </div>
+  </div>
 </div>
 
 <div class="section-title">Recent Transactions</div>
 <div class="table-wrap">
-  <table>
+  <table class="psp-recent">
     <thead>
       <tr>
         <th>Date</th><th>Processor</th><th>Country</th><th>Customer</th>
@@ -152,101 +254,65 @@
 (function () {
   var volumeDay  = {{ volume_day | tojson }};
   var statusDist = {{ status_dist | tojson }};
-  var approval   = {{ approval | tojson }};
   var byPsp      = {{ by_psp | tojson }};
   var byCcy      = {{ by_ccy | tojson }};
 
-  var C = {
-    accent: '#5b9dff', accent2: '#22d3ee', green: '#34d399',
-    red: '#f87171', yellow: '#fbbf24', purple: '#a78bfa', muted: '#5d6b82',
-    grid: '#1e222d', text: '#9aa9c2'
-  };
-  var palette = [C.accent, C.accent2, C.green, C.yellow, C.red, C.purple, '#fb923c', '#94a3b8'];
-  var OUTCOME_COLORS = {
-    approved: C.green, declined: C.red, pending: C.yellow,
-    refunded: C.accent2, chargeback: C.purple, unknown: C.muted
-  };
+  var C = { accent:'#5b9dff', accent2:'#22d3ee', green:'#34d399', red:'#f87171',
+            yellow:'#fbbf24', purple:'#a78bfa', muted:'#5d6b82', grid:'#1e222d', text:'#9aa9c2' };
+  var palette = ['#5b9dff','#22d3ee','#34d399','#fbbf24','#f87171','#a78bfa','#fb923c','#94a3b8'];
+  var OUTCOME_COLORS = { approved:C.green, declined:C.red, pending:C.yellow,
+                         refunded:C.accent2, chargeback:C.purple, unknown:C.muted };
   var usd = function (v) { return '$' + Number(v).toLocaleString('en', { maximumFractionDigits: 0 }); };
+  var base = { responsive:true, maintainAspectRatio:false };
 
   Chart.defaults.color = C.text;
   Chart.defaults.font.family = "'Hanken Grotesk', system-ui, sans-serif";
 
-  new Chart(document.getElementById('volChart'), {
+  var vctx = document.getElementById('volChart').getContext('2d');
+  var vgrad = vctx.createLinearGradient(0, 0, 0, 184);
+  vgrad.addColorStop(0, '#5b9dff'); vgrad.addColorStop(1, 'rgba(91,157,255,0.12)');
+  var dayLabel = function (s) { var dt = new Date(s); return isNaN(dt) ? s : dt.toLocaleDateString('en', { month: 'short', day: 'numeric' }); };
+  new Chart(vctx, {
     type: 'bar',
-    data: {
-      labels: volumeDay.map(function (d) { return d.day; }),
-      datasets: [{ label: 'Volume (USD)', data: volumeDay.map(function (d) { return d.volume; }),
-                   backgroundColor: C.accent, borderRadius: 4 }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false },
-                 tooltip: { callbacks: { label: function (c) { return usd(c.parsed.y); } } } },
-      scales: { x: { grid: { color: C.grid } },
-                y: { grid: { color: C.grid }, beginAtZero: true,
-                     ticks: { callback: function (v) { return usd(v); } } } }
-    }
+    data: { labels: volumeDay.map(function (d) { return dayLabel(d.day); }),
+            datasets: [{ data: volumeDay.map(function (d) { return d.volume; }),
+                         backgroundColor: vgrad, borderRadius: 3, maxBarThickness: 22 }] },
+    options: Object.assign({}, base, {
+      plugins: { legend:{ display:false },
+                 tooltip:{ callbacks:{ label:function (c) { return usd(c.parsed.y); } } } },
+      scales: { x:{ grid:{ display:false }, ticks:{ maxRotation:0, autoSkip:true } },
+                y:{ grid:{ color:C.grid }, beginAtZero:true, ticks:{ maxTicksLimit:5, callback:function (v) { return usd(v); } } } }
+    })
   });
 
   new Chart(document.getElementById('statusChart'), {
     type: 'doughnut',
-    data: {
-      labels: statusDist.map(function (d) { return d.outcome; }),
-      datasets: [{ data: statusDist.map(function (d) { return d.tx_count; }),
-                   backgroundColor: statusDist.map(function (d) { return OUTCOME_COLORS[d.outcome] || C.muted; }) }]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    data: { labels: statusDist.map(function (d) { return d.outcome; }),
+            datasets: [{ data: statusDist.map(function (d) { return d.tx_count; }),
+                         backgroundColor: statusDist.map(function (d) { return OUTCOME_COLORS[d.outcome] || C.muted; }),
+                         borderWidth: 0 }] },
+    options: Object.assign({}, base, { cutout:'72%', plugins:{ legend:{ display:false } } })
   });
-
-  if (document.getElementById('approvalChart')) {
-    new Chart(document.getElementById('approvalChart'), {
-      type: 'bar',
-      data: {
-        labels: approval.map(function (d) { return d.name; }),
-        datasets: [{ label: 'Approval %', data: approval.map(function (d) { return d.ratio; }),
-                     backgroundColor: C.green, borderRadius: 4 }]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: function (c) {
-            var d = approval[c.dataIndex];
-            return d.ratio + '% (' + d.approved + '/' + (d.approved + d.declined) + ' decided)';
-          } } }
-        },
-        scales: { x: { grid: { color: C.grid }, beginAtZero: true, max: 100,
-                       ticks: { callback: function (v) { return v + '%'; } } },
-                  y: { grid: { display: false } } }
-      }
-    });
-  }
 
   new Chart(document.getElementById('pspChart'), {
     type: 'bar',
-    data: {
-      labels: byPsp.map(function (d) { return d.psp; }),
-      datasets: [{ label: 'Volume (USD)', data: byPsp.map(function (d) { return d.volume; }),
-                   backgroundColor: C.accent2, borderRadius: 4 }]
-    },
-    options: {
-      indexAxis: 'y', responsive: true,
-      plugins: { legend: { display: false },
-                 tooltip: { callbacks: { label: function (c) { return usd(c.parsed.x); } } } },
-      scales: { x: { grid: { color: C.grid }, beginAtZero: true,
-                     ticks: { callback: function (v) { return usd(v); } } },
-                y: { grid: { display: false } } }
-    }
+    data: { labels: byPsp.map(function (d) { return d.psp; }),
+            datasets: [{ data: byPsp.map(function (d) { return d.volume; }),
+                         backgroundColor: C.accent2, borderRadius: 3, maxBarThickness: 15 }] },
+    options: Object.assign({}, base, {
+      indexAxis: 'y',
+      plugins: { legend:{ display:false },
+                 tooltip:{ callbacks:{ label:function (c) { return usd(c.parsed.x); } } } },
+      scales: { x:{ grid:{ color:C.grid }, beginAtZero:true, ticks:{ maxTicksLimit:5, callback:function (v) { return usd(v); } } },
+                y:{ grid:{ display:false } } }
+    })
   });
 
   new Chart(document.getElementById('ccyChart'), {
     type: 'doughnut',
-    data: {
-      labels: byCcy.map(function (d) { return d.currency; }),
-      datasets: [{ data: byCcy.map(function (d) { return d.volume; }), backgroundColor: palette }]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    data: { labels: byCcy.map(function (d) { return d.currency; }),
+            datasets: [{ data: byCcy.map(function (d) { return d.volume; }), backgroundColor: palette, borderWidth: 0 }] },
+    options: Object.assign({}, base, { cutout:'72%', plugins:{ legend:{ display:false } } })
   });
 })();
 </script>
