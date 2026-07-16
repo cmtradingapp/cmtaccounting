@@ -115,6 +115,13 @@
     clip-path: polygon(8% 0%, 92% 0%, 100% 55%, 50% 100%, 0% 55%);
     box-shadow:0 1px 4px rgba(0,0,0,.45);
   }
+  /* Below-bar variant (BUY): same banner, vertically mirrored — tip now at
+     the TOP (touching the entry price from underneath) instead of the
+     bottom, box sitting below the anchor instead of above it. */
+  .sig-signal-flag.below {
+    transform:translate(-50%,0%);
+    clip-path: polygon(8% 100%, 92% 100%, 100% 45%, 50% 0%, 0% 45%);
+  }
   .sig-signal-flag.buy  { background:var(--green); }
   .sig-signal-flag.sell { background:var(--red); }
   .sig-signal-label {
@@ -122,6 +129,8 @@
     font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.03em;
     padding:1px 4px; border-radius:3px; background:rgba(9,11,16,.85);
   }
+  /* Mirrors .sig-signal-flag.below — label sits just under the flag instead of above it. */
+  .sig-signal-label.below { transform:translate(-50%,0%); }
   .sig-signal-label.buy  { color:var(--green); }
   .sig-signal-label.sell { color:var(--red); }
   .sig-box-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border-top:1px solid var(--border); }
@@ -685,22 +694,28 @@ function renderChart(id, data) {
     });
 
     // Signal-entry pointer: tip anchored exactly on (entry bar, entry price).
-    // Small on purpose — the direction label sits just above it as its own
-    // compact tag rather than crammed inside the shape.
+    // Small on purpose — the direction label sits just above/below it as its
+    // own compact tag rather than crammed inside the shape. Matches
+    // entryPosition (belowBar for BUY, aboveBar for SELL, same convention as
+    // the exit marker below and the ▲/▼ table badges): a BUY signal sits
+    // below the candle pointing up into it; SELL stays above pointing down.
     var entryX = chart.timeScale().timeToCoordinate(entryBarTime);
     var entryY = series.priceToCoordinate(data.entry_price);
     if (entryX != null && entryY != null) {
       var dirCls = data.direction === 'BUY' ? 'buy' : 'sell';
+      var below = entryPosition === 'belowBar';
       var flag = document.createElement('div');
-      flag.className = 'sig-signal-flag ' + dirCls;
+      flag.className = 'sig-signal-flag ' + dirCls + (below ? ' below' : '');
       flag.style.left = entryX + 'px';
       flag.style.top = entryY + 'px';
       overlay.appendChild(flag);
 
       var label = document.createElement('div');
-      label.className = 'sig-signal-label ' + dirCls;
+      label.className = 'sig-signal-label ' + dirCls + (below ? ' below' : '');
       label.style.left = entryX + 'px';
-      label.style.top = (entryY - 19) + 'px'; // sits just above the 16px-tall flag
+      // Sits just clear of the 16px-tall flag — above it normally, below it
+      // when the flag itself is flipped below the candle.
+      label.style.top = (below ? entryY + 19 : entryY - 19) + 'px';
       label.textContent = (data.direction === 'BUY' ? 'Buy' : 'Sell') + ' Signal';
       overlay.appendChild(label);
     }
