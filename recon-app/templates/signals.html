@@ -499,16 +499,35 @@ function renderChart(id, data) {
   // By default Lightweight Charts autoscales the price axis to the candle data
   // only — price lines (SL/TP/R/S) don't expand it. A TP far from the current
   // price would then fall off the visible range entirely (and its triangle
-  // marker with it). Force the visible range to always include every level.
-  var _levelKeys = ['entry_price', 'sl_price', 'tp_price',
-    'resistance_1', 'resistance_2', 'resistance_3', 'support_1', 'support_2', 'support_3'];
+  // marker with it), so always force entry/SL/TP into view — they're the core
+  // trade parameters and by construction are close to the actual price.
+  //
+  // Resistance/support are a different story: BuildSRLevels() in the EA scans
+  // up to 120 weekly bars back for pivots, so support_2/support_3 in particular
+  // can legitimately sit thousands of points away from a trade that's only a
+  // few hundred points wide (a real EA signal was seen with entry/SL/TP/R1
+  // clustered within ~400 points while support_2/3 sat ~3,100+ points below).
+  // Forcing those into view would crush the actual price action into a sliver
+  // of the chart — flat-looking candles. Only pull a level into view if it's
+  // within 2x the core (entry/SL/TP) span; further-out levels just won't be
+  // visible on this zoomed-in trade review (their exact values are still in
+  // the card header's tooltip / the table's detail panel).
+  var _coreKeys  = ['entry_price', 'sl_price', 'tp_price'];
+  var _levelKeys = ['resistance_1', 'resistance_2', 'resistance_3', 'support_1', 'support_2', 'support_3'];
   series.applyOptions({
     autoscaleInfoProvider: function(original) {
       var res = original();
       if (!res || !res.priceRange) return res;
       var min = res.priceRange.minValue, max = res.priceRange.maxValue;
-      _levelKeys.forEach(function(k) {
+      _coreKeys.forEach(function(k) {
         if (data[k] != null) { min = Math.min(min, data[k]); max = Math.max(max, data[k]); }
+      });
+      var coreSpan = Math.max(max - min, 1e-9);
+      _levelKeys.forEach(function(k) {
+        var v = data[k];
+        if (v == null) return;
+        var dist = v < min ? (min - v) : (v > max ? (v - max) : 0);
+        if (dist <= coreSpan * 2) { min = Math.min(min, v); max = Math.max(max, v); }
       });
       res.priceRange.minValue = min;
       res.priceRange.maxValue = max;
