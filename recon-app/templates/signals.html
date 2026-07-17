@@ -203,6 +203,8 @@
     <button class="filter-btn active" data-chart-type="candle" onclick="setChartType('candle',this)">Candles</button>
     <button class="filter-btn" data-chart-type="line" onclick="setChartType('line',this)">Line</button>
   </span>
+  <button class="filter-btn active" id="levelsToggle" onclick="toggleLevels(this)"
+          title="Show or hide the exact SL / TP / Entry levels across all views" style="margin-left:8px;">SL/TP/Entry</button>
   <span id="sigCount" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
 </div>
 
@@ -245,6 +247,11 @@ var _expandedIds = new Set();
 var _hasRenderedOnce = false;
 var _listReqSeq = 0;
 var _formRows = null; // cached recent-closed signals for the Recent Form strip
+// When off, the exact trade levels (SL / TP / Entry) are hidden everywhere they
+// appear — table bracket + detail, candle price-lines/flag, anatomy labels — so
+// the dashboard can be shown/screenshotted without revealing them. Persisted so
+// the choice survives a reload. R:R, outcome, and S/R levels are unaffected.
+var _showLevels = (localStorage.getItem('sigShowLevels') !== '0');
 
 function fmtNum(v, d) {
   if (v === null || v === undefined) return '—';
@@ -318,6 +325,15 @@ function setChartType(type, btn) {
     var cached = _chartCache[id];
     if (cached) renderChart(id, cached.data);
   });
+}
+function toggleLevels(btn) {
+  _showLevels = !_showLevels;
+  localStorage.setItem('sigShowLevels', _showLevels ? '1' : '0');
+  btn.classList.toggle('active', _showLevels);
+  // Force a full repaint of whichever view is active (reset the card-view
+  // signatures so the diffing rebuild fires).
+  _lastBoxSignature = ''; _lastAnatomySignature = '';
+  renderCurrentView();
 }
 function setStatusFilter(v, btn) {
   _statusFilter = v;
@@ -447,7 +463,7 @@ function rowHtml(r, flashEnabled) {
     '<td class="num muted">' + r.id + '</td>' +
     '<td class="sig-instrument"><span class="sym">' + r.symbol + '</span><span class="tf">' + r.timeframe + '</span></td>' +
     '<td>' + directionBadgeHtml(r) + '</td>' +
-    '<td>' + bracketHtml(r) + '</td>' +
+    '<td>' + (_showLevels ? bracketHtml(r) : '<span class="muted" title="SL/TP/Entry hidden">—</span>') + '</td>' +
     '<td>' + rsiGaugeHtml(r.rsi_value) + '</td>' +
     '<td>' + resultBadgeHtml(r) + '</td>' +
     '<td class="num">' + rrHtml + '</td>' +
@@ -456,9 +472,11 @@ function rowHtml(r, flashEnabled) {
 
   var detail = '<tr class="sig-detail-row" id="' + detailId + '" style="' + (expanded ? '' : 'display:none;') + '">' +
     '<td colspan="9"><div class="sig-detail-grid">' +
-      detailItem('Entry', fmtNum(r.entry_price)) +
-      detailItem('Stop Loss', fmtNum(r.sl_price)) +
-      detailItem('Take Profit', fmtNum(r.tp_price)) +
+      (_showLevels ? (
+        detailItem('Entry', fmtNum(r.entry_price)) +
+        detailItem('Stop Loss', fmtNum(r.sl_price)) +
+        detailItem('Take Profit', fmtNum(r.tp_price))
+      ) : '') +
       detailItem('Close Price', fmtNum(r.close_price)) +
       detailItem('Signal Time', fmtTs(r.signal_time)) +
       detailItem('Close Time', fmtTs(r.close_time)) +
@@ -751,9 +769,11 @@ function renderChart(id, data) {
     },
   });
 
-  series.createPriceLine({ price: data.entry_price, color: '#9aa9c2', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Entry' });
-  series.createPriceLine({ price: data.sl_price,    color: '#f87171', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'SL' });
-  series.createPriceLine({ price: data.tp_price,    color: '#34d399', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'TP' });
+  if (_showLevels) {
+    series.createPriceLine({ price: data.entry_price, color: '#9aa9c2', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Entry' });
+    series.createPriceLine({ price: data.sl_price,    color: '#f87171', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'SL' });
+    series.createPriceLine({ price: data.tp_price,    color: '#34d399', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'TP' });
+  }
   [['resistance_1','R1'], ['resistance_2','R2'], ['resistance_3','R3']].forEach(function(p) {
     if (data[p[0]] != null) series.createPriceLine({ price: data[p[0]], color: 'rgba(251,191,36,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
   });
@@ -783,7 +803,10 @@ function renderChart(id, data) {
       label.textContent = 'Signal';
       overlay.appendChild(label);
     }
-    [['sl_price', 'sl'], ['tp_price', 'tp'], ['resistance_1', 'resistance']].forEach(function(p) {
+    // SL/TP triangles only when levels are shown; the resistance marker always is.
+    var tris = _showLevels ? [['sl_price', 'sl'], ['tp_price', 'tp'], ['resistance_1', 'resistance']]
+                           : [['resistance_1', 'resistance']];
+    tris.forEach(function(p) {
       var y = series.priceToCoordinate(data[p[0]]);
       if (y != null) {
         var tri = document.createElement('div');
@@ -799,9 +822,10 @@ function renderChart(id, data) {
     // entryPosition (belowBar for BUY, aboveBar for SELL, same convention as
     // the exit marker below and the ▲/▼ table badges): a BUY signal sits
     // below the candle pointing up into it; SELL stays above pointing down.
+    // Hidden entirely when SL/TP/Entry display is toggled off.
     var entryX = chart.timeScale().timeToCoordinate(entryBarTime);
     var entryY = series.priceToCoordinate(data.entry_price);
-    if (entryX != null && entryY != null) {
+    if (_showLevels && entryX != null && entryY != null) {
       var dirCls = data.direction === 'BUY' ? 'buy' : 'sell';
       var below = entryPosition === 'belowBar';
       var flag = document.createElement('div');
@@ -899,15 +923,20 @@ function renderAnatomy(r, el) {
   p.push('<line class="sig-plot-line-tp" x1="' + pL + '" y1="' + tpY + '" x2="' + pR + '" y2="' + tpY + '"/>');
   p.push('<line class="sig-plot-line-sl" x1="' + pL + '" y1="' + slY + '" x2="' + pR + '" y2="' + slY + '"/>');
   p.push('<line class="sig-plot-line-entry" x1="' + pL + '" y1="' + entryY + '" x2="' + pR + '" y2="' + entryY + '"/>');
-  // labels sit on the entry-facing side of each line, so they land inside the zone
-  var tpDy = (tpY < entryY) ? 12 : -4;
-  var slDy = (slY < entryY) ? 12 : -4;
-  p.push('<text class="sig-plot-label tp" x="' + (pL + 3) + '" y="' + (tpY + tpDy) + '">TP ' + tp.toFixed(dec) + '</text>');
-  p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (tpY + tpDy) + '" text-anchor="end">' + fmtDelta(reward) + '</text>');
-  p.push('<text class="sig-plot-label sl" x="' + (pL + 3) + '" y="' + (slY + slDy) + '">SL ' + sl.toFixed(dec) + '</text>');
-  p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (slY + slDy) + '" text-anchor="end">' + fmtDelta(-risk) + '</text>');
-  // Entry label starts just right of the anchor dot so the two never overlap.
-  p.push('<text class="sig-plot-label entry" x="' + (entryX + 9) + '" y="' + (entryY - 5) + '">ENTRY ' + entry.toFixed(dec) + '</text>');
+  // Numeric labels only when levels are shown. The zones/lines stay either way:
+  // without axis numbers they reveal direction + R:R shape + outcome, not the
+  // proprietary prices.
+  if (_showLevels) {
+    // labels sit on the entry-facing side of each line, so they land inside the zone
+    var tpDy = (tpY < entryY) ? 12 : -4;
+    var slDy = (slY < entryY) ? 12 : -4;
+    p.push('<text class="sig-plot-label tp" x="' + (pL + 3) + '" y="' + (tpY + tpDy) + '">TP ' + tp.toFixed(dec) + '</text>');
+    p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (tpY + tpDy) + '" text-anchor="end">' + fmtDelta(reward) + '</text>');
+    p.push('<text class="sig-plot-label sl" x="' + (pL + 3) + '" y="' + (slY + slDy) + '">SL ' + sl.toFixed(dec) + '</text>');
+    p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (slY + slDy) + '" text-anchor="end">' + fmtDelta(-risk) + '</text>');
+    // Entry label starts just right of the anchor dot so the two never overlap.
+    p.push('<text class="sig-plot-label entry" x="' + (entryX + 9) + '" y="' + (entryY - 5) + '">ENTRY ' + entry.toFixed(dec) + '</text>');
+  }
 
   if (closed) {
     var closeY = Y(r.close_price);
@@ -923,7 +952,9 @@ function renderAnatomy(r, el) {
     p.push('<circle class="sig-plot-entry-dot live" cx="' + entryX + '" cy="' + entryY + '" r="4.5"/>');
   }
 
-  el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + ariaLabel(r) + '">' + p.join('') + '</svg>';
+  var aria = _showLevels ? ariaLabel(r)
+    : (r.symbol + ' ' + r.timeframe + ' ' + r.direction + ' — levels hidden');
+  el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + aria + '">' + p.join('') + '</svg>';
 }
 
 // Re-render Anatomy panels on resize so each SVG's viewBox tracks its container
@@ -969,6 +1000,8 @@ function refreshAll() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  // Sync the toggle button with the persisted preference (markup defaults to on).
+  document.getElementById('levelsToggle').classList.toggle('active', _showLevels);
   refreshAll();
   // 2s poll — faster than the EA's own 5s signal-check timer, so a new/closed
   // signal shows up here within a couple seconds of being written.
