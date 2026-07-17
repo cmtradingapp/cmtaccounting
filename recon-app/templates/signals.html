@@ -995,6 +995,14 @@ function renderAnatomy(r, el) {
   }
   var closed = r.status === 'CLOSED' && r.close_price != null;
 
+  // Anatomy is entirely a levels visual — when SL/TP/Entry display is off, hide
+  // the whole plot (zones, lines, entry dot, path, numbers) and show a
+  // placeholder, the same way the table bracket and the candle flag hide.
+  if (!_showLevels) {
+    el.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">Levels hidden</div>';
+    return;
+  }
+
   // Price scale spans entry/SL/TP (plus the close price, so its marker is always
   // in view) with padding. S/R levels are deliberately excluded — they often sit
   // thousands of points away and would crush the trade into a sliver.
@@ -1030,25 +1038,20 @@ function renderAnatomy(r, el) {
   p.push('<line class="sig-plot-line-tp" x1="' + pL + '" y1="' + tpY + '" x2="' + pR + '" y2="' + tpY + '"/>');
   p.push('<line class="sig-plot-line-sl" x1="' + pL + '" y1="' + slY + '" x2="' + pR + '" y2="' + slY + '"/>');
   p.push('<line class="sig-plot-line-entry" x1="' + pL + '" y1="' + entryY + '" x2="' + pR + '" y2="' + entryY + '"/>');
-  // Numeric labels only when levels are shown. The zones/lines stay either way:
-  // without axis numbers they reveal direction + R:R shape + outcome, not the
-  // proprietary prices.
-  if (_showLevels) {
-    // labels sit on the entry-facing side of each line, so they land inside the zone
-    var tpDy = (tpY < entryY) ? 12 : -4;
-    var slDy = (slY < entryY) ? 12 : -4;
-    p.push('<text class="sig-plot-label tp" x="' + (pL + 3) + '" y="' + (tpY + tpDy) + '">TP ' + tp.toFixed(dec) + '</text>');
-    p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (tpY + tpDy) + '" text-anchor="end">' + fmtDelta(reward) + '</text>');
-    p.push('<text class="sig-plot-label sl" x="' + (pL + 3) + '" y="' + (slY + slDy) + '">SL ' + sl.toFixed(dec) + '</text>');
-    p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (slY + slDy) + '" text-anchor="end">' + fmtDelta(-risk) + '</text>');
-    // Entry label starts just right of the anchor dot so the two never overlap.
-    p.push('<text class="sig-plot-label entry" x="' + (entryX + 9) + '" y="' + (entryY - 5) + '">ENTRY ' + entry.toFixed(dec) + '</text>');
-  }
+  // Numeric labels sit on the entry-facing side of each line, so they land inside
+  // the zone. (Reached only when levels are shown — the off state returned early.)
+  var tpDy = (tpY < entryY) ? 12 : -4;
+  var slDy = (slY < entryY) ? 12 : -4;
+  p.push('<text class="sig-plot-label tp" x="' + (pL + 3) + '" y="' + (tpY + tpDy) + '">TP ' + tp.toFixed(dec) + '</text>');
+  p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (tpY + tpDy) + '" text-anchor="end">' + fmtDelta(reward) + '</text>');
+  p.push('<text class="sig-plot-label sl" x="' + (pL + 3) + '" y="' + (slY + slDy) + '">SL ' + sl.toFixed(dec) + '</text>');
+  p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (slY + slDy) + '" text-anchor="end">' + fmtDelta(-risk) + '</text>');
+  // Entry label starts just right of the anchor dot so the two never overlap.
+  p.push('<text class="sig-plot-label entry" x="' + (entryX + 9) + '" y="' + (entryY - 5) + '">ENTRY ' + entry.toFixed(dec) + '</text>');
 
-  // Exit resolution (path → close, with the ✓/✕) reveals where the trade closed,
-  // so it's gated by the SL/TP/Entry toggle alongside the numeric levels. Drawn
-  // before the entry dot so the dot stays on top of the path's start.
-  var showExit = closed && _showLevels;
+  // Exit resolution (path → close, with the ✓/✕). Drawn before the entry dot so
+  // the dot stays on top of the path's start.
+  var showExit = closed;
   if (showExit) {
     var closeY = Y(r.close_price);
     var pcls = r.outcome === 'TP_HIT' ? 'tp' : (r.outcome === 'SL_HIT' ? 'sl' : '');
@@ -1063,9 +1066,7 @@ function renderAnatomy(r, el) {
     p.push('<text class="sig-plot-glyph" x="' + closeX + '" y="' + (closeY + 3.2) + '" text-anchor="middle" font-size="9" font-weight="700" fill="#0b0d12">' + glyph + '</text>');
   }
 
-  var aria = _showLevels ? ariaLabel(r)
-    : (r.symbol + ' ' + r.timeframe + ' ' + r.direction + ' — levels hidden');
-  el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + aria + '">' + p.join('') + '</svg>';
+  el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + ariaLabel(r) + '">' + p.join('') + '</svg>';
 }
 
 // Re-render Anatomy panels on resize so each SVG's viewBox tracks its container
