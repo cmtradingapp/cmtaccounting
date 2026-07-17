@@ -135,6 +135,17 @@
   .sig-signal-label.sell { color:var(--red); }
   .sig-box-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border-top:1px solid var(--border); }
 
+  /* ── Signal description (plain-English read of the setup) ─────────────────── */
+  .sig-desc-val { color:var(--text); font-family:var(--font-mono); font-weight:600; }
+  /* On cards: a compact caption below the chart/panel, clamped to two lines. */
+  .sig-box-desc {
+    padding:9px 12px; border-top:1px solid var(--border);
+    font-size:11.5px; line-height:1.45; color:var(--muted);
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  /* In the table's expanded detail: a full sentence above the field grid. */
+  .sig-detail-desc { margin-bottom:12px; font-size:12.5px; line-height:1.5; color:var(--text-2); max-width:70ch; }
+
   /* ── Anatomy view (inline SVG trade panel) ───────────────────────────────
      A second card mode alongside Boxes. Where Boxes plots the (coarse, hourly)
      price history, Anatomy draws the trade itself from the signal's own numbers
@@ -298,6 +309,76 @@ function priceDecimals(r) {
 function tradeDurationText(r) {
   if (r.status === 'CLOSED' && r.close_time) return 'closed in ' + fmtDuration(new Date(r.close_time) - new Date(r.signal_time));
   return 'active ' + fmtDuration(Date.now() - new Date(r.signal_time));
+}
+
+// ── Signal descriptions ────────────────────────────────────────────────────
+// A short plain-English read of the setup, composed from fixed templates with
+// the signal's own levels filled in. Structural lines are always eligible; the
+// RSI-state lines join the pool only in oversold (BUY, rsi<30) / overbought
+// (SELL, rsi>70) territory. The pick is deterministic per signal id so the
+// wording is stable across the 2s poll re-render (no flicker).
+var _descBuy = [
+  "Holding above {entry} keeps the upside in focus, with {resistance_1} and {resistance_2} as the levels overhead.",
+  "Above {entry}, the near-term path leans higher toward {resistance_1}, then {resistance_2}.",
+  "Buyers stay in control while {entry} holds; {resistance_1} and {resistance_2} sit above.",
+  "A base around {entry} opens room toward {resistance_1}, with {resistance_2} beyond it.",
+  "Price sits above {entry} — the next hurdles are {resistance_1} and {resistance_2}. Level to watch below: {stop}.",
+  "While {entry} isn't lost, the upside band runs {resistance_1} to {resistance_2}.",
+  "Support at {entry} frames a move toward {resistance_1}; a push through opens {resistance_2}.",
+  "Recovery from {entry} keeps {resistance_1} in reach, with {resistance_2} as the stretch level.",
+  "The structure favours strength above {entry}, mapping {resistance_1} and {resistance_2} as upside markers.",
+  "Firm above {entry}, attention turns to {resistance_1} first, {resistance_2} on continuation. Downside marker: {stop}."
+];
+var _descBuyRsi = [
+  "With RSI at {rsi}, price looks stretched from {entry}; a snap back could reach {resistance_1} and {resistance_2}.",
+  "Oversold at RSI {rsi} — a recovery off {entry} has {resistance_1} and {resistance_2} overhead. Marker below: {stop}.",
+  "RSI {rsi} sits in oversold territory; a turn from {entry} points first at {resistance_1}."
+];
+var _descSell = [
+  "Capped below {entry}, the downside stays in focus toward {support_1} and {support_2}.",
+  "Below {entry}, the near-term path leans lower to {support_1}, then {support_2}.",
+  "Sellers hold the upper hand while {entry} caps price; {support_1} and {support_2} sit below.",
+  "A ceiling near {entry} exposes {support_1}, with {support_2} underneath.",
+  "Price trades under {entry} — the next floors are {support_1} and {support_2}. Level to watch above: {stop}.",
+  "While {entry} holds price back, the downside band runs {support_1} to {support_2}.",
+  "Resistance at {entry} frames a slide toward {support_1}; a break lower opens {support_2}.",
+  "Rejection from {entry} keeps {support_1} in reach, with {support_2} as the stretch level.",
+  "The structure favours weakness below {entry}, mapping {support_1} and {support_2} as downside markers.",
+  "Heavy under {entry}, attention turns to {support_1} first, {support_2} on continuation. Upside marker: {stop}."
+];
+var _descSellRsi = [
+  "With RSI at {rsi}, price looks stretched under {entry}; a fade could reach {support_1} and {support_2}.",
+  "Overbought at RSI {rsi} — a rejection from {entry} has {support_1} and {support_2} below. Marker above: {stop}.",
+  "RSI {rsi} sits in overbought territory; a turn from {entry} points first at {support_1}."
+];
+
+// Returns { text, html } or null. `html` wraps each filled-in value in a
+// .sig-desc-val span; `text` is the plain version (for title/aria).
+function signalDescription(r) {
+  var isBuy = r.direction === 'BUY';
+  var pool = (isBuy ? _descBuy : _descSell).slice();
+  if (isBuy && r.rsi_value != null && r.rsi_value < 30) pool = pool.concat(_descBuyRsi);
+  if (!isBuy && r.rsi_value != null && r.rsi_value > 70) pool = pool.concat(_descSellRsi);
+
+  var dec = priceDecimals(r);
+  function px(v) { return v == null ? null : Number(v).toFixed(dec); }
+  var vals = {
+    entry: px(r.entry_price), stop: px(r.sl_price),
+    resistance_1: px(r.resistance_1), resistance_2: px(r.resistance_2),
+    support_1: px(r.support_1), support_2: px(r.support_2),
+    rsi: r.rsi_value == null ? null : Number(r.rsi_value).toFixed(1)
+  };
+  // Only keep templates whose every referenced placeholder resolves — so a
+  // signal missing (say) resistance_2 never renders "and —".
+  var eligible = pool.filter(function(t) {
+    return (t.match(/\{(\w+)\}/g) || []).every(function(m) { return vals[m.slice(1, -1)] != null; });
+  });
+  if (!eligible.length) return null;
+  var tpl = eligible[Math.abs(r.id) % eligible.length];
+  return {
+    text: tpl.replace(/\{(\w+)\}/g, function(_, k) { return vals[k]; }),
+    html: tpl.replace(/\{(\w+)\}/g, function(_, k) { return '<span class="sig-desc-val">' + vals[k] + '</span>'; })
+  };
 }
 
 function setView(v, btn) {
@@ -470,8 +551,10 @@ function rowHtml(r, flashEnabled) {
     '<td class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</td>' +
     '</tr>';
 
+  var desc = _showLevels ? signalDescription(r) : null;
+  var descHtml = desc ? '<div class="sig-detail-desc">' + desc.html + '</div>' : '';
   var detail = '<tr class="sig-detail-row" id="' + detailId + '" style="' + (expanded ? '' : 'display:none;') + '">' +
-    '<td colspan="9"><div class="sig-detail-grid">' +
+    '<td colspan="9">' + descHtml + '<div class="sig-detail-grid">' +
       (_showLevels ? (
         detailItem('Entry', fmtNum(r.entry_price)) +
         detailItem('Stop Loss', fmtNum(r.sl_price)) +
@@ -531,6 +614,13 @@ function stateClass(r) {
   return r.status === 'ACTIVE' ? 'st-active' : (r.outcome === 'TP_HIT' ? 'st-tp' : (r.outcome === 'SL_HIT' ? 'st-sl' : ''));
 }
 
+// Shared caption strip for card views — plain-English setup read, gated by the
+// SL/TP/Entry toggle (it names the levels).
+function descCaptionHtml(r) {
+  var desc = _showLevels ? signalDescription(r) : null;
+  return desc ? '<div class="sig-box-desc" title="' + desc.text + '">' + desc.html + '</div>' : '';
+}
+
 function boxCardHtml(r) {
   var rr = achievedRR(r);
   var rrHtml = rr == null ? '<span class="muted">—</span>' :
@@ -542,6 +632,7 @@ function boxCardHtml(r) {
       '<span class="sig-rr">' + rrHtml + '</span>' +
     '</div>' +
     '<div class="sig-box-chart" id="sig-chart-' + r.id + '"><div class="sig-box-chart-msg">Loading chart…</div></div>' +
+    descCaptionHtml(r) +
     '<div class="sig-box-foot">' + rsiGaugeHtml(r.rsi_value, true) +
       '<span class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</span>' +
     '</div>' +
@@ -588,6 +679,7 @@ function anatomyCardHtml(r) {
       '<span class="sig-rr">' + rrHtml + '</span>' +
     '</div>' +
     '<div class="sig-box-plot" id="sig-plot-' + r.id + '"></div>' +
+    descCaptionHtml(r) +
     '<div class="sig-box-foot">' + rsiGaugeHtml(r.rsi_value, true) +
       '<span class="muted" title="' + fmtTs(r.signal_time) + '">' + tradeDurationText(r) + ' · ' + relTime(r.signal_time) + '</span>' +
     '</div>' +
