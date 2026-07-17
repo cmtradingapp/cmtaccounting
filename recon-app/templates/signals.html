@@ -224,7 +224,7 @@
     <button class="filter-btn" data-chart-type="line" onclick="setChartType('line',this)">Line</button>
   </span>
   <button class="filter-btn active" id="levelsToggle" onclick="toggleLevels(this)"
-          title="Show or hide the exact SL / TP / Entry levels across all views" style="margin-left:8px;">SL/TP/Entry</button>
+          title="Show or hide the exact trade levels — SL / TP / Entry and the exit — across all views" style="margin-left:8px;">SL/TP/Entry</button>
   <span id="sigCount" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
 </div>
 
@@ -571,9 +571,9 @@ function rowHtml(r, flashEnabled) {
       (_showLevels ? (
         detailItem('Entry', fmtNum(r.entry_price)) +
         detailItem('Stop Loss', fmtNum(r.sl_price)) +
-        detailItem('Take Profit', fmtNum(r.tp_price))
+        detailItem('Take Profit', fmtNum(r.tp_price)) +
+        detailItem('Close Price', fmtNum(r.close_price))
       ) : '') +
-      detailItem('Close Price', fmtNum(r.close_price)) +
       detailItem('Signal Time', fmtTs(r.signal_time)) +
       detailItem('Close Time', fmtTs(r.close_time)) +
       detailItem('Created', fmtTs(r.created_at)) +
@@ -818,7 +818,9 @@ function renderChart(id, data) {
   var exitPosition = entryPosition === 'belowBar' ? 'aboveBar' : 'belowBar';
   var entryBarTime = closestBarTime(data.signal_time);
   var markers = [];
-  if (data.close_time) {
+  // The exit marker is gated by the SL/TP/Entry toggle (it reveals where the
+  // trade closed) — same as the entry flag and the SL/TP lines.
+  if (_showLevels && data.close_time) {
     var exitBarTime = closestBarTime(data.close_time);
     var exitText = 'Exit';
     if (exitBarTime === entryBarTime) {
@@ -1043,18 +1045,22 @@ function renderAnatomy(r, el) {
     p.push('<text class="sig-plot-label entry" x="' + (entryX + 9) + '" y="' + (entryY - 5) + '">ENTRY ' + entry.toFixed(dec) + '</text>');
   }
 
-  if (closed) {
+  // Exit resolution (path → close, with the ✓/✕) reveals where the trade closed,
+  // so it's gated by the SL/TP/Entry toggle alongside the numeric levels. Drawn
+  // before the entry dot so the dot stays on top of the path's start.
+  var showExit = closed && _showLevels;
+  if (showExit) {
     var closeY = Y(r.close_price);
     var pcls = r.outcome === 'TP_HIT' ? 'tp' : (r.outcome === 'SL_HIT' ? 'sl' : '');
     p.push('<polyline class="sig-plot-path ' + pcls + '" points="' + entryX + ',' + entryY + ' ' + closeX + ',' + closeY + '"/>');
-    p.push('<circle class="sig-plot-entry-dot" cx="' + entryX + '" cy="' + entryY + '" r="4"/>');
+  }
+  // Entry anchor dot — always drawn (part of the kept shape); pulses while active.
+  p.push('<circle class="sig-plot-entry-dot' + (closed ? '' : ' live') + '" cx="' + entryX + '" cy="' + entryY + '" r="' + (closed ? 4 : 4.5) + '"/>');
+  if (showExit) {
     var glyph = r.outcome === 'TP_HIT' ? '✓' : (r.outcome === 'SL_HIT' ? '✕' : '●');
     var gcol  = r.outcome === 'TP_HIT' ? 'var(--green)' : (r.outcome === 'SL_HIT' ? 'var(--red)' : 'var(--text-2)');
     p.push('<circle cx="' + closeX + '" cy="' + closeY + '" r="6.5" fill="' + gcol + '"/>');
     p.push('<text class="sig-plot-glyph" x="' + closeX + '" y="' + (closeY + 3.2) + '" text-anchor="middle" font-size="9" font-weight="700" fill="#0b0d12">' + glyph + '</text>');
-  } else {
-    // Active — no path yet; a pulsing accent dot marks the live entry.
-    p.push('<circle class="sig-plot-entry-dot live" cx="' + entryX + '" cy="' + entryY + '" r="4.5"/>');
   }
 
   var aria = _showLevels ? ariaLabel(r)
