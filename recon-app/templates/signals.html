@@ -930,10 +930,11 @@ function renderChart(id, data) {
     // entryPosition (belowBar for BUY, aboveBar for SELL, same convention as
     // the exit marker below and the ▲/▼ table badges): a BUY signal sits
     // below the candle pointing up into it; SELL stays above pointing down.
-    // Hidden entirely when SL/TP/Entry display is toggled off.
+    // Always shown — the BUY/SELL signal marker stays visible regardless of the
+    // SL/TP/Entry toggle (only the exact SL/TP lines and exit are gated off).
     var entryX = chart.timeScale().timeToCoordinate(entryBarTime);
     var entryY = series.priceToCoordinate(data.entry_price);
-    if (_showLevels && entryX != null && entryY != null) {
+    if (entryX != null && entryY != null) {
       var dirCls = data.direction === 'BUY' ? 'buy' : 'sell';
       var below = entryPosition === 'belowBar';
       var flag = document.createElement('div');
