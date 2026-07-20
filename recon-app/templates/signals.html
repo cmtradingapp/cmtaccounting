@@ -564,7 +564,7 @@ function rowHtml(r, flashEnabled) {
     '<td class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</td>' +
     '</tr>';
 
-  var desc = _showLevels ? signalDescription(r) : null;
+  var desc = signalDescription(r); // stays regardless of the SL/TP/Entry toggle
   var descHtml = desc ? '<div class="sig-detail-desc">' + desc.html + '</div>' : '';
   var detail = '<tr class="sig-detail-row" id="' + detailId + '" style="' + (expanded ? '' : 'display:none;') + '">' +
     '<td colspan="9">' + descHtml + '<div class="sig-detail-grid">' +
@@ -627,10 +627,11 @@ function stateClass(r) {
   return r.status === 'ACTIVE' ? 'st-active' : (r.outcome === 'TP_HIT' ? 'st-tp' : (r.outcome === 'SL_HIT' ? 'st-sl' : ''));
 }
 
-// Shared caption strip for card views — plain-English setup read, gated by the
-// SL/TP/Entry toggle (it names the levels).
+// Shared caption strip for card views — plain-English setup read. Shown
+// regardless of the SL/TP/Entry toggle (the narrative stays even when the
+// numeric levels / shape / exit are hidden).
 function descCaptionHtml(r) {
-  var desc = _showLevels ? signalDescription(r) : null;
+  var desc = signalDescription(r);
   return desc ? '<div class="sig-box-desc" title="' + desc.text + '">' + desc.html + '</div>' : '';
 }
 
