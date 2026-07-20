@@ -105,7 +105,16 @@
   .sig-tri { position:absolute; right:1px; width:0; height:0; transform:translateY(-50%); }
   .sig-tri-sl { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid var(--red); }
   .sig-tri-tp { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid var(--green); }
-  .sig-tri-resistance { border-top:5px solid transparent; border-bottom:5px solid transparent; border-right:7px solid #fbbf24; }
+  /* Resistance / support markers — the signal-flag banner shape, smaller, on the
+     right edge pointing left at the level. Red = resistance (overhead), green =
+     support (below). */
+  .sig-lvl-flag {
+    position:absolute; right:1px; width:10px; height:12px; transform:translateY(-50%);
+    clip-path: polygon(100% 0%, 100% 100%, 40% 100%, 0% 50%, 40% 0%);
+    box-shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  .sig-lvl-flag.resistance { background:var(--red); }
+  .sig-lvl-flag.support    { background:var(--green); }
 
   /* Signal-entry pointer — a slim banner tapering to a point, tip anchored
      exactly on the entry candle/price. Kept small on purpose; the direction
@@ -911,16 +920,29 @@ function renderChart(id, data) {
       label.textContent = 'Signal';
       overlay.appendChild(label);
     }
-    // SL/TP triangles only when levels are shown; the resistance marker always is.
-    var tris = _showLevels ? [['sl_price', 'sl'], ['tp_price', 'tp'], ['resistance_1', 'resistance']]
-                           : [['resistance_1', 'resistance']];
-    tris.forEach(function(p) {
-      var y = series.priceToCoordinate(data[p[0]]);
+    // SL/TP right-edge triangles — gated with the numeric levels.
+    if (_showLevels) {
+      [['sl_price', 'sl'], ['tp_price', 'tp']].forEach(function(p) {
+        var y = series.priceToCoordinate(data[p[0]]);
+        if (y != null) {
+          var tri = document.createElement('div');
+          tri.className = 'sig-tri sig-tri-' + p[1];
+          tri.style.top = y + 'px';
+          overlay.appendChild(tri);
+        }
+      });
+    }
+    // Resistance / support banner markers — shown regardless of the toggle (like
+    // the S/R price lines): red flag at resistance_1, green flag at support_1.
+    [['resistance_1', 'resistance'], ['support_1', 'support']].forEach(function(p) {
+      var v = data[p[0]];
+      if (v == null) return;
+      var y = series.priceToCoordinate(v);
       if (y != null) {
-        var tri = document.createElement('div');
-        tri.className = 'sig-tri sig-tri-' + p[1];
-        tri.style.top = y + 'px';
-        overlay.appendChild(tri);
+        var f = document.createElement('div');
+        f.className = 'sig-lvl-flag ' + p[1];
+        f.style.top = y + 'px';
+        overlay.appendChild(f);
       }
     });
 
