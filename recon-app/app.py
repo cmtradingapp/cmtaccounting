@@ -3132,6 +3132,7 @@ def signals_api_list():
             outcome=request.args.get("outcome") or None,
             date_from=request.args.get("date_from") or None,
             date_to=request.args.get("date_to") or None,
+            min_rr=request.args.get("min_rr", type=float),
             page=request.args.get("page", 1, type=int),
             page_size=request.args.get("page_size", 50, type=int),
         )
@@ -3144,7 +3145,12 @@ def signals_api_list():
 @require_signals_auth
 def signals_api_stats():
     try:
-        return jsonify(queries.get_signal_stats())
+        return jsonify(queries.get_signal_stats(
+            symbol=request.args.get("symbol") or None,
+            timeframe=request.args.get("timeframe") or None,
+            direction=request.args.get("direction") or None,
+            min_rr=request.args.get("min_rr", type=float),
+        ))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

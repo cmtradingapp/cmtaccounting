@@ -4916,9 +4916,19 @@ def list_active_signals(status: str = "ACTIVE") -> list:
         return [dict(r) for r in cur.fetchall()]
 
 
-def list_signals(symbol=None, timeframe=None, direction=None, status=None, outcome=None,
-                  date_from=None, date_to=None, page=1, page_size=50) -> dict:
-    """Filtered, paginated signal history for the Signals GUI table."""
+# Planned reward:risk of a setup — reward (entry→TP) over risk (entry→SL), by
+# direction. Mirrors the JS plannedRR() the cards render. NULLIF guards a zero/
+# malformed risk (→ NULL, excluded by any `>= min_rr`).
+_PLANNED_RR_SQL = (
+    "(CASE WHEN direction='BUY' THEN (tp_price-entry_price) ELSE (entry_price-tp_price) END)"
+    " / NULLIF(CASE WHEN direction='BUY' THEN (entry_price-sl_price) ELSE (sl_price-entry_price) END, 0)"
+)
+
+
+def _signal_where(symbol=None, timeframe=None, direction=None, status=None, outcome=None,
+                  date_from=None, date_to=None, min_rr=None):
+    """Shared WHERE builder for the signals table — used by both list_signals()
+    and get_signal_stats() so the list and the stat cards filter identically."""
     where, params = [], []
     if symbol:    where.append("symbol = %s");      params.append(symbol)
     if timeframe: where.append("timeframe = %s");   params.append(timeframe)
@@ -4927,7 +4937,17 @@ def list_signals(symbol=None, timeframe=None, direction=None, status=None, outco
     if outcome:   where.append("outcome = %s");      params.append(outcome)
     if date_from: where.append("signal_time >= %s"); params.append(date_from)
     if date_to:   where.append("signal_time < %s");  params.append(date_to)
+    if min_rr is not None:
+        where.append(f"({_PLANNED_RR_SQL}) >= %s");  params.append(min_rr)
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    return where_sql, params
+
+
+def list_signals(symbol=None, timeframe=None, direction=None, status=None, outcome=None,
+                  date_from=None, date_to=None, min_rr=None, page=1, page_size=50) -> dict:
+    """Filtered, paginated signal history for the Signals GUI table."""
+    where_sql, params = _signal_where(symbol, timeframe, direction, status, outcome,
+                                      date_from, date_to, min_rr)
     page = max(page, 1)
     page_size = min(max(page_size, 1), 500)
 
@@ -4948,44 +4968,44 @@ def list_signals(symbol=None, timeframe=None, direction=None, status=None, outco
     return {"rows": rows, "total": total, "page": page, "page_size": page_size}
 
 
-def get_signal_stats() -> dict:
-    """Win-rate / R:R aggregates for the Signals GUI — overall + per symbol/timeframe."""
+def get_signal_stats(symbol=None, timeframe=None, direction=None, min_rr=None) -> dict:
+    """Win-rate / R:R aggregates for the Signals GUI stat cards, computed over the
+    filtered set (symbol / timeframe / direction / min planned-R:R). The status
+    toggle deliberately does NOT filter these — win rate is inherently over closed
+    trades and the Active count should stay truthful regardless of the list view.
+    Also returns the full (unfiltered) symbol list for the picker."""
     achieved_rr_expr = """
         CASE WHEN status = 'CLOSED' THEN
             (CASE WHEN direction = 'BUY' THEN (close_price - entry_price) ELSE (entry_price - close_price) END)
             / NULLIF(CASE WHEN direction = 'BUY' THEN (entry_price - sl_price) ELSE (sl_price - entry_price) END, 0)
         END
     """
+    where_sql, params = _signal_where(symbol=symbol, timeframe=timeframe,
+                                      direction=direction, min_rr=min_rr)
     with signals() as cur:
         cur.execute(f"""
             SELECT
-                symbol, timeframe,
                 COUNT(*) FILTER (WHERE status = 'ACTIVE')  AS active_count,
                 COUNT(*) FILTER (WHERE outcome = 'TP_HIT') AS tp_count,
                 COUNT(*) FILTER (WHERE outcome = 'SL_HIT') AS sl_count,
                 AVG({achieved_rr_expr})                     AS avg_rr
-            FROM signals
-            GROUP BY symbol, timeframe
-            ORDER BY symbol, timeframe
-        """)
-        rows = [dict(r) for r in cur.fetchall()]
+            FROM signals {where_sql}
+        """, params)
+        o = dict(cur.fetchone())
+        cur.execute("SELECT DISTINCT symbol FROM signals ORDER BY symbol")
+        symbols = [r["symbol"] for r in cur.fetchall()]
 
-    for r in rows:
-        closed = (r["tp_count"] or 0) + (r["sl_count"] or 0)
-        r["win_rate"] = round(100.0 * r["tp_count"] / closed, 1) if closed else None
-        r["avg_rr"] = round(float(r["avg_rr"]), 2) if r["avg_rr"] is not None else None
-
+    tp = o["tp_count"] or 0
+    sl = o["sl_count"] or 0
+    closed = tp + sl
     overall = {
-        "active_count": sum(r["active_count"] for r in rows),
-        "tp_count":     sum(r["tp_count"] for r in rows),
-        "sl_count":     sum(r["sl_count"] for r in rows),
+        "active_count": o["active_count"] or 0,
+        "tp_count":     tp,
+        "sl_count":     sl,
+        "win_rate":     round(100.0 * tp / closed, 1) if closed else None,
+        "avg_rr":       round(float(o["avg_rr"]), 2) if o["avg_rr"] is not None else None,
     }
-    closed = overall["tp_count"] + overall["sl_count"]
-    overall["win_rate"] = round(100.0 * overall["tp_count"] / closed, 1) if closed else None
-    rr_values = [r["avg_rr"] for r in rows if r["avg_rr"] is not None]
-    overall["avg_rr"] = round(sum(rr_values) / len(rr_values), 2) if rr_values else None
-
-    return {"overall": overall, "by_symbol_timeframe": rows}
+    return {"overall": overall, "symbols": symbols}
 
 
 def get_signal_by_id(signal_id: int) -> dict:

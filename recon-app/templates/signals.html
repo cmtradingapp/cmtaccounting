@@ -77,6 +77,15 @@
   }
   .sig-linklike:hover { color:var(--accent); }
 
+  /* Min-R:R filter — the user types a reward:risk floor; list + stats follow. */
+  .sig-minrr { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .sig-minrr input {
+    width:52px; background:var(--surface); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:4px 6px; font-family:var(--font-mono); font-size:12px;
+  }
+  .sig-minrr input::placeholder { color:var(--muted); }
+  .sig-minrr input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
+
   /* ── Boxes view ──────────────────────────────────────────────────────── */
   .sig-boxes-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr)); gap:16px; }
   /* .card already gives the gradient sheen + shadow + reveal-in animation every
@@ -258,12 +267,16 @@
   <button class="filter-btn" data-dir="BUY" onclick="setDirFilter('BUY',this)">Buy</button>
   <button class="filter-btn" data-dir="SELL" onclick="setDirFilter('SELL',this)">Sell</button>
   <span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>
-  <select id="symbolPicker" onchange="loadList()"><option value="">All symbols</option></select>
-  <select id="tfPicker" onchange="loadList()">
+  <select id="symbolPicker" onchange="applyFilters()"><option value="">All symbols</option></select>
+  <select id="tfPicker" onchange="applyFilters()">
     <option value="">All timeframes</option>
     <option value="M1">M1</option><option value="M5">M5</option>
     <option value="M15">M15</option><option value="M30">M30</option>
   </select>
+  <span class="sig-minrr" title="Show only setups whose planned reward:risk is at or above this value — the stats update to match">
+    <label for="minRrInput">R:R ≥</label>
+    <input type="number" id="minRrInput" min="0" step="0.5" inputmode="decimal" placeholder="any" oninput="onMinRrInput()">
+  </span>
   <button class="sig-linklike" id="expandAllBtn" onclick="expandAll()" style="margin-left:8px;">Expand all</button>
   <button class="sig-linklike" id="collapseAllBtn" onclick="collapseAll()">Collapse all</button>
   <span id="chartTypeToggle" style="display:none;align-items:center;gap:6px;margin-left:8px;">
@@ -313,6 +326,8 @@ var _seenIds = new Set();
 var _expandedIds = new Set();
 var _hasRenderedOnce = false;
 var _listReqSeq = 0;
+var _statsReqSeq = 0;
+var _minRrTimer = null;
 var _formRows = null; // cached recent-closed signals for the Recent Form strip
 // When off, the exact trade levels (SL / TP / Entry) are hidden everywhere they
 // appear — table bracket + detail, candle price-lines/flag, anatomy labels — so
@@ -510,17 +525,40 @@ function toggleLevels(btn) {
   _lastBoxSignature = ''; _lastAnatomySignature = '';
   renderCurrentView();
 }
+// Shared query params for the list + stats + recent-form fetches, so they always
+// filter identically. Status is only sent to the list (it's a lifecycle view for
+// the table/cards, not a driver of the summary stats).
+function filterParams(withStatus) {
+  var p = new URLSearchParams();
+  if (withStatus && _statusFilter) p.set('status', _statusFilter);
+  if (_dirFilter) p.set('direction', _dirFilter);
+  var symbol = document.getElementById('symbolPicker').value;
+  var tf = document.getElementById('tfPicker').value;
+  if (symbol) p.set('symbol', symbol);
+  if (tf) p.set('timeframe', tf);
+  var minRr = parseFloat(document.getElementById('minRrInput').value);
+  if (isFinite(minRr) && minRr >= 0) p.set('min_rr', String(minRr));
+  return p;
+}
+// Any change to a stats-driving filter (symbol / timeframe / direction / min R:R)
+// refreshes both the list and the stat cards.
+function applyFilters() { loadStats(); loadList(); }
+function onMinRrInput() {
+  clearTimeout(_minRrTimer);
+  _minRrTimer = setTimeout(applyFilters, 300); // debounce while typing
+}
+
 function setStatusFilter(v, btn) {
   _statusFilter = v;
   btn.parentNode.querySelectorAll('[data-status]').forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
-  loadList();
+  loadList(); // status is a list-only view filter; the stats are unaffected
 }
 function setDirFilter(v, btn) {
   _dirFilter = v;
   btn.parentNode.querySelectorAll('[data-dir]').forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
-  loadList();
+  applyFilters();
 }
 function expandAll()   { _rows.forEach(function(r){ _expandedIds.add(r.id); });    renderRows(); }
 function collapseAll() { _expandedIds.clear(); renderRows(); }
@@ -542,8 +580,9 @@ function renderForm() {
 }
 
 function loadStats() {
-  fetch('/signals/api/stats').then(function(r){ return r.json(); }).then(function(data) {
-    if (data.error) return;
+  var mySeq = ++_statsReqSeq; // guard against a stale filtered response clobbering a newer one
+  fetch('/signals/api/stats?' + filterParams(false).toString()).then(function(r){ return r.json(); }).then(function(data) {
+    if (mySeq !== _statsReqSeq || data.error) return;
     var o = data.overall || {};
     var winClass = (o.win_rate == null) ? '' : (o.win_rate >= 50 ? 'green' : 'red');
     var rrClass  = (o.avg_rr == null) ? '' : (o.avg_rr >= 0 ? 'green' : 'red');
@@ -556,21 +595,25 @@ function loadStats() {
       '<div class="stat-card compact sig-form-card"><div class="label">Recent Form</div><div class="value" id="sigForm"></div></div>';
     renderForm(); // repaint from whatever's cached — decoupled from fetch order below
 
+    // Symbol dropdown is populated from the global (unfiltered) symbol list, so
+    // filtering by one symbol never drops the others. Additive, keeps selection.
     var picker = document.getElementById('symbolPicker');
     var have = {};
     picker.querySelectorAll('option').forEach(function(o){ have[o.value] = true; });
-    (data.by_symbol_timeframe || []).forEach(function(r) {
-      if (!have[r.symbol]) { have[r.symbol] = true; _knownSymbols[r.symbol] = true;
-        var opt = document.createElement('option'); opt.value = r.symbol; opt.textContent = r.symbol;
+    (data.symbols || []).forEach(function(sym) {
+      if (!have[sym]) { have[sym] = true; _knownSymbols[sym] = true;
+        var opt = document.createElement('option'); opt.value = sym; opt.textContent = sym;
         picker.appendChild(opt);
       }
     });
   }).catch(function(){});
 
-  // Recent-form strip: always global (unfiltered), independent of table filters.
-  // Cached in _formRows + repainted via renderForm() so this can resolve in
-  // either order relative to the /stats fetch above without a race.
-  fetch('/signals/api/list?status=CLOSED&page_size=14').then(function(r){ return r.json(); }).then(function(data) {
+  // Recent-form strip: recent closed signals matching the current filters
+  // (symbol / timeframe / direction / min R:R). Cached in _formRows + repainted
+  // via renderForm() so it can resolve in either order without a race.
+  var fp = filterParams(false); fp.set('status', 'CLOSED'); fp.set('page_size', '14');
+  fetch('/signals/api/list?' + fp.toString()).then(function(r){ return r.json(); }).then(function(data) {
+    if (mySeq !== _statsReqSeq) return;
     _formRows = (data.rows || []).slice().reverse(); // API is DESC; reverse to chronological
     renderForm();
   }).catch(function(){});
@@ -1179,13 +1222,7 @@ window.addEventListener('resize', function() {
 
 function loadList() {
   var mySeq = ++_listReqSeq;
-  var params = new URLSearchParams();
-  if (_statusFilter) params.set('status', _statusFilter);
-  if (_dirFilter) params.set('direction', _dirFilter);
-  var symbol = document.getElementById('symbolPicker').value;
-  var tf = document.getElementById('tfPicker').value;
-  if (symbol) params.set('symbol', symbol);
-  if (tf) params.set('timeframe', tf);
+  var params = filterParams(true);
   params.set('page_size', '200');
 
   fetch('/signals/api/list?' + params.toString()).then(function(r){ return r.json(); }).then(function(data) {
