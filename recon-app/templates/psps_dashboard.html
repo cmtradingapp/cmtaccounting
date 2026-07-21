@@ -66,16 +66,22 @@
   .vbp-fill  { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#2bb6d4,#22d3ee); }
   .vbp-val   { font:600 11px/1 var(--font-mono); text-align:right; color:var(--text); }
 
-  /* ── signature: approval leaderboard (aligned two-column table) ─ */
-  .appr-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 34px; max-height:360px; overflow-y:auto; }
-  .appr-col  { min-width:0; }
-  .appr-col + .appr-col { border-left:1px solid var(--border); padding-left:34px; }
-  .appr-head, .appr-row { display:grid; grid-template-columns:54px 1fr 40px 84px; align-items:center; gap:11px; }
-  .appr-grid.by-psp .appr-head, .appr-grid.by-psp .appr-row { grid-template-columns:150px 1fr 40px 84px; }
-  .appr-head { padding-bottom:7px; margin-bottom:8px; border-bottom:1px solid var(--border); }
+  /* ── signature: approval drill-down tree (country ⇄ PSP) ─────── */
+  .appr-tree { max-height:400px; overflow-y:auto; }
+  .appr-head, .appr-row { display:grid; grid-template-columns:16px minmax(118px,220px) 1fr 46px 92px; align-items:center; gap:11px; }
+  .appr-head { padding:0 6px 7px; margin-bottom:6px; border-bottom:1px solid var(--border); }
   .appr-head span { font:600 9.5px/1 var(--font-body); text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
-  .appr-head span:nth-child(3), .appr-head span:nth-child(4) { text-align:right; }
-  .appr-row  { height:25px; }
+  .appr-head span:nth-child(4), .appr-head span:nth-child(5) { text-align:right; }
+  .tree-node + .tree-node { border-top:1px solid rgba(255,255,255,.03); }
+  .appr-row { height:27px; padding:0 6px; border-radius:6px; }
+  summary.appr-row { cursor:pointer; list-style:none; }
+  summary.appr-row::-webkit-details-marker { display:none; }
+  summary.appr-row:hover { background:rgba(255,255,255,.035); }
+  .tw-chev { font-size:9px; color:var(--muted); transition:transform .18s ease; text-align:center; }
+  .tree-node[open] > summary .tw-chev { transform:rotate(90deg); color:var(--text-2); }
+  .tree-children { margin:2px 0 7px 7px; padding-left:2px; border-left:1px solid var(--border); }
+  .appr-row.lvl2 { height:23px; }
+  .appr-row.lvl2 .appr-name { padding-left:8px; font-size:11px; color:var(--muted); }
   .appr-name { font:500 11.5px/1 var(--font-mono); color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   .appr-track{ height:7px; background:var(--surface-alt); border-radius:999px; overflow:hidden; }
   .appr-fill { display:block; height:100%; width:var(--w); border-radius:999px; animation:apprFill .8s cubic-bezier(.22,.61,.36,1) forwards; }
@@ -96,8 +102,7 @@
 
   @media (max-width:900px) {
     .psp-charts-row { grid-template-columns:1fr; }
-    .appr-grid { grid-template-columns:1fr; }
-    .appr-col + .appr-col { border-left:none; padding-left:0; padding-top:10px; }
+    .appr-head, .appr-row { grid-template-columns:16px minmax(84px,150px) 1fr 40px 80px; gap:8px; }
   }
   @media (prefers-reduced-motion: reduce) { .appr-fill { animation:none; } }
 </style>
@@ -195,29 +200,37 @@
   <div class="psp-chart-head">
     <h3>Approval Ratio</h3>
     <div class="psp-range-links" style="display:flex;gap:5px;">
-      <a class="filter-btn {{ 'active' if approval_group=='country' }}" href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='country') }}">By Country</a>
-      <a class="filter-btn {{ 'active' if approval_group=='psp' }}"     href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='psp') }}">By PSP</a>
+      <a class="filter-btn {{ 'active' if approval_group=='country' }}" href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='country', **{'from': request.args.get('from') or '', 'to': request.args.get('to') or ''}) }}">By Country</a>
+      <a class="filter-btn {{ 'active' if approval_group=='psp' }}"     href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='psp', **{'from': request.args.get('from') or '', 'to': request.args.get('to') or ''}) }}">By PSP</a>
     </div>
   </div>
-  {% if approval %}
-  {% set half = ((approval|length + 1) / 2) | int %}
-  {% set columns = [approval[:half], approval[half:]] %}
-  {% set name_label = 'Provider' if approval_group=='psp' else 'Country' %}
-  <div class="appr-grid {{ 'by-psp' if approval_group=='psp' }}">
-    {% for col in columns %}
-    <div class="appr-col">
-      <div class="appr-head"><span>{{ name_label }}</span><span></span><span>Rate</span><span>Approved</span></div>
-      {% for a in col %}
-      {% set decided = a.approved + a.declined %}
-      {% if a.ratio is none %}{% set tier = 'na' %}{% else %}{% set tier = 'hi' if a.ratio >= 75 else ('mid' if a.ratio >= 50 else 'lo') %}{% endif %}
-      <div class="appr-row {{ tier }}">
-        <span class="appr-name" title="{{ a.name }}">{{ a.name }}</span>
-        <div class="appr-track">{% if a.ratio is not none %}<span class="appr-fill" style="--w:{{ a.ratio }}%; animation-delay:{{ loop.index0 * 28 }}ms"></span>{% endif %}</div>
-        <span class="appr-val">{% if a.ratio is none %}—{% else %}{{ '{:.0f}'.format(a.ratio) }}%{% endif %}</span>
-        <span class="appr-n">{{ '{:,}'.format(a.approved) }}/{{ '{:,}'.format(decided) }}</span>
+  {% if approval_tree %}
+  {% set root_label = 'Provider' if approval_group=='psp' else 'Country' %}
+  <div class="appr-tree">
+    <div class="appr-head"><span></span><span>{{ root_label }}</span><span></span><span>Rate</span><span>Approved</span></div>
+    {% for node in approval_tree %}
+    {% if node.ratio is none %}{% set tier = 'na' %}{% else %}{% set tier = 'hi' if node.ratio >= 75 else ('mid' if node.ratio >= 50 else 'lo') %}{% endif %}
+    <details class="tree-node">
+      <summary class="appr-row lvl1 {{ tier }}">
+        <span class="tw-chev">▸</span>
+        <span class="appr-name" title="{{ node.name }}">{{ node.name }}</span>
+        <div class="appr-track">{% if node.ratio is not none %}<span class="appr-fill" style="--w:{{ node.ratio }}%"></span>{% endif %}</div>
+        <span class="appr-val">{% if node.ratio is none %}—{% else %}{{ '{:.0f}'.format(node.ratio) }}%{% endif %}</span>
+        <span class="appr-n">{{ '{:,}'.format(node.approved) }}/{{ '{:,}'.format(node.decided) }}</span>
+      </summary>
+      <div class="tree-children">
+        {% for c in node.children %}
+        {% if c.ratio is none %}{% set ctier = 'na' %}{% else %}{% set ctier = 'hi' if c.ratio >= 75 else ('mid' if c.ratio >= 50 else 'lo') %}{% endif %}
+        <div class="appr-row lvl2 {{ ctier }}">
+          <span></span>
+          <span class="appr-name" title="{{ c.name }}">{{ c.name }}</span>
+          <div class="appr-track">{% if c.ratio is not none %}<span class="appr-fill" style="--w:{{ c.ratio }}%"></span>{% endif %}</div>
+          <span class="appr-val">{% if c.ratio is none %}—{% else %}{{ '{:.0f}'.format(c.ratio) }}%{% endif %}</span>
+          <span class="appr-n">{{ '{:,}'.format(c.approved) }}/{{ '{:,}'.format(c.decided) }}</span>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
-    </div>
+    </details>
     {% endfor %}
   </div>
   {% else %}

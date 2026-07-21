@@ -2439,6 +2439,70 @@ def psp_approval_ratio(date_from, date_to, processor: str = None, group_by: str 
     return result
 
 
+def psp_approval_tree(date_from, date_to, processor: str = None, group_by: str = "country") -> list:
+    """Two-level approval drill-down for the dashboard: root = country|psp (per group_by),
+    children = the other dimension. Each node carries approved/declined/decided/total and a
+    ratio (approved/(approved+declined); None if 0 decided). Groups both dimensions in one
+    cached query, then nests. Nodes sorted by activity (decided) desc. Cached 5 min."""
+    group_by = "psp" if group_by == "psp" else "country"
+    key = f"psp_apptree:{date_from}:{date_to}:{processor}:{group_by}"
+    cached = _cache_get(key, _TTL_RECONCILE)
+    if cached is not None:
+        return cached
+    oc = outcome_case_sql()
+
+    def _ratio(app, dec):
+        d = (app or 0) + (dec or 0)
+        return round(100.0 * (app or 0) / d, 1) if d else None
+
+    try:
+        from db import praxis as praxis_ctx
+        def _fetch():
+            with praxis_ctx() as cur:
+                where = ["created_timestamp >= EXTRACT(EPOCH FROM %s::timestamp)",
+                         "created_timestamp <  EXTRACT(EPOCH FROM %s::timestamp)",
+                         "customer_country IS NOT NULL AND customer_country <> ''",
+                         "payment_processor IS NOT NULL AND payment_processor <> ''"]
+                params = [date_from, date_to]
+                if processor:
+                    where.append("payment_processor = %s"); params.append(processor)
+                cur.execute(f"""
+                    SELECT country, psp,
+                           COUNT(*) FILTER (WHERE outcome='approved') AS approved,
+                           COUNT(*) FILTER (WHERE outcome='declined') AS declined,
+                           COUNT(*) AS total
+                    FROM (SELECT customer_country AS country, payment_processor AS psp,
+                                 {oc} AS outcome
+                          FROM praxis_transactions WHERE {' AND '.join(where)}) t
+                    GROUP BY country, psp
+                """, params)
+                return cur.fetchall()
+        rows = _db_retry(_fetch)
+
+        roots: dict = {}
+        for r in rows:
+            root_name  = r["country"] if group_by == "country" else r["psp"]
+            child_name = r["psp"]     if group_by == "country" else r["country"]
+            app, dec, tot = (r["approved"] or 0), (r["declined"] or 0), (r["total"] or 0)
+            node = roots.setdefault(root_name, {"name": root_name, "approved": 0, "declined": 0,
+                                                "total": 0, "children": []})
+            node["approved"] += app; node["declined"] += dec; node["total"] += tot
+            node["children"].append({"name": child_name, "approved": app, "declined": dec,
+                                     "total": tot, "decided": app + dec, "ratio": _ratio(app, dec)})
+        out = []
+        for node in roots.values():
+            node["decided"] = node["approved"] + node["declined"]
+            node["ratio"] = _ratio(node["approved"], node["declined"])
+            node["children"].sort(key=lambda c: c["decided"], reverse=True)
+            out.append(node)
+        out.sort(key=lambda n: n["decided"], reverse=True)
+        result = out
+    except Exception:
+        result = []
+    _cache_set(key, result)
+    return result
+
+
 def psp_expected_fees(date_from, date_to, processor: str = None) -> dict:
     """Expected PSP fees over a date range from the fee-agreement engine — the Praxis
     `fee` column is unpopulated (~0), so this is the real fee figure. Aggregates

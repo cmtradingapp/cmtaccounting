@@ -2949,7 +2949,7 @@ def psps_dashboard():
     stats       = queries.psp_dashboard_stats(date_from, date_to, processor)
     volume_day  = queries.psp_volume_by_day(date_from, date_to, processor)
     status_dist = queries.psp_status_distribution(date_from, date_to, processor)
-    approval    = queries.psp_approval_ratio(date_from, date_to, processor, group_by=approval_group)
+    approval_tree = queries.psp_approval_tree(date_from, date_to, processor, group_by=approval_group)
     by_ccy      = queries.psp_breakdown_by_currency(date_from, date_to, processor)
     processors  = queries.psp_distinct_processors(date_from, date_to)
     recent      = queries.psp_recent_transactions(date_from, date_to, processor, limit=10)
@@ -2971,7 +2971,7 @@ def psps_dashboard():
 
     return render_template("psps_dashboard.html",
                            stats=stats, volume_day=volume_day, status_dist=status_dist,
-                           approval=approval, approval_group=approval_group,
+                           approval_tree=approval_tree, approval_group=approval_group,
                            by_ccy=by_ccy, by_psp=processors, processors=processors,
                            recent=recent, exp_fees=exp_fees, deltas=deltas,
                            processor=processor, range_label=range_label,
