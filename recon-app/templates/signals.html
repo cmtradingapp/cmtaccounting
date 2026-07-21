@@ -86,6 +86,13 @@
   .sig-minrr input::placeholder { color:var(--muted); }
   .sig-minrr input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
 
+  /* base.html gives .filter-bar (and the cards/table below it) a reveal
+     animation, which makes each a stacking context painted in DOM order — so
+     later content would otherwise cover the open symbol menu (which is trapped
+     inside the filter bar's context). Lift the bar above that content. Kept
+     below the sticky nav's z-index (50). */
+  .filter-bar { position:relative; z-index:40; }
+
   /* Multi-select symbol filter — a button that opens a checklist panel. */
   .sig-ms { position:relative; display:inline-block; }
   .sig-ms-btn {
