@@ -2471,9 +2471,10 @@ def psp_approval_tree(date_from, date_to, processor: str = None, group_by: str =
                     SELECT country, psp,
                            COUNT(*) FILTER (WHERE outcome='approved') AS approved,
                            COUNT(*) FILTER (WHERE outcome='declined') AS declined,
-                           COUNT(*) AS total
+                           COUNT(*) AS total,
+                           COALESCE(SUM(usd_amount), 0) AS volume
                     FROM (SELECT customer_country AS country, payment_processor AS psp,
-                                 {oc} AS outcome
+                                 usd_amount, {oc} AS outcome
                           FROM praxis_transactions WHERE {' AND '.join(where)}) t
                     GROUP BY country, psp
                 """, params)
@@ -2485,18 +2486,23 @@ def psp_approval_tree(date_from, date_to, processor: str = None, group_by: str =
             root_name  = r["country"] if group_by == "country" else r["psp"]
             child_name = r["psp"]     if group_by == "country" else r["country"]
             app, dec, tot = (r["approved"] or 0), (r["declined"] or 0), (r["total"] or 0)
+            vol = float(r["volume"] or 0)
             node = roots.setdefault(root_name, {"name": root_name, "approved": 0, "declined": 0,
-                                                "total": 0, "children": []})
+                                                "total": 0, "volume": 0.0, "children": []})
             node["approved"] += app; node["declined"] += dec; node["total"] += tot
+            node["volume"] += vol
             node["children"].append({"name": child_name, "approved": app, "declined": dec,
-                                     "total": tot, "decided": app + dec, "ratio": _ratio(app, dec)})
+                                     "total": tot, "volume": vol, "decided": app + dec,
+                                     "ratio": _ratio(app, dec)})
         out = []
         for node in roots.values():
             node["decided"] = node["approved"] + node["declined"]
             node["ratio"] = _ratio(node["approved"], node["declined"])
-            node["children"].sort(key=lambda c: c["decided"], reverse=True)
+            # Within a root, order children by volume (the primary metric here).
+            node["children"].sort(key=lambda c: c["volume"], reverse=True)
             out.append(node)
-        out.sort(key=lambda n: n["decided"], reverse=True)
+        # Roots ordered by volume too, so the biggest providers/countries lead.
+        out.sort(key=lambda n: n["volume"], reverse=True)
         result = out
     except Exception:
         result = []

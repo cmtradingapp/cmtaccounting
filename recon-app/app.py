@@ -272,6 +272,63 @@ def _inject_psp_nav():
     return {"psp_nav_args": keep}
 
 
+# ── PSPs display helpers (country flags/names + expressive provider names) ──
+_COUNTRY_NAMES = {
+    "GH": "Ghana", "NG": "Nigeria", "KE": "Kenya", "ZA": "South Africa", "JM": "Jamaica",
+    "TZ": "Tanzania", "UG": "Uganda", "ZW": "Zimbabwe", "CI": "Côte d'Ivoire", "NA": "Namibia",
+    "RW": "Rwanda", "ZM": "Zambia", "BW": "Botswana", "LS": "Lesotho", "CM": "Cameroon",
+    "MU": "Mauritius", "AO": "Angola", "SN": "Senegal", "AE": "UAE", "TR": "Türkiye",
+    "CD": "DR Congo", "CG": "Congo", "MW": "Malawi", "MZ": "Mozambique", "GA": "Gabon",
+    "GN": "Guinea", "ML": "Mali", "BF": "Burkina Faso", "TG": "Togo", "BJ": "Benin",
+    "NE": "Niger", "GM": "Gambia", "SL": "Sierra Leone", "LR": "Liberia", "ET": "Ethiopia",
+    "IN": "India", "CN": "China", "DE": "Germany", "GB": "United Kingdom", "NL": "Netherlands",
+    "SA": "Saudi Arabia", "EG": "Egypt", "MA": "Morocco", "BI": "Burundi", "CY": "Cyprus",
+    "MK": "N. Macedonia", "SZ": "Eswatini", "CO": "Colombia", "AR": "Argentina", "SG": "Singapore",
+    "KM": "Comoros", "SC": "Seychelles", "MG": "Madagascar", "SS": "South Sudan", "SO": "Somalia",
+}
+# Longest-first so "SwiffyCC" matches before "Swiffy", "SafeCharge" before "Safe", etc.
+_PROVIDER_BRANDS = [
+    "System Card Processor", "System Processor", "TrustPayments", "SolidPayments", "WebPayments",
+    "UBankConnect", "PaymentAsia", "PerfectMoney", "Directa24", "PagSmile", "PayMaxis", "SafeCharge",
+    "VirtualPay", "Zotapay", "Korapay", "DusuPay", "PayUnit", "PayGuru", "Payrock", "SwiffyCC",
+    "Swiffy", "LetKnow", "SticPay", "Dolcepay", "Neteller", "Bitolo", "Finrax", "Hayvn", "Nuvei",
+    "Naewe", "Skrill", "Tingg", "Ozow",
+]
+_MONO_PALETTE = ["#5b9dff", "#22d3ee", "#34d399", "#fbbf24", "#f87171", "#a78bfa",
+                 "#fb923c", "#f472b6", "#4ade80", "#60a5fa"]
+
+
+def _country_name(code):
+    return _COUNTRY_NAMES.get((code or "").upper(), code or "—")
+
+
+def _country_flag(code):
+    c = (code or "").strip().lower()
+    return f"https://cdn.jsdelivr.net/npm/flag-icons@7/flags/4x3/{c}.svg" if len(c) == 2 else ""
+
+
+def _provider_brand(name):
+    """Split a technical processor id into (brand, qualifier), e.g.
+    'KorapayAPM' → ('Korapay','APM'); 'SafeChargeS2S3Dv2_ver2' → ('SafeCharge','S2S3Dv2 ver2')."""
+    n = name or ""
+    for b in _PROVIDER_BRANDS:
+        if n.lower().startswith(b.lower()):
+            qual = n[len(b):].replace("_", " ").strip()
+            return b, qual
+    return n, ""
+
+
+def _mono_color(name):
+    h = sum(ord(c) for c in (name or "")[:16])
+    return _MONO_PALETTE[h % len(_MONO_PALETTE)]
+
+
+app.jinja_env.globals.update(
+    country_name=_country_name, country_flag=_country_flag,
+    provider_brand=_provider_brand, mono_color=_mono_color,
+)
+
+
 @app.route("/")
 @require_recon_auth
 def index():
@@ -2972,7 +3029,7 @@ def psps_dashboard():
     return render_template("psps_dashboard.html",
                            stats=stats, volume_day=volume_day, status_dist=status_dist,
                            approval_tree=approval_tree, approval_group=approval_group,
-                           by_ccy=by_ccy, by_psp=processors, processors=processors,
+                           by_ccy=by_ccy, processors=processors,
                            recent=recent, exp_fees=exp_fees, deltas=deltas,
                            processor=processor, range_label=range_label,
                            date_from=date_from, date_to=date_to_incl, active_psp_tab="dashboard")
