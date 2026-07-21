@@ -3125,7 +3125,7 @@ def signals_page():
 def signals_api_list():
     try:
         result = queries.list_signals(
-            symbol=request.args.get("symbol") or None,
+            symbol=request.args.getlist("symbol") or None,
             timeframe=request.args.get("timeframe") or None,
             direction=request.args.get("direction") or None,
             status=request.args.get("status") or None,
@@ -3146,7 +3146,7 @@ def signals_api_list():
 def signals_api_stats():
     try:
         return jsonify(queries.get_signal_stats(
-            symbol=request.args.get("symbol") or None,
+            symbol=request.args.getlist("symbol") or None,
             timeframe=request.args.get("timeframe") or None,
             direction=request.args.get("direction") or None,
             min_rr=request.args.get("min_rr", type=float),

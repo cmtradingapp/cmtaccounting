@@ -4930,7 +4930,11 @@ def _signal_where(symbol=None, timeframe=None, direction=None, status=None, outc
     """Shared WHERE builder for the signals table — used by both list_signals()
     and get_signal_stats() so the list and the stat cards filter identically."""
     where, params = [], []
-    if symbol:    where.append("symbol = %s");      params.append(symbol)
+    if symbol:
+        if isinstance(symbol, (list, tuple)):       # multi-select: symbol IN (...)
+            where.append("symbol = ANY(%s)");       params.append(list(symbol))
+        else:
+            where.append("symbol = %s");            params.append(symbol)
     if timeframe: where.append("timeframe = %s");   params.append(timeframe)
     if direction: where.append("direction = %s");    params.append(direction)
     if status:    where.append("status = %s");      params.append(status)

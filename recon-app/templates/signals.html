@@ -86,6 +86,33 @@
   .sig-minrr input::placeholder { color:var(--muted); }
   .sig-minrr input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
 
+  /* Multi-select symbol filter — a button that opens a checklist panel. */
+  .sig-ms { position:relative; display:inline-block; }
+  .sig-ms-btn {
+    display:inline-flex; align-items:center; justify-content:space-between; gap:8px; min-width:130px;
+    background:var(--surface); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer; transition:border-color .15s, color .15s;
+  }
+  .sig-ms-btn:hover { border-color:var(--border-2); }
+  .sig-ms-btn.active { border-color:var(--accent); color:var(--accent); }
+  .sig-ms-btn:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .sig-ms-caret { color:var(--muted); font-size:10px; }
+  .sig-ms-btn.active .sig-ms-caret { color:var(--accent); }
+  .sig-ms-menu {
+    position:absolute; top:calc(100% + 5px); left:0; z-index:60;
+    min-width:180px; max-height:288px; overflow-y:auto;
+    background:var(--surface); border:1px solid var(--border); border-radius:9px;
+    box-shadow:0 12px 32px -8px rgba(0,0,0,.65); padding:5px;
+  }
+  .sig-ms-item {
+    display:flex; align-items:center; gap:9px; padding:6px 9px; border-radius:6px;
+    font-size:12px; color:var(--text); cursor:pointer; user-select:none; white-space:nowrap;
+  }
+  .sig-ms-item:hover { background:rgba(255,255,255,.06); }
+  .sig-ms-item input { accent-color:var(--accent); cursor:pointer; margin:0; }
+  .sig-ms-item.all { color:var(--muted); font-weight:600; }
+  .sig-ms-sep { height:1px; background:var(--border); margin:5px 3px; }
+
   /* ── Boxes view ──────────────────────────────────────────────────────── */
   .sig-boxes-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr)); gap:16px; }
   /* .card already gives the gradient sheen + shadow + reveal-in animation every
@@ -267,7 +294,13 @@
   <button class="filter-btn" data-dir="BUY" onclick="setDirFilter('BUY',this)">Buy</button>
   <button class="filter-btn" data-dir="SELL" onclick="setDirFilter('SELL',this)">Sell</button>
   <span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>
-  <select id="symbolPicker" onchange="applyFilters()"><option value="">All symbols</option></select>
+  <div class="sig-ms" id="symbolMs">
+    <button type="button" class="sig-ms-btn" id="symbolMsBtn" onclick="toggleSymbolMenu(event)"
+            aria-haspopup="true" aria-expanded="false">
+      <span id="symbolMsLabel">All symbols</span><span class="sig-ms-caret">▾</span>
+    </button>
+    <div class="sig-ms-menu" id="symbolMsMenu" role="menu" hidden></div>
+  </div>
   <select id="tfPicker" onchange="applyFilters()">
     <option value="">All timeframes</option>
     <option value="M1">M1</option><option value="M5">M5</option>
@@ -320,7 +353,6 @@
 var _view = 'table';
 var _statusFilter = '';
 var _dirFilter = '';
-var _knownSymbols = {};
 var _rows = [];
 var _seenIds = new Set();
 var _expandedIds = new Set();
@@ -328,6 +360,9 @@ var _hasRenderedOnce = false;
 var _listReqSeq = 0;
 var _statsReqSeq = 0;
 var _minRrTimer = null;
+var _selectedSymbols = new Set(); // empty = all symbols (no filter)
+var _lastSymbolsKey = '';         // rebuild the symbol menu only when the list changes
+var _symApplyTimer = null;
 var _formRows = null; // cached recent-closed signals for the Recent Form strip
 // When off, the exact trade levels (SL / TP / Entry) are hidden everywhere they
 // appear — table bracket + detail, candle price-lines/flag, anatomy labels — so
@@ -532,9 +567,8 @@ function filterParams(withStatus) {
   var p = new URLSearchParams();
   if (withStatus && _statusFilter) p.set('status', _statusFilter);
   if (_dirFilter) p.set('direction', _dirFilter);
-  var symbol = document.getElementById('symbolPicker').value;
+  _selectedSymbols.forEach(function(s){ p.append('symbol', s); }); // repeated ?symbol= for multi-select
   var tf = document.getElementById('tfPicker').value;
-  if (symbol) p.set('symbol', symbol);
   if (tf) p.set('timeframe', tf);
   var minRr = parseFloat(document.getElementById('minRrInput').value);
   if (isFinite(minRr) && minRr >= 0) p.set('min_rr', String(minRr));
@@ -546,6 +580,54 @@ function applyFilters() { loadStats(); loadList(); }
 function onMinRrInput() {
   clearTimeout(_minRrTimer);
   _minRrTimer = setTimeout(applyFilters, 300); // debounce while typing
+}
+
+// ── Symbol multi-select ─────────────────────────────────────────────────────
+function symbolMenuOpen() { return !document.getElementById('symbolMsMenu').hasAttribute('hidden'); }
+function openSymbolMenu()  { document.getElementById('symbolMsMenu').removeAttribute('hidden'); document.getElementById('symbolMsBtn').setAttribute('aria-expanded','true'); }
+function closeSymbolMenu() { document.getElementById('symbolMsMenu').setAttribute('hidden',''); document.getElementById('symbolMsBtn').setAttribute('aria-expanded','false'); }
+function toggleSymbolMenu(e) { if (e) e.stopPropagation(); symbolMenuOpen() ? closeSymbolMenu() : openSymbolMenu(); }
+document.addEventListener('click', function(e){
+  var ms = document.getElementById('symbolMs');
+  if (ms && !ms.contains(e.target) && symbolMenuOpen()) closeSymbolMenu();
+});
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && symbolMenuOpen()) closeSymbolMenu(); });
+
+function updateSymbolLabel() {
+  var n = _selectedSymbols.size;
+  document.getElementById('symbolMsLabel').textContent =
+    n === 0 ? 'All symbols' : (n === 1 ? Array.from(_selectedSymbols)[0] : n + ' symbols');
+  document.getElementById('symbolMsBtn').classList.toggle('active', n > 0);
+}
+// Rebuild the checklist only when the symbol set changes and the menu is closed,
+// so the 2s poll never disrupts an open menu mid-interaction.
+function renderSymbolMenu(symbols) {
+  var key = (symbols || []).join(',');
+  if (key !== _lastSymbolsKey && !symbolMenuOpen()) {
+    _lastSymbolsKey = key;
+    var menu = document.getElementById('symbolMsMenu');
+    menu.innerHTML =
+      '<div class="sig-ms-item all" onclick="clearSymbols()"><span>All symbols</span></div>' +
+      '<div class="sig-ms-sep"></div>' +
+      (symbols || []).map(function(s){
+        return '<label class="sig-ms-item"><input type="checkbox" value="' + s + '"' +
+               (_selectedSymbols.has(s) ? ' checked' : '') + ' onchange="onSymbolCheck(this)"><span>' + s + '</span></label>';
+      }).join('');
+  }
+  updateSymbolLabel();
+}
+function onSymbolCheck(cb) {
+  if (cb.checked) _selectedSymbols.add(cb.value); else _selectedSymbols.delete(cb.value);
+  updateSymbolLabel();
+  clearTimeout(_symApplyTimer);
+  _symApplyTimer = setTimeout(applyFilters, 250); // batch rapid multi-checks into one refresh
+}
+function clearSymbols() {
+  _selectedSymbols.clear();
+  document.querySelectorAll('#symbolMsMenu input[type=checkbox]').forEach(function(cb){ cb.checked = false; });
+  updateSymbolLabel();
+  closeSymbolMenu();
+  applyFilters();
 }
 
 function setStatusFilter(v, btn) {
@@ -595,17 +677,9 @@ function loadStats() {
       '<div class="stat-card compact sig-form-card"><div class="label">Recent Form</div><div class="value" id="sigForm"></div></div>';
     renderForm(); // repaint from whatever's cached — decoupled from fetch order below
 
-    // Symbol dropdown is populated from the global (unfiltered) symbol list, so
-    // filtering by one symbol never drops the others. Additive, keeps selection.
-    var picker = document.getElementById('symbolPicker');
-    var have = {};
-    picker.querySelectorAll('option').forEach(function(o){ have[o.value] = true; });
-    (data.symbols || []).forEach(function(sym) {
-      if (!have[sym]) { have[sym] = true; _knownSymbols[sym] = true;
-        var opt = document.createElement('option'); opt.value = sym; opt.textContent = sym;
-        picker.appendChild(opt);
-      }
-    });
+    // Symbol menu is built from the global (unfiltered) symbol list, so filtering
+    // by some symbols never drops the others.
+    renderSymbolMenu(data.symbols || []);
   }).catch(function(){});
 
   // Recent-form strip: recent closed signals matching the current filters
