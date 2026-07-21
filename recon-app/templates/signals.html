@@ -779,7 +779,11 @@ function loadStats() {
     // In S/R mode the counts come from the backtest: pending / wins / losses.
     var lblActive = _srMode ? 'Pending' : 'Active';
     var lblWin = _srMode ? 'Wins' : 'TP Hits', lblLoss = _srMode ? 'Losses' : 'SL Hits';
-    var winSub = _srMode ? '<div class="stat-sub">backtested · L' + _srLevel + '</div>' : '';
+    var srResolved = (o.tp_count || 0) + (o.sl_count || 0);
+    var srTotal = srResolved + (o.active_count || 0);
+    var winSub = _srMode
+      ? '<div class="stat-sub">L' + _srLevel + ' · ' + srResolved + '/' + srTotal + ' resolved</div>'
+      : '';
     document.getElementById('sigStats').innerHTML =
       '<div class="stat-card compact"><div class="label">' + lblActive + '</div><div class="value">' + (o.active_count || 0) + '</div></div>' +
       '<div class="stat-card compact green"><div class="label">' + lblWin + '</div><div class="value">' + (o.tp_count || 0) + '</div></div>' +
