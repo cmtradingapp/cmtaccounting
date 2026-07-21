@@ -73,16 +73,24 @@
   .appr-head span { font:600 9.5px/1 var(--font-body); text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
   .appr-head span:nth-child(4), .appr-head span:nth-child(5) { text-align:right; }
   .tree-node + .tree-node { border-top:1px solid rgba(255,255,255,.03); }
-  .appr-row { height:27px; padding:0 6px; border-radius:6px; }
+  .appr-filter { height:26px; width:132px; padding:0 10px; font-size:12px; color:var(--text);
+                 background:var(--surface-alt); border:1px solid var(--border); border-radius:999px; }
+  .appr-filter:focus { outline:none; border-color:var(--accent); }
+  .appr-filter::placeholder { color:var(--muted); }
+  .appr-row { height:24px; padding:0 6px; border-radius:6px; }
   summary.appr-row { cursor:pointer; list-style:none; }
   summary.appr-row::-webkit-details-marker { display:none; }
-  summary.appr-row:hover { background:rgba(255,255,255,.035); }
+  summary.appr-row:hover { background:rgba(255,255,255,.04); }
+  summary.appr-row.na { opacity:.5; }
   .tw-chev { font-size:9px; color:var(--muted); transition:transform .18s ease; text-align:center; }
   .tree-node[open] > summary .tw-chev { transform:rotate(90deg); color:var(--text-2); }
-  .tree-children { margin:2px 0 7px 7px; padding-left:2px; border-left:1px solid var(--border); }
-  .appr-row.lvl2 { height:23px; }
+  .tree-children { margin:1px 0 6px 7px; padding-left:2px; border-left:1px solid var(--border); }
+  .appr-row.lvl2 { height:22px; }
+  .appr-name { display:flex; align-items:baseline; gap:7px; min-width:0; font:500 11.5px/1 var(--font-mono); color:var(--text-2); }
+  .appr-name .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   .appr-row.lvl2 .appr-name { padding-left:8px; font-size:11px; color:var(--muted); }
-  .appr-name { font:500 11.5px/1 var(--font-mono); color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .tw-cnt { flex:none; font:600 9px/1 var(--font-body); color:var(--text-2); background:var(--surface-alt);
+            border:1px solid var(--border); border-radius:999px; padding:2px 6px; }
   .appr-track{ height:7px; background:var(--surface-alt); border-radius:999px; overflow:hidden; }
   .appr-fill { display:block; height:100%; width:var(--w); border-radius:999px; animation:apprFill .8s cubic-bezier(.22,.61,.36,1) forwards; }
   .appr-val  { font:700 12px/1 var(--font-mono); text-align:right; }
@@ -199,9 +207,12 @@
 <div class="card psp-chart-card" style="margin-bottom:var(--sp-3);">
   <div class="psp-chart-head">
     <h3>Approval Ratio</h3>
-    <div class="psp-range-links" style="display:flex;gap:5px;">
-      <a class="filter-btn {{ 'active' if approval_group=='country' }}" href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='country', **{'from': request.args.get('from') or '', 'to': request.args.get('to') or ''}) }}">By Country</a>
-      <a class="filter-btn {{ 'active' if approval_group=='psp' }}"     href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='psp', **{'from': request.args.get('from') or '', 'to': request.args.get('to') or ''}) }}">By PSP</a>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      {% if approval_tree %}<input class="appr-filter" type="text" placeholder="Filter {{ 'PSPs' if approval_group=='psp' else 'countries' }}…" oninput="apprFilter(this.value)" aria-label="Filter approval tree">{% endif %}
+      <div class="psp-range-links" style="display:flex;gap:5px;">
+        <a class="filter-btn {{ 'active' if approval_group=='country' }}" href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='country', **{'from': request.args.get('from') or '', 'to': request.args.get('to') or ''}) }}">By Country</a>
+        <a class="filter-btn {{ 'active' if approval_group=='psp' }}"     href="{{ url_for('psps_dashboard', range=range_label, processor=processor or '', approval_group='psp', **{'from': request.args.get('from') or '', 'to': request.args.get('to') or ''}) }}">By PSP</a>
+      </div>
     </div>
   </div>
   {% if approval_tree %}
@@ -210,10 +221,10 @@
     <div class="appr-head"><span></span><span>{{ root_label }}</span><span></span><span>Rate</span><span>Approved</span></div>
     {% for node in approval_tree %}
     {% if node.ratio is none %}{% set tier = 'na' %}{% else %}{% set tier = 'hi' if node.ratio >= 75 else ('mid' if node.ratio >= 50 else 'lo') %}{% endif %}
-    <details class="tree-node">
+    <details class="tree-node" name="apprtree" data-name="{{ node.name|lower }}">
       <summary class="appr-row lvl1 {{ tier }}">
         <span class="tw-chev">▸</span>
-        <span class="appr-name" title="{{ node.name }}">{{ node.name }}</span>
+        <div class="appr-name" title="{{ node.name }}"><span class="nm">{{ node.name }}</span><span class="tw-cnt">{{ node.children|length }}</span></div>
         <div class="appr-track">{% if node.ratio is not none %}<span class="appr-fill" style="--w:{{ node.ratio }}%"></span>{% endif %}</div>
         <span class="appr-val">{% if node.ratio is none %}—{% else %}{{ '{:.0f}'.format(node.ratio) }}%{% endif %}</span>
         <span class="appr-n">{{ '{:,}'.format(node.approved) }}/{{ '{:,}'.format(node.decided) }}</span>
@@ -223,7 +234,7 @@
         {% if c.ratio is none %}{% set ctier = 'na' %}{% else %}{% set ctier = 'hi' if c.ratio >= 75 else ('mid' if c.ratio >= 50 else 'lo') %}{% endif %}
         <div class="appr-row lvl2 {{ ctier }}">
           <span></span>
-          <span class="appr-name" title="{{ c.name }}">{{ c.name }}</span>
+          <div class="appr-name" title="{{ c.name }}"><span class="nm">{{ c.name }}</span></div>
           <div class="appr-track">{% if c.ratio is not none %}<span class="appr-fill" style="--w:{{ c.ratio }}%"></span>{% endif %}</div>
           <span class="appr-val">{% if c.ratio is none %}—{% else %}{{ '{:.0f}'.format(c.ratio) }}%{% endif %}</span>
           <span class="appr-n">{{ '{:,}'.format(c.approved) }}/{{ '{:,}'.format(c.decided) }}</span>
@@ -368,5 +379,13 @@
   sparkline('sparkVol', volumeDay.map(function (d) { return d.volume; }),  C.accent,  function (a) { return 'rgba(91,157,255,' + a + ')'; });
   sparkline('sparkTx',  volumeDay.map(function (d) { return d.tx_count; }), C.accent2, function (a) { return 'rgba(34,211,238,' + a + ')'; });
 })();
+
+// Approval tree quick-filter — hide root nodes whose name doesn't match.
+function apprFilter(q) {
+  q = (q || '').trim().toLowerCase();
+  document.querySelectorAll('.appr-tree .tree-node').forEach(function (n) {
+    n.style.display = (!q || (n.dataset.name || '').indexOf(q) >= 0) ? '' : 'none';
+  });
+}
 </script>
 {% endblock %}
