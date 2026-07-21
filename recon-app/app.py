@@ -3133,6 +3133,7 @@ def signals_api_list():
             date_from=request.args.get("date_from") or None,
             date_to=request.args.get("date_to") or None,
             min_rr=request.args.get("min_rr", type=float),
+            sr_level=request.args.get("sr_level", type=int),
             page=request.args.get("page", 1, type=int),
             page_size=request.args.get("page_size", 50, type=int),
         )
@@ -3150,6 +3151,7 @@ def signals_api_stats():
             timeframe=request.args.get("timeframe") or None,
             direction=request.args.get("direction") or None,
             min_rr=request.args.get("min_rr", type=float),
+            sr_level=request.args.get("sr_level", type=int),
         ))
     except Exception as e:
         return jsonify({"error": str(e)}), 500

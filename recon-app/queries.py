@@ -2,6 +2,7 @@
 
 import os
 import time
+import bisect
 import threading
 from datetime import datetime, timedelta, timezone
 import psycopg2
@@ -4916,19 +4917,28 @@ def list_active_signals(status: str = "ACTIVE") -> list:
         return [dict(r) for r in cur.fetchall()]
 
 
-# Planned reward:risk of a setup — reward (entry→TP) over risk (entry→SL), by
-# direction. Mirrors the JS plannedRR() the cards render. NULLIF guards a zero/
-# malformed risk (→ NULL, excluded by any `>= min_rr`).
-_PLANNED_RR_SQL = (
-    "(CASE WHEN direction='BUY' THEN (tp_price-entry_price) ELSE (entry_price-tp_price) END)"
-    " / NULLIF(CASE WHEN direction='BUY' THEN (entry_price-sl_price) ELSE (sl_price-entry_price) END, 0)"
-)
+# Planned reward:risk of a setup, by direction. NULLIF guards a zero/malformed
+# risk (→ NULL, excluded by any `>= min_rr`). level=None → the EA framing
+# (reward to tp_price, risk to sl_price); level=N → the S/R framing (BUY: target
+# resistance_N / stop support_N, SELL inverted). Mirrors the JS effLevels()+R:R.
+def _planned_rr_sql(level=None):
+    if level is None:
+        reward = "(CASE WHEN direction='BUY' THEN (tp_price-entry_price) ELSE (entry_price-tp_price) END)"
+        risk   = "(CASE WHEN direction='BUY' THEN (entry_price-sl_price) ELSE (sl_price-entry_price) END)"
+    else:
+        r, s = f"resistance_{int(level)}", f"support_{int(level)}"
+        reward = f"(CASE WHEN direction='BUY' THEN ({r}-entry_price) ELSE (entry_price-{s}) END)"
+        risk   = f"(CASE WHEN direction='BUY' THEN (entry_price-{s}) ELSE ({r}-entry_price) END)"
+    return f"{reward} / NULLIF({risk}, 0)"
+
+_PLANNED_RR_SQL = _planned_rr_sql()  # EA framing (kept for reference)
 
 
 def _signal_where(symbol=None, timeframe=None, direction=None, status=None, outcome=None,
-                  date_from=None, date_to=None, min_rr=None):
+                  date_from=None, date_to=None, min_rr=None, rr_level=None):
     """Shared WHERE builder for the signals table — used by both list_signals()
-    and get_signal_stats() so the list and the stat cards filter identically."""
+    and get_signal_stats() so the list and the stat cards filter identically.
+    rr_level selects which framing the min_rr filter uses (None = EA, N = S/R)."""
     where, params = [], []
     if symbol:
         if isinstance(symbol, (list, tuple)):       # multi-select: symbol IN (...)
@@ -4942,16 +4952,103 @@ def _signal_where(symbol=None, timeframe=None, direction=None, status=None, outc
     if date_from: where.append("signal_time >= %s"); params.append(date_from)
     if date_to:   where.append("signal_time < %s");  params.append(date_to)
     if min_rr is not None:
-        where.append(f"({_PLANNED_RR_SQL}) >= %s");  params.append(min_rr)
+        where.append(f"({_planned_rr_sql(rr_level)}) >= %s");  params.append(min_rr)
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     return where_sql, params
 
 
+_SR_HORIZON_DAYS = 120  # don't backtest signals older than this (bounds the tick fetch)
+
+
+def _sr_target_stop(row, level):
+    """(target, stop) prices for a signal at S/R level N, or (None, None) if the
+    level's columns are missing. BUY: target=resistance_N (up), stop=support_N
+    (down). SELL: target=support_N (down), stop=resistance_N (up)."""
+    res = row.get(f"resistance_{level}")
+    sup = row.get(f"support_{level}")
+    if res is None or sup is None:
+        return None, None
+    return (res, sup) if row["direction"] == "BUY" else (sup, res)
+
+
+def sr_outcomes(level: int) -> dict:
+    """Backtest every signal at S/R level N against the dealio 30-min feed: which
+    of {target, stop} was hit first after signal_time. Returns
+    {id: 'WIN'|'LOSS'|'PENDING'|None}. Cached ~120s (busted when the signal count
+    changes); the TTL also lets PENDING signals resolve as new ticks arrive.
+
+    Approximate: the feed is a 30-min snapshot, so a level touched and reversed
+    within a window is missed. dealio.ticks.lastmodified is a naive UTC wall
+    clock, so signal_time (tz-aware) is normalised to naive UTC to compare."""
+    with signals() as cur:
+        cur.execute("SELECT COUNT(*) AS n FROM signals")
+        n = cur.fetchone()["n"]
+    key = f"sr_outcomes:{level}:{n}"
+    cached = _cache_get(key, 120)
+    if cached is not None:
+        return cached
+
+    with signals() as cur:
+        cur.execute("""
+            SELECT id, symbol, direction, signal_time,
+                   resistance_1, resistance_2, resistance_3,
+                   support_1, support_2, support_3
+            FROM signals
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        st = r["signal_time"]
+        r["_st"] = st.astimezone(timezone.utc).replace(tzinfo=None) if st.tzinfo else st
+
+    horizon = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=_SR_HORIZON_DAYS)
+    by_symbol = {}
+    for r in rows:
+        by_symbol.setdefault(r["symbol"], []).append(r)
+
+    out = {}
+    for symbol, sigs in by_symbol.items():
+        start = min(r["_st"] for r in sigs)
+        if start < horizon:
+            start = horizon
+        with dealio() as cur:
+            cur.execute("""
+                SELECT lastmodified, (bid + ask) / 2.0 AS mid
+                FROM dealio.ticks
+                WHERE symbol = %s AND lastmodified >= %s
+                ORDER BY lastmodified
+            """, (symbol, start))
+            ticks = cur.fetchall()
+        times = [t["lastmodified"] for t in ticks]
+        mids  = [float(t["mid"]) for t in ticks]
+
+        for r in sigs:
+            target, stop = _sr_target_stop(r, level)
+            if target is None:
+                out[r["id"]] = None
+                continue
+            is_buy = r["direction"] == "BUY"
+            res = "PENDING"
+            for j in range(bisect.bisect_left(times, r["_st"]), len(mids)):
+                mid = mids[j]
+                if is_buy:
+                    if mid >= target: res = "WIN";  break
+                    if mid <= stop:   res = "LOSS"; break
+                else:
+                    if mid <= target: res = "WIN";  break
+                    if mid >= stop:   res = "LOSS"; break
+            out[r["id"]] = res
+
+    _cache_set(key, out)
+    return out
+
+
 def list_signals(symbol=None, timeframe=None, direction=None, status=None, outcome=None,
-                  date_from=None, date_to=None, min_rr=None, page=1, page_size=50) -> dict:
-    """Filtered, paginated signal history for the Signals GUI table."""
+                  date_from=None, date_to=None, min_rr=None, sr_level=None, page=1, page_size=50) -> dict:
+    """Filtered, paginated signal history for the Signals GUI table. When sr_level
+    is set, min_rr filters on the S/R framing and each row gets its backtested
+    sr_outcome (WIN/LOSS/PENDING)."""
     where_sql, params = _signal_where(symbol, timeframe, direction, status, outcome,
-                                      date_from, date_to, min_rr)
+                                      date_from, date_to, min_rr, rr_level=sr_level)
     page = max(page, 1)
     page_size = min(max(page_size, 1), 500)
 
@@ -4964,6 +5061,11 @@ def list_signals(symbol=None, timeframe=None, direction=None, status=None, outco
         )
         rows = [dict(r) for r in cur.fetchall()]
 
+    if sr_level is not None:
+        outcomes = sr_outcomes(sr_level)
+        for r in rows:
+            r["sr_outcome"] = outcomes.get(r["id"])
+
     for r in rows:
         for k in ("signal_time", "close_time", "updated_at", "created_at"):
             if r.get(k) is not None:
@@ -4972,20 +5074,65 @@ def list_signals(symbol=None, timeframe=None, direction=None, status=None, outco
     return {"rows": rows, "total": total, "page": page, "page_size": page_size}
 
 
-def get_signal_stats(symbol=None, timeframe=None, direction=None, min_rr=None) -> dict:
+def get_signal_stats(symbol=None, timeframe=None, direction=None, min_rr=None, sr_level=None) -> dict:
     """Win-rate / R:R aggregates for the Signals GUI stat cards, computed over the
     filtered set (symbol / timeframe / direction / min planned-R:R). The status
     toggle deliberately does NOT filter these — win rate is inherently over closed
     trades and the Active count should stay truthful regardless of the list view.
-    Also returns the full (unfiltered) symbol list for the picker."""
+    Also returns the full (unfiltered) symbol list for the picker.
+
+    When sr_level is set, the cards use the backtested S/R framing at that level
+    (TP Hits = target hit first, SL Hits = stop hit first, Active = pending)."""
+    where_sql, params = _signal_where(symbol=symbol, timeframe=timeframe,
+                                      direction=direction, min_rr=min_rr, rr_level=sr_level)
+
+    if sr_level is not None:
+        r_col, s_col = f"resistance_{int(sr_level)}", f"support_{int(sr_level)}"
+        with signals() as cur:
+            cur.execute(f"SELECT id, direction, entry_price, {r_col} AS res, {s_col} AS sup "
+                        f"FROM signals {where_sql}", params)
+            rows = [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT DISTINCT symbol FROM signals ORDER BY symbol")
+            symbols = [r["symbol"] for r in cur.fetchall()]
+        outcomes = sr_outcomes(sr_level)
+        wins = losses = pending = 0
+        rr_ach = []
+        for r in rows:
+            oc = outcomes.get(r["id"])
+            if oc is None:
+                continue
+            if r["res"] is not None and r["sup"] is not None:
+                if r["direction"] == "BUY":
+                    reward, risk = r["res"] - r["entry_price"], r["entry_price"] - r["sup"]
+                else:
+                    reward, risk = r["entry_price"] - r["sup"], r["res"] - r["entry_price"]
+                rr = (reward / risk) if risk and risk > 0 else None
+            else:
+                rr = None
+            if oc == "WIN":
+                wins += 1
+                if rr is not None: rr_ach.append(rr)
+            elif oc == "LOSS":
+                losses += 1
+                rr_ach.append(-1.0)
+            else:
+                pending += 1
+        closed = wins + losses
+        overall = {
+            "active_count": pending,
+            "tp_count":     wins,
+            "sl_count":     losses,
+            "win_rate":     round(100.0 * wins / closed, 1) if closed else None,
+            "avg_rr":       round(sum(rr_ach) / len(rr_ach), 2) if rr_ach else None,
+        }
+        return {"overall": overall, "symbols": symbols}
+
     achieved_rr_expr = """
         CASE WHEN status = 'CLOSED' THEN
             (CASE WHEN direction = 'BUY' THEN (close_price - entry_price) ELSE (entry_price - close_price) END)
             / NULLIF(CASE WHEN direction = 'BUY' THEN (entry_price - sl_price) ELSE (sl_price - entry_price) END, 0)
         END
     """
-    where_sql, params = _signal_where(symbol=symbol, timeframe=timeframe,
-                                      direction=direction, min_rr=min_rr)
     with signals() as cur:
         cur.execute(f"""
             SELECT
