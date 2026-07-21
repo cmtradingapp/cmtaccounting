@@ -164,6 +164,44 @@
   /* In the table's expanded detail: a full sentence above the field grid. */
   .sig-detail-desc { margin-bottom:13px; font-size:13px; line-height:1.55; color:var(--text-2); max-width:74ch; }
 
+  /* ── Reward:risk capsule (planned R:R + "high-potential" highlight) ────────
+     A proportional risk(red)|reward(green) split, sized to the real entry→SL /
+     entry→TP distances (reward:risk = R:1) — a 1-D echo of the Anatomy zones.
+     Tiered eye-candy: strong (≥2R) shimmers; prime (≥3R) turns gold and haloes
+     the whole card. Gold is reserved for prime only, so it reads as a prize. */
+  /* A twin of the RSI gauge (same 56px width, bar-over-label stack) so the two
+     line up perfectly in the footer. */
+  .sig-rrm { display:inline-flex; flex-direction:column; align-items:flex-start; gap:3px; }
+  .sig-rrm-track {
+    position:relative; width:56px; height:5px; border-radius:3px; overflow:hidden;
+    display:flex; box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
+  }
+  .sig-rrm-risk   { background:linear-gradient(180deg, #fb9a9a, var(--red)); }
+  .sig-rrm-reward { position:relative; background:linear-gradient(180deg, #5fe3ad, var(--green)); }
+  .sig-rrm-val    { font-family:var(--font-mono); font-size:10px; color:var(--muted); white-space:nowrap; }
+  .sig-rrm-val b  { font-weight:700; color:var(--text-2); }
+  .sig-rrm.fair .sig-rrm-val b, .sig-rrm.strong .sig-rrm-val b { color:var(--green); }
+  .sig-rrm.prime .sig-rrm-val b { color:#f5c451; }
+  .sig-rrm.thin  .sig-rrm-val b, .sig-rrm.na .sig-rrm-val b { color:var(--muted); }
+  .sig-rrm.prime .sig-rrm-track { box-shadow:inset 0 0 0 1px rgba(245,196,81,.6), 0 0 7px rgba(245,196,81,.4); }
+  /* One shimmer sweep, reserved for prime (≥3R) setups — the single standout. */
+  .sig-rrm.prime .sig-rrm-reward::after {
+    content:''; position:absolute; inset:0;
+    background:linear-gradient(100deg, transparent 15%, rgba(255,255,255,.6) 50%, transparent 85%);
+    transform:translateX(-130%); animation:sig-rrm-sweep 2.8s ease-in-out infinite;
+  }
+  @keyframes sig-rrm-sweep { 0% { transform:translateX(-130%); } 55%, 100% { transform:translateX(240%); } }
+  /* Prime cards glow gold in the grid — the "this one's worth a look" moment. */
+  .sig-box.rr-prime       { border-color:rgba(245,196,81,.42); box-shadow:0 0 0 1px rgba(245,196,81,.28), 0 10px 30px -10px rgba(245,196,81,.5); }
+  .sig-box.rr-prime:hover { border-color:rgba(245,196,81,.7);  box-shadow:0 0 0 1px rgba(245,196,81,.5),  0 14px 34px -8px rgba(245,196,81,.62); }
+  @media (prefers-reduced-motion:reduce) {
+    .sig-rrm .sig-rrm-reward::after { animation:none; display:none; }
+  }
+  /* Footer: RSI + R:R gauges grouped left (bottoms aligned), timing on the right. */
+  .sig-box-foot   { flex-wrap:wrap; row-gap:6px; }
+  .sig-foot-metrics { display:flex; align-items:flex-end; gap:16px; }
+  .sig-foot-time  { white-space:nowrap; }
+
   /* ── Anatomy view (inline SVG trade panel) ───────────────────────────────
      A second card mode alongside Boxes. Where Boxes plots the (coarse, hourly)
      price history, Anatomy draws the trade itself from the signal's own numbers
@@ -305,6 +343,40 @@ function achievedRR(row) {
   var risk   = row.direction === 'BUY' ? (row.entry_price - row.sl_price)   : (row.sl_price - row.entry_price);
   if (!risk) return null;
   return reward / risk;
+}
+// Planned reward:risk of the setup — reward (entry→TP) over risk (entry→SL).
+// Applies to every signal (active or closed); this is the "potential", distinct
+// from achievedRR (the realised outcome, closed only).
+function plannedRR(r) {
+  var reward = r.direction === 'BUY' ? (r.tp_price - r.entry_price) : (r.entry_price - r.tp_price);
+  var risk   = r.direction === 'BUY' ? (r.entry_price - r.sl_price) : (r.sl_price - r.entry_price);
+  if (!(risk > 0) || !(reward > 0)) return null;
+  return reward / risk;
+}
+function rrTier(rr) {
+  if (rr == null) return 'na';
+  if (rr >= 3) return 'prime';
+  if (rr >= 2) return 'strong';
+  if (rr >= 1) return 'fair';
+  return 'thin';
+}
+// The reward:risk capsule — proportional risk|reward split + the planned R
+// multiple, coloured by tier. Prime setups (≥3R) get the gold treatment.
+function rrMeterHtml(r) {
+  var rr = plannedRR(r);
+  if (rr == null) return '<span class="sig-rrm na"><span class="sig-rrm-track"></span><span class="sig-rrm-val">R:R <b>—</b></span></span>';
+  var rewardPct = (rr / (rr + 1)) * 100;
+  return '<span class="sig-rrm ' + rrTier(rr) + '" title="Planned reward:risk — ' + rr.toFixed(1) + ' : 1">' +
+    '<span class="sig-rrm-track">' +
+      '<span class="sig-rrm-risk" style="width:' + (100 - rewardPct).toFixed(1) + '%"></span>' +
+      '<span class="sig-rrm-reward" style="width:' + rewardPct.toFixed(1) + '%"></span>' +
+    '</span>' +
+    '<span class="sig-rrm-val">R:R <b>' + rr.toFixed(1) + '</b></span>' +
+  '</span>';
+}
+// Prime setups earn a card-level gold halo so they stand out in the grid.
+function rrCardClass(r) {
+  return rrTier(plannedRR(r)) === 'prime' ? ' rr-prime' : '';
 }
 function fmtDuration(ms) {
   var s = Math.round(ms / 1000);
@@ -648,7 +720,7 @@ function boxCardHtml(r) {
   var rr = achievedRR(r);
   var rrHtml = rr == null ? '<span class="muted">—</span>' :
     '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + (rr >= 0 ? '+' : '') + rr.toFixed(2) + 'R</span>';
-  return '<div class="sig-box card ' + stateClass(r) + '" data-id="' + r.id + '">' +
+  return '<div class="sig-box card ' + stateClass(r) + rrCardClass(r) + '" data-id="' + r.id + '">' +
     '<div class="sig-box-head">' +
       '<div class="sig-instrument"><span class="sym">' + r.symbol + '</span><span class="tf">' + r.timeframe + '</span></div>' +
       directionBadgeHtml(r) + resultBadgeHtml(r) +
@@ -656,8 +728,9 @@ function boxCardHtml(r) {
     '</div>' +
     '<div class="sig-box-chart" id="sig-chart-' + r.id + '"><div class="sig-box-chart-msg">Loading chart…</div></div>' +
     descCaptionHtml(r) +
-    '<div class="sig-box-foot">' + rsiGaugeHtml(r.rsi_value, true) +
-      '<span class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</span>' +
+    '<div class="sig-box-foot">' +
+      '<div class="sig-foot-metrics">' + rsiGaugeHtml(r.rsi_value, true) + rrMeterHtml(r) + '</div>' +
+      '<span class="muted sig-foot-time" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</span>' +
     '</div>' +
   '</div>';
 }
@@ -695,7 +768,7 @@ function anatomyCardHtml(r) {
   var rr = achievedRR(r);
   var rrHtml = rr == null ? '<span class="muted">—</span>' :
     '<span class="sig-rr ' + (rr >= 0 ? 'pos' : 'neg') + '">' + (rr >= 0 ? '+' : '') + rr.toFixed(2) + 'R</span>';
-  return '<div class="sig-box card ' + stateClass(r) + '" data-id="' + r.id + '">' +
+  return '<div class="sig-box card ' + stateClass(r) + rrCardClass(r) + '" data-id="' + r.id + '">' +
     '<div class="sig-box-head">' +
       '<div class="sig-instrument"><span class="sym">' + r.symbol + '</span><span class="tf">' + r.timeframe + '</span></div>' +
       directionBadgeHtml(r) + resultBadgeHtml(r) +
@@ -703,8 +776,9 @@ function anatomyCardHtml(r) {
     '</div>' +
     '<div class="sig-box-plot" id="sig-plot-' + r.id + '"></div>' +
     descCaptionHtml(r) +
-    '<div class="sig-box-foot">' + rsiGaugeHtml(r.rsi_value, true) +
-      '<span class="muted" title="' + fmtTs(r.signal_time) + '">' + tradeDurationText(r) + ' · ' + relTime(r.signal_time) + '</span>' +
+    '<div class="sig-box-foot">' +
+      '<div class="sig-foot-metrics">' + rsiGaugeHtml(r.rsi_value, true) + rrMeterHtml(r) + '</div>' +
+      '<span class="muted sig-foot-time" title="' + fmtTs(r.signal_time) + '">' + tradeDurationText(r) + ' · ' + relTime(r.signal_time) + '</span>' +
     '</div>' +
   '</div>';
 }
