@@ -4958,6 +4958,8 @@ def _signal_where(symbol=None, timeframe=None, direction=None, status=None, outc
 
 
 _SR_HORIZON_DAYS = 120  # don't backtest signals older than this (bounds the tick fetch)
+_SR_TTL = 180           # cache the backtest ~3 min (it costs a few seconds)
+_sr_lock = threading.Lock()  # serialize the backtest so the 2s poll can't stampede it
 
 
 def _sr_target_stop(row, level):
@@ -4974,20 +4976,26 @@ def _sr_target_stop(row, level):
 def sr_outcomes(level: int) -> dict:
     """Backtest every signal at S/R level N against the dealio 30-min feed: which
     of {target, stop} was hit first after signal_time. Returns
-    {id: 'WIN'|'LOSS'|'PENDING'|None}. Cached ~120s (busted when the signal count
-    changes); the TTL also lets PENDING signals resolve as new ticks arrive.
+    {id: 'WIN'|'LOSS'|'PENDING'|None}. The full backtest costs a few seconds (a
+    dealio query per symbol), so it's cached on a pure ~3-min TTL — new signals
+    just get backtested at the next refresh, and PENDING ones resolve as ticks
+    arrive. A lock serializes computation so the 2s poll can't stampede it.
 
     Approximate: the feed is a 30-min snapshot, so a level touched and reversed
     within a window is missed. dealio.ticks.lastmodified is a naive UTC wall
     clock, so signal_time (tz-aware) is normalised to naive UTC to compare."""
-    with signals() as cur:
-        cur.execute("SELECT COUNT(*) AS n FROM signals")
-        n = cur.fetchone()["n"]
-    key = f"sr_outcomes:{level}:{n}"
-    cached = _cache_get(key, 120)
+    key = f"sr_outcomes:{level}"
+    cached = _cache_get(key, _SR_TTL)
     if cached is not None:
         return cached
+    with _sr_lock:
+        cached = _cache_get(key, _SR_TTL)   # another thread may have just filled it
+        if cached is not None:
+            return cached
+        return _compute_sr_outcomes(level, key)
 
+
+def _compute_sr_outcomes(level: int, key: str) -> dict:
     with signals() as cur:
         cur.execute("""
             SELECT id, symbol, direction, signal_time,
