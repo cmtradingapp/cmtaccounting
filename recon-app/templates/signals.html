@@ -86,6 +86,18 @@
   .sig-minrr input::placeholder { color:var(--muted); }
   .sig-minrr input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
 
+  /* S/R-mode controls: EA/S-R segmented switch + level target + overlay. */
+  .sig-sr { display:inline-flex; align-items:center; gap:8px; }
+  .sig-srlvl { display:inline-flex; align-items:center; gap:6px; }
+  .sig-seg { display:inline-flex; border:1px solid var(--border); border-radius:7px; overflow:hidden; }
+  .sig-seg .filter-btn { border:none; border-radius:0; margin:0; }
+  .sig-seg .filter-btn + .filter-btn { border-left:1px solid var(--border); }
+  .sig-seg-lbl { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  .sig-ov { display:inline-flex; align-items:center; gap:3px; font-family:var(--font-mono); font-size:11px; color:var(--muted); cursor:pointer; }
+  .sig-ov input { accent-color:var(--accent); cursor:pointer; margin:0; }
+  .sig-ov:has(input:checked) { color:var(--text); }
+  .stat-sub { font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-top:2px; }
+
   /* base.html gives .filter-bar (and the cards/table below it) a reveal
      animation, which makes each a stacking context painted in DOM order — so
      later content would otherwise cover the open symbol menu (which is trapped
@@ -274,6 +286,9 @@
   .sig-plot-entry-dot.live { animation:sig-plot-pulse 1.6s ease-in-out infinite; }
   @keyframes sig-plot-pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
   @media (prefers-reduced-motion:reduce) { .sig-plot-entry-dot.live { animation:none; } }
+  /* Overlay S/R guide lines (S/R mode): thin muted dashes with a tiny tag. */
+  .sig-plot-ov      { stroke:rgba(255,255,255,.16); stroke-width:1; stroke-dasharray:2 3; }
+  .sig-plot-ov-lbl  { font-family:var(--font-mono); font-size:8px; fill:var(--muted); }
 </style>
 
 <div class="page-header">
@@ -325,6 +340,25 @@
   </span>
   <button class="filter-btn active" id="levelsToggle" onclick="toggleLevels(this)"
           title="Show or hide the exact trade levels — SL / TP / Entry and the exit — across all views" style="margin-left:8px;">SL/TP/Entry</button>
+  <span class="sig-sr" style="margin-left:8px;">
+    <span class="sig-seg" role="group" aria-label="Level framing"
+          title="EA: the signal's own SL/TP. S/R: derive stop &amp; target from the support/resistance levels; win rate is backtested.">
+      <button class="filter-btn active" data-srmode="ea" onclick="setSrMode(false,this)">EA</button>
+      <button class="filter-btn" data-srmode="sr" onclick="setSrMode(true,this)">S/R</button>
+    </span>
+    <span class="sig-srlvl" id="srLevelPick" style="display:none;">
+      <span class="sig-seg-lbl">Target</span>
+      <span class="sig-seg" role="group" aria-label="Active S/R level">
+        <button class="filter-btn active" data-srlvl="1" onclick="setSrLevel(1,this)">1</button>
+        <button class="filter-btn" data-srlvl="2" onclick="setSrLevel(2,this)">2</button>
+        <button class="filter-btn" data-srlvl="3" onclick="setSrLevel(3,this)">3</button>
+      </span>
+      <span class="sig-seg-lbl">Overlay</span>
+      <label class="sig-ov"><input type="checkbox" data-ov="1" onchange="toggleOverlay(1,this)">1</label>
+      <label class="sig-ov"><input type="checkbox" data-ov="2" onchange="toggleOverlay(2,this)">2</label>
+      <label class="sig-ov"><input type="checkbox" data-ov="3" onchange="toggleOverlay(3,this)">3</label>
+    </span>
+  </span>
   <span id="sigCount" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
 </div>
 
@@ -376,6 +410,29 @@ var _formRows = null; // cached recent-closed signals for the Recent Form strip
 // the dashboard can be shown/screenshotted without revealing them. Persisted so
 // the choice survives a reload. R:R, outcome, and S/R levels are unaffected.
 var _showLevels = (localStorage.getItem('sigShowLevels') !== '0');
+// S/R-level framing. _srMode swaps the EA's sl/tp for support/resistance levels;
+// _srLevel (1/2/3) is the active level that drives SL/TP + KPIs; _srOverlay is
+// the set of levels drawn as extra guide lines (visual only). All persisted.
+var _srMode  = (localStorage.getItem('sigSrMode') === '1');
+var _srLevel = parseInt(localStorage.getItem('sigSrLevel') || '1', 10) || 1;
+var _srOverlay = new Set((localStorage.getItem('sigSrOverlay') || '').split(',').filter(Boolean).map(Number));
+
+// The effective entry / stop / target for a signal under the current framing —
+// the single source of truth every renderer routes through. EA framing uses the
+// stored sl/tp/close; S/R framing derives them from the support/resistance
+// levels by direction (BUY: target=resistance_N above, stop=support_N below;
+// SELL inverted) and uses the backtested sr_outcome (WIN/LOSS/PENDING).
+function effLevels(r) {
+  if (!_srMode) {
+    return { entry:r.entry_price, sl:r.sl_price, tp:r.tp_price,
+             outcome:r.outcome, closePrice:r.close_price, mode:'ea' };
+  }
+  var isBuy = r.direction === 'BUY';
+  var res = r['resistance_' + _srLevel], sup = r['support_' + _srLevel];
+  if (res == null || sup == null) return null; // level missing for this signal
+  return { entry:r.entry_price, sl:(isBuy ? sup : res), tp:(isBuy ? res : sup),
+           outcome:r.sr_outcome, closePrice:null, mode:'sr', level:_srLevel };
+}
 
 function fmtNum(v, d) {
   if (v === null || v === undefined) return '—';
@@ -394,19 +451,28 @@ function relTime(iso) {
   if (hrs < 24) return hrs + 'h ago';
   return Math.floor(hrs / 24) + 'd ago';
 }
+// Realised R. EA: from the actual close. S/R: a win banks the full planned R
+// (price reached the target); a loss is −1R (hit the stop); pending → null.
 function achievedRR(row) {
+  var L = effLevels(row);
+  if (L && L.mode === 'sr') {
+    if (L.outcome === 'WIN')  return plannedRR(row);
+    if (L.outcome === 'LOSS') return -1;
+    return null;
+  }
   if (row.status !== 'CLOSED' || row.close_price == null) return null;
   var reward = row.direction === 'BUY' ? (row.close_price - row.entry_price) : (row.entry_price - row.close_price);
   var risk   = row.direction === 'BUY' ? (row.entry_price - row.sl_price)   : (row.sl_price - row.entry_price);
   if (!risk) return null;
   return reward / risk;
 }
-// Planned reward:risk of the setup — reward (entry→TP) over risk (entry→SL).
-// Applies to every signal (active or closed); this is the "potential", distinct
-// from achievedRR (the realised outcome, closed only).
+// Planned reward:risk of the setup — reward (entry→target) over risk (entry→stop)
+// under the active framing (EA or S/R level). The "potential", per card.
 function plannedRR(r) {
-  var reward = r.direction === 'BUY' ? (r.tp_price - r.entry_price) : (r.entry_price - r.tp_price);
-  var risk   = r.direction === 'BUY' ? (r.entry_price - r.sl_price) : (r.sl_price - r.entry_price);
+  var L = effLevels(r);
+  if (!L) return null;
+  var reward = r.direction === 'BUY' ? (L.tp - L.entry) : (L.entry - L.tp);
+  var risk   = r.direction === 'BUY' ? (L.entry - L.sl) : (L.sl - L.entry);
   if (!(risk > 0) || !(reward > 0)) return null;
   return reward / risk;
 }
@@ -579,6 +645,7 @@ function filterParams(withStatus) {
   if (tf) p.set('timeframe', tf);
   var minRr = parseFloat(document.getElementById('minRrInput').value);
   if (isFinite(minRr) && minRr >= 0) p.set('min_rr', String(minRr));
+  if (_srMode) p.set('sr_level', String(_srLevel)); // backtested S/R framing
   return p;
 }
 // Any change to a stats-driving filter (symbol / timeframe / direction / min R:R)
@@ -587,6 +654,40 @@ function applyFilters() { loadStats(); loadList(); }
 function onMinRrInput() {
   clearTimeout(_minRrTimer);
   _minRrTimer = setTimeout(applyFilters, 300); // debounce while typing
+}
+
+// ── S/R-level framing controls ──────────────────────────────────────────────
+function syncSrControls() {
+  document.querySelectorAll('[data-srmode]').forEach(function(b){ b.classList.toggle('active', (b.getAttribute('data-srmode')==='sr') === _srMode); });
+  document.getElementById('srLevelPick').style.display = _srMode ? 'inline-flex' : 'none';
+  document.querySelectorAll('[data-srlvl]').forEach(function(b){ b.classList.toggle('active', parseInt(b.getAttribute('data-srlvl'),10) === _srLevel); });
+  document.querySelectorAll('[data-ov]').forEach(function(cb){ cb.checked = _srOverlay.has(parseInt(cb.getAttribute('data-ov'),10)); });
+}
+// Repaint the card views from cached rows (mode/level change is client-side for
+// SL/TP/R:R/zones); loadStats+loadList refetch the backtested outcomes + KPIs.
+function repaintSr() {
+  _lastBoxSignature = ''; _lastAnatomySignature = '';
+  renderCurrentView();
+  applyFilters();
+}
+function setSrMode(on, btn) {
+  _srMode = !!on;
+  localStorage.setItem('sigSrMode', _srMode ? '1' : '0');
+  syncSrControls();
+  repaintSr();
+}
+function setSrLevel(n, btn) {
+  _srLevel = n;
+  localStorage.setItem('sigSrLevel', String(n));
+  syncSrControls();
+  repaintSr();
+}
+function toggleOverlay(n, cb) {
+  if (cb.checked) _srOverlay.add(n); else _srOverlay.delete(n);
+  localStorage.setItem('sigSrOverlay', Array.from(_srOverlay).join(','));
+  cb.closest('.sig-ov').classList.toggle('on', cb.checked);
+  _lastBoxSignature = ''; _lastAnatomySignature = '';
+  renderCurrentView(); // overlay is visual only — no refetch
 }
 
 // ── Symbol multi-select ─────────────────────────────────────────────────────
@@ -675,12 +776,16 @@ function loadStats() {
     var o = data.overall || {};
     var winClass = (o.win_rate == null) ? '' : (o.win_rate >= 50 ? 'green' : 'red');
     var rrClass  = (o.avg_rr == null) ? '' : (o.avg_rr >= 0 ? 'green' : 'red');
+    // In S/R mode the counts come from the backtest: pending / wins / losses.
+    var lblActive = _srMode ? 'Pending' : 'Active';
+    var lblWin = _srMode ? 'Wins' : 'TP Hits', lblLoss = _srMode ? 'Losses' : 'SL Hits';
+    var winSub = _srMode ? '<div class="stat-sub">backtested · L' + _srLevel + '</div>' : '';
     document.getElementById('sigStats').innerHTML =
-      '<div class="stat-card compact"><div class="label">Active</div><div class="value">' + (o.active_count || 0) + '</div></div>' +
-      '<div class="stat-card compact green"><div class="label">TP Hits</div><div class="value">' + (o.tp_count || 0) + '</div></div>' +
-      '<div class="stat-card compact red"><div class="label">SL Hits</div><div class="value">' + (o.sl_count || 0) + '</div></div>' +
-      '<div class="stat-card compact ' + winClass + '"><div class="label">Win Rate</div><div class="value">' + (o.win_rate == null ? '—' : o.win_rate + '%') + '</div></div>' +
-      '<div class="stat-card compact ' + rrClass + '"><div class="label">Avg R:R Achieved</div><div class="value">' + (o.avg_rr == null ? '—' : o.avg_rr.toFixed(2) + 'R') + '</div></div>' +
+      '<div class="stat-card compact"><div class="label">' + lblActive + '</div><div class="value">' + (o.active_count || 0) + '</div></div>' +
+      '<div class="stat-card compact green"><div class="label">' + lblWin + '</div><div class="value">' + (o.tp_count || 0) + '</div></div>' +
+      '<div class="stat-card compact red"><div class="label">' + lblLoss + '</div><div class="value">' + (o.sl_count || 0) + '</div></div>' +
+      '<div class="stat-card compact ' + winClass + '"><div class="label">Win Rate</div><div class="value">' + (o.win_rate == null ? '—' : o.win_rate + '%') + '</div>' + winSub + '</div>' +
+      '<div class="stat-card compact ' + rrClass + '"><div class="label">Avg R:R ' + (_srMode ? 'Backtest' : 'Achieved') + '</div><div class="value">' + (o.avg_rr == null ? '—' : o.avg_rr.toFixed(2) + 'R') + '</div></div>' +
       '<div class="stat-card compact sig-form-card"><div class="label">Recent Form</div><div class="value" id="sigForm"></div></div>';
     renderForm(); // repaint from whatever's cached — decoupled from fetch order below
 
@@ -701,23 +806,25 @@ function loadStats() {
 }
 
 function bracketHtml(r) {
-  var vals = [r.sl_price, r.entry_price, r.tp_price];
+  var L = effLevels(r);
+  if (!L) return '<span class="muted" title="no level ' + _srLevel + ' for this signal">—</span>';
+  var vals = [L.sl, L.entry, L.tp];
   var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-  var pad = (hi - lo) * 0.2 || Math.abs(r.entry_price) * 0.01 || 1;
+  var pad = (hi - lo) * 0.2 || Math.abs(L.entry) * 0.01 || 1;
   lo -= pad; hi += pad;
   function pos(v) { return (((v - lo) / (hi - lo)) * 100).toFixed(1); }
   var exitDot = '';
-  if (r.close_price != null) {
-    var cls = r.outcome === 'TP_HIT' ? 'tp' : (r.outcome === 'SL_HIT' ? 'sl' : '');
-    exitDot = '<div class="dot exit ' + cls + '" style="left:' + pos(r.close_price) + '%"></div>';
+  if (L.closePrice != null) {  // EA framing only draws where it actually closed
+    var cls = L.outcome === 'TP_HIT' ? 'tp' : (L.outcome === 'SL_HIT' ? 'sl' : '');
+    exitDot = '<div class="dot exit ' + cls + '" style="left:' + pos(L.closePrice) + '%"></div>';
   }
-  var title = 'SL ' + fmtNum(r.sl_price) + '  ·  Entry ' + fmtNum(r.entry_price) + '  ·  TP ' + fmtNum(r.tp_price) +
-    (r.close_price != null ? ('  ·  Exit ' + fmtNum(r.close_price)) : '');
+  var title = 'Stop ' + fmtNum(L.sl) + '  ·  Entry ' + fmtNum(L.entry) + '  ·  Target ' + fmtNum(L.tp) +
+    (L.closePrice != null ? ('  ·  Exit ' + fmtNum(L.closePrice)) : '');
   return '<div class="bracket" title="' + title + '">' +
     '<div class="track"></div>' +
-    '<div class="tick sl" style="left:' + pos(r.sl_price) + '%"></div>' +
-    '<div class="tick tp" style="left:' + pos(r.tp_price) + '%"></div>' +
-    '<div class="dot entry" style="left:' + pos(r.entry_price) + '%"></div>' +
+    '<div class="tick sl" style="left:' + pos(L.sl) + '%"></div>' +
+    '<div class="tick tp" style="left:' + pos(L.tp) + '%"></div>' +
+    '<div class="dot entry" style="left:' + pos(L.entry) + '%"></div>' +
     exitDot +
     '</div>';
 }
@@ -732,6 +839,13 @@ function rsiGaugeHtml(v, showLabel) {
 }
 
 function resultBadgeHtml(r) {
+  if (_srMode) {
+    var oc = r.sr_outcome;
+    if (oc === 'WIN')     return '<span class="badge tp">WIN</span>';
+    if (oc === 'LOSS')    return '<span class="badge sl">LOSS</span>';
+    if (oc === 'PENDING') return '<span class="badge active">PENDING</span>';
+    return '<span class="badge">—</span>';
+  }
   if (r.status === 'ACTIVE') return '<span class="badge active">ACTIVE</span>';
   if (r.outcome === 'TP_HIT') return '<span class="badge tp">TP HIT</span>';
   if (r.outcome === 'SL_HIT') return '<span class="badge sl">SL HIT</span>';
@@ -773,12 +887,14 @@ function rowHtml(r, flashEnabled) {
   var descHtml = desc ? '<div class="sig-detail-desc">' + desc.html + '</div>' : '';
   var detail = '<tr class="sig-detail-row" id="' + detailId + '" style="' + (expanded ? '' : 'display:none;') + '">' +
     '<td colspan="9">' + descHtml + '<div class="sig-detail-grid">' +
-      (_showLevels ? (
-        detailItem('Entry', fmtNum(r.entry_price)) +
-        detailItem('Stop Loss', fmtNum(r.sl_price)) +
-        detailItem('Take Profit', fmtNum(r.tp_price)) +
-        detailItem('Close Price', fmtNum(r.close_price))
-      ) : '') +
+      (_showLevels ? (function(){
+        var L = effLevels(r) || {};
+        return detailItem('Entry', fmtNum(L.entry)) +
+               detailItem(_srMode ? ('Stop · L' + _srLevel) : 'Stop Loss', fmtNum(L.sl)) +
+               detailItem(_srMode ? ('Target · L' + _srLevel) : 'Take Profit', fmtNum(L.tp)) +
+               (_srMode ? detailItem('S/R Outcome', r.sr_outcome || '—')
+                        : detailItem('Close Price', fmtNum(r.close_price)));
+      })() : '') +
       detailItem('Signal Time', fmtTs(r.signal_time)) +
       detailItem('Close Time', fmtTs(r.close_time)) +
       detailItem('Created', fmtTs(r.created_at)) +
@@ -829,6 +945,9 @@ var _lwBaseOpts = {
 };
 
 function stateClass(r) {
+  if (_srMode) {
+    return r.sr_outcome === 'WIN' ? 'st-tp' : (r.sr_outcome === 'LOSS' ? 'st-sl' : (r.sr_outcome === 'PENDING' ? 'st-active' : ''));
+  }
   return r.status === 'ACTIVE' ? 'st-active' : (r.outcome === 'TP_HIT' ? 'st-tp' : (r.outcome === 'SL_HIT' ? 'st-sl' : ''));
 }
 
@@ -922,16 +1041,18 @@ function renderAnatomyBoxes() {
 
 function renderCurrentView() {
   if (_view === 'table') { renderRows(); return; }
+  // Framing key: rebuild the cards when the S/R mode/level/overlay changes.
+  var frame = (_srMode ? 'sr' + _srLevel + '+' + Array.from(_srOverlay).sort().join('') : 'ea');
   if (_view === 'anatomy') {
     // Signature includes mutable fields the panel depends on, so a signal
-    // repaints when the 2s poll flips it ACTIVE→CLOSED.
-    var sigA = _rows.map(function(r){
-      return r.id + ':' + r.status + ':' + (r.outcome || '') + ':' + (r.close_price == null ? '' : r.close_price);
+    // repaints when the 2s poll flips it ACTIVE→CLOSED or resolves its backtest.
+    var sigA = frame + '|' + _rows.map(function(r){
+      return r.id + ':' + r.status + ':' + (r.outcome || '') + ':' + (r.close_price == null ? '' : r.close_price) + ':' + (r.sr_outcome || '');
     }).join(',');
     if (sigA !== _lastAnatomySignature) { _lastAnatomySignature = sigA; renderAnatomyBoxes(); }
     return;
   }
-  var sig = _rows.map(function(r){ return r.id; }).sort(function(a,b){ return a - b; }).join(',');
+  var sig = frame + '|' + _rows.map(function(r){ return r.id + ':' + (r.sr_outcome || ''); }).sort().join(',');
   if (sig !== _lastBoxSignature) { _lastBoxSignature = sig; renderBoxes(); }
 }
 
@@ -1061,16 +1182,25 @@ function renderChart(id, data) {
   // within 2x the core (entry/SL/TP) span; further-out levels just won't be
   // visible on this zoomed-in trade review (their exact values are still in
   // the card header's tooltip / the table's detail panel).
-  var _coreKeys  = ['entry_price', 'sl_price', 'tp_price'];
-  var _levelKeys = ['resistance_1', 'resistance_2', 'resistance_3', 'support_1', 'support_2', 'support_3'];
+  // Effective entry/stop/target for the chart under the active framing.
+  var _cIsBuy = data.direction === 'BUY';
+  var effEntry = data.entry_price, effSl = data.sl_price, effTp = data.tp_price;
+  if (_srMode) {
+    var _cr = data['resistance_' + _srLevel], _cs = data['support_' + _srLevel];
+    if (_cr != null && _cs != null) { effSl = _cIsBuy ? _cs : _cr; effTp = _cIsBuy ? _cr : _cs; }
+  }
+  var _core = [effEntry, effSl, effTp];
+  // In S/R mode only the ticked overlay levels are drawn; EA mode shows them all.
+  var _levelKeys = _srMode
+    ? [1, 2, 3].filter(function(n){ return _srOverlay.has(n); })
+        .reduce(function(a, n){ a.push('resistance_' + n, 'support_' + n); return a; }, [])
+    : ['resistance_1', 'resistance_2', 'resistance_3', 'support_1', 'support_2', 'support_3'];
   series.applyOptions({
     autoscaleInfoProvider: function(original) {
       var res = original();
       if (!res || !res.priceRange) return res;
       var min = res.priceRange.minValue, max = res.priceRange.maxValue;
-      _coreKeys.forEach(function(k) {
-        if (data[k] != null) { min = Math.min(min, data[k]); max = Math.max(max, data[k]); }
-      });
+      _core.forEach(function(v) { if (v != null) { min = Math.min(min, v); max = Math.max(max, v); } });
       var coreSpan = Math.max(max - min, 1e-9);
       _levelKeys.forEach(function(k) {
         var v = data[k];
@@ -1085,15 +1215,15 @@ function renderChart(id, data) {
   });
 
   if (_showLevels) {
-    series.createPriceLine({ price: data.entry_price, color: '#9aa9c2', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Entry' });
-    series.createPriceLine({ price: data.sl_price,    color: '#f87171', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'SL' });
-    series.createPriceLine({ price: data.tp_price,    color: '#34d399', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'TP' });
+    series.createPriceLine({ price: effEntry, color: '#9aa9c2', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Entry' });
+    series.createPriceLine({ price: effSl,    color: '#f87171', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: _srMode ? 'Stop' : 'SL' });
+    series.createPriceLine({ price: effTp,    color: '#34d399', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: _srMode ? 'Target' : 'TP' });
   }
   [['resistance_1','R1'], ['resistance_2','R2'], ['resistance_3','R3']].forEach(function(p) {
-    if (data[p[0]] != null) series.createPriceLine({ price: data[p[0]], color: 'rgba(251,191,36,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
+    if (data[p[0]] != null && (!_srMode || _srOverlay.has(parseInt(p[1].slice(1),10)))) series.createPriceLine({ price: data[p[0]], color: 'rgba(251,191,36,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
   });
   [['support_1','S1'], ['support_2','S2'], ['support_3','S3']].forEach(function(p) {
-    if (data[p[0]] != null) series.createPriceLine({ price: data[p[0]], color: 'rgba(91,157,255,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
+    if (data[p[0]] != null && (!_srMode || _srOverlay.has(parseInt(p[1].slice(1),10)))) series.createPriceLine({ price: data[p[0]], color: 'rgba(91,157,255,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
   });
 
   var overlay = document.createElement('div');
@@ -1118,10 +1248,10 @@ function renderChart(id, data) {
       label.textContent = 'Signal';
       overlay.appendChild(label);
     }
-    // SL/TP right-edge triangles — gated with the numeric levels.
+    // Stop/target right-edge triangles — gated with the numeric levels.
     if (_showLevels) {
-      [['sl_price', 'sl'], ['tp_price', 'tp']].forEach(function(p) {
-        var y = series.priceToCoordinate(data[p[0]]);
+      [[effSl, 'sl'], [effTp, 'tp']].forEach(function(p) {
+        var y = p[0] == null ? null : series.priceToCoordinate(p[0]);
         if (y != null) {
           var tri = document.createElement('div');
           tri.className = 'sig-tri sig-tri-' + p[1];
@@ -1153,7 +1283,7 @@ function renderChart(id, data) {
     // Always shown — the BUY/SELL signal marker stays visible regardless of the
     // SL/TP/Entry toggle (only the exact SL/TP lines and exit are gated off).
     var entryX = chart.timeScale().timeToCoordinate(entryBarTime);
-    var entryY = series.priceToCoordinate(data.entry_price);
+    var entryY = series.priceToCoordinate(effEntry);
     if (entryX != null && entryY != null) {
       var dirCls = data.direction === 'BUY' ? 'buy' : 'sell';
       var below = entryPosition === 'belowBar';
@@ -1195,11 +1325,13 @@ setInterval(function() {
 
 function ariaLabel(r) {
   var dec = priceDecimals(r);
-  var out = r.status === 'ACTIVE' ? 'active'
-    : (r.outcome === 'TP_HIT' ? 'take-profit hit' : (r.outcome === 'SL_HIT' ? 'stop-loss hit' : 'closed'));
+  var L = effLevels(r) || { entry:r.entry_price, sl:r.sl_price, tp:r.tp_price };
+  var out = L.mode === 'sr'
+    ? (r.sr_outcome ? r.sr_outcome.toLowerCase() : 'pending')
+    : (r.status === 'ACTIVE' ? 'active' : (r.outcome === 'TP_HIT' ? 'take-profit hit' : (r.outcome === 'SL_HIT' ? 'stop-loss hit' : 'closed')));
   return r.symbol + ' ' + r.timeframe + ' ' + r.direction +
-    ' — entry ' + r.entry_price.toFixed(dec) + ', TP ' + r.tp_price.toFixed(dec) +
-    ', SL ' + r.sl_price.toFixed(dec) + ', ' + out;
+    ' — entry ' + L.entry.toFixed(dec) + ', target ' + L.tp.toFixed(dec) +
+    ', stop ' + L.sl.toFixed(dec) + ', ' + out;
 }
 
 // Draws the trade-anatomy panel for one signal into `el` (a .sig-box-plot), as
@@ -1208,43 +1340,56 @@ function ariaLabel(r) {
 // accent anchor line, and, once closed, a straight entry→close resolution path
 // ending on the level that was hit. No price feed, no charting library.
 function renderAnatomy(r, el) {
+  function placeholder(msg) {
+    el.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">' + msg + '</div>';
+  }
   var isBuy = r.direction === 'BUY';
   var dec = priceDecimals(r);
-  var entry = r.entry_price, sl = r.sl_price, tp = r.tp_price;
-  if (entry == null || sl == null || tp == null) {
-    el.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">No trade levels</div>';
-    return;
-  }
-  var closed = r.status === 'CLOSED' && r.close_price != null;
+  var L = effLevels(r);
+  if (!L) { placeholder('No level ' + _srLevel); return; }
+  var entry = L.entry, sl = L.sl, tp = L.tp;
+  if (entry == null || sl == null || tp == null) { placeholder('No trade levels'); return; }
+  if (!_showLevels) { placeholder('Levels hidden'); return; }
 
-  // Anatomy is entirely a levels visual — when SL/TP/Entry display is off, hide
-  // the whole plot (zones, lines, entry dot, path, numbers) and show a
-  // placeholder, the same way the table bracket and the candle flag hide.
-  if (!_showLevels) {
-    el.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">Levels hidden</div>';
-    return;
+  // Resolution: EA reads the actual close; S/R reads the backtested outcome —
+  // a win resolves at the target, a loss at the stop, pending stays live.
+  var win, loss, closeVal;
+  if (L.mode === 'sr') {
+    win = L.outcome === 'WIN'; loss = L.outcome === 'LOSS';
+    closeVal = win ? tp : (loss ? sl : null);
+  } else {
+    var cclosed = r.status === 'CLOSED' && r.close_price != null;
+    win = cclosed && r.outcome === 'TP_HIT'; loss = cclosed && r.outcome === 'SL_HIT';
+    closeVal = cclosed ? r.close_price : null;
   }
 
-  // Price scale spans entry/SL/TP (plus the close price, so its marker is always
-  // in view) with padding. S/R levels are deliberately excluded — they often sit
-  // thousands of points away and would crush the trade into a sliver.
+  // Overlay S/R levels (S/R mode only) — extra guide lines the user ticked.
+  var overlays = [];
+  if (L.mode === 'sr') {
+    _srOverlay.forEach(function(n) {
+      var rv = r['resistance_' + n], sv = r['support_' + n];
+      if (rv != null) overlays.push({ v: rv, lbl: 'R' + n });
+      if (sv != null) overlays.push({ v: sv, lbl: 'S' + n });
+    });
+  }
+
+  // Price scale spans entry/stop/target (+close), plus any overlay level within
+  // 2.5× the core span (further-out ones would crush the trade and are skipped).
   var vals = [entry, sl, tp];
-  if (closed) vals.push(r.close_price);
+  if (closeVal != null) vals.push(closeVal);
   var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-  var range = (hi - lo) || (Math.abs(entry) * 0.01) || 1;
+  var coreSpan = (hi - lo) || (Math.abs(entry) * 0.01) || 1;
+  overlays.forEach(function(o) { if (o.v >= entry - 2.5 * coreSpan && o.v <= entry + 2.5 * coreSpan) { lo = Math.min(lo, o.v); hi = Math.max(hi, o.v); } });
+  var range = (hi - lo) || coreSpan;
   var padP = range * 0.18;
   lo -= padP; hi += padP;
 
-  // Real-pixel geometry: viewBox == measured container size, so text stays crisp
-  // and the bands fill the width (re-rendered on resize, see the listener below).
   var W = el.clientWidth || 320, H = el.clientHeight || 230;
   var mL = 6, mR = 6, mT = 8, mB = 8;
   var pL = mL, pR = W - mR, pW = pR - pL;
   function Y(price) { return mT + (hi - price) / (hi - lo) * (H - mT - mB); }
 
   var entryY = Y(entry), tpY = Y(tp), slY = Y(sl);
-  // Entry anchors at the far left ("signal fires here") and the resolution path
-  // travels rightward to the close, so the panel reads left-to-right in time.
   var entryX = pL + 5;
   var closeX = pL + pW * 0.88;
 
@@ -1253,39 +1398,42 @@ function renderAnatomy(r, el) {
   function fmtDelta(v) { return (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(dec); }
 
   var p = [];
-  // reward / risk zones (entry↔TP, entry↔SL) — heights are the real distances
+  // Overlay guide lines first (under everything).
+  overlays.forEach(function(o) {
+    if (o.v < lo || o.v > hi) return;
+    var y = Y(o.v);
+    p.push('<line class="sig-plot-ov" x1="' + pL + '" y1="' + y + '" x2="' + pR + '" y2="' + y + '"/>');
+    p.push('<text class="sig-plot-ov-lbl" x="' + (pR - 3) + '" y="' + (y - 3) + '" text-anchor="end">' + o.lbl + '</text>');
+  });
+  // reward / risk zones (entry↔target, entry↔stop) — heights are the real distances
   p.push('<rect class="sig-plot-band-tp" x="' + pL + '" y="' + Math.min(entryY, tpY) + '" width="' + pW + '" height="' + Math.abs(tpY - entryY) + '"/>');
   p.push('<rect class="sig-plot-band-sl" x="' + pL + '" y="' + Math.min(entryY, slY) + '" width="' + pW + '" height="' + Math.abs(slY - entryY) + '"/>');
-  // level lines
   p.push('<line class="sig-plot-line-tp" x1="' + pL + '" y1="' + tpY + '" x2="' + pR + '" y2="' + tpY + '"/>');
   p.push('<line class="sig-plot-line-sl" x1="' + pL + '" y1="' + slY + '" x2="' + pR + '" y2="' + slY + '"/>');
   p.push('<line class="sig-plot-line-entry" x1="' + pL + '" y1="' + entryY + '" x2="' + pR + '" y2="' + entryY + '"/>');
-  // Numeric labels sit on the entry-facing side of each line, so they land inside
-  // the zone. (Reached only when levels are shown — the off state returned early.)
   var tpDy = (tpY < entryY) ? 12 : -4;
   var slDy = (slY < entryY) ? 12 : -4;
-  p.push('<text class="sig-plot-label tp" x="' + (pL + 3) + '" y="' + (tpY + tpDy) + '">TP ' + tp.toFixed(dec) + '</text>');
+  var tLbl = L.mode === 'sr' ? 'TGT' : 'TP';
+  var sLbl = L.mode === 'sr' ? 'STOP' : 'SL';
+  p.push('<text class="sig-plot-label tp" x="' + (pL + 3) + '" y="' + (tpY + tpDy) + '">' + tLbl + ' ' + tp.toFixed(dec) + '</text>');
   p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (tpY + tpDy) + '" text-anchor="end">' + fmtDelta(reward) + '</text>');
-  p.push('<text class="sig-plot-label sl" x="' + (pL + 3) + '" y="' + (slY + slDy) + '">SL ' + sl.toFixed(dec) + '</text>');
+  p.push('<text class="sig-plot-label sl" x="' + (pL + 3) + '" y="' + (slY + slDy) + '">' + sLbl + ' ' + sl.toFixed(dec) + '</text>');
   p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (slY + slDy) + '" text-anchor="end">' + fmtDelta(-risk) + '</text>');
-  // Entry label starts just right of the anchor dot so the two never overlap.
   p.push('<text class="sig-plot-label entry" x="' + (entryX + 9) + '" y="' + (entryY - 5) + '">ENTRY ' + entry.toFixed(dec) + '</text>');
 
-  // Exit resolution (path → close, with the ✓/✕). Drawn before the entry dot so
-  // the dot stays on top of the path's start.
-  var showExit = closed;
-  if (showExit) {
-    var closeY = Y(r.close_price);
-    var pcls = r.outcome === 'TP_HIT' ? 'tp' : (r.outcome === 'SL_HIT' ? 'sl' : '');
+  // Resolution path → close/target/stop, with the ✓/✕. Under the entry dot.
+  if (closeVal != null) {
+    var closeY = Y(closeVal);
+    var pcls = win ? 'tp' : (loss ? 'sl' : '');
     p.push('<polyline class="sig-plot-path ' + pcls + '" points="' + entryX + ',' + entryY + ' ' + closeX + ',' + closeY + '"/>');
   }
-  // Entry anchor dot — always drawn (part of the kept shape); pulses while active.
-  p.push('<circle class="sig-plot-entry-dot' + (closed ? '' : ' live') + '" cx="' + entryX + '" cy="' + entryY + '" r="' + (closed ? 4 : 4.5) + '"/>');
-  if (showExit) {
-    var glyph = r.outcome === 'TP_HIT' ? '✓' : (r.outcome === 'SL_HIT' ? '✕' : '●');
-    var gcol  = r.outcome === 'TP_HIT' ? 'var(--green)' : (r.outcome === 'SL_HIT' ? 'var(--red)' : 'var(--text-2)');
-    p.push('<circle cx="' + closeX + '" cy="' + closeY + '" r="6.5" fill="' + gcol + '"/>');
-    p.push('<text class="sig-plot-glyph" x="' + closeX + '" y="' + (closeY + 3.2) + '" text-anchor="middle" font-size="9" font-weight="700" fill="#0b0d12">' + glyph + '</text>');
+  p.push('<circle class="sig-plot-entry-dot' + (closeVal == null ? ' live' : '') + '" cx="' + entryX + '" cy="' + entryY + '" r="' + (closeVal == null ? 4.5 : 4) + '"/>');
+  if (closeVal != null) {
+    var closeY2 = Y(closeVal);
+    var glyph = win ? '✓' : (loss ? '✕' : '●');
+    var gcol  = win ? 'var(--green)' : (loss ? 'var(--red)' : 'var(--text-2)');
+    p.push('<circle cx="' + closeX + '" cy="' + closeY2 + '" r="6.5" fill="' + gcol + '"/>');
+    p.push('<text class="sig-plot-glyph" x="' + closeX + '" y="' + (closeY2 + 3.2) + '" text-anchor="middle" font-size="9" font-weight="700" fill="#0b0d12">' + glyph + '</text>');
   }
 
   el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + ariaLabel(r) + '">' + p.join('') + '</svg>';
@@ -1330,6 +1478,7 @@ function refreshAll() {
 document.addEventListener('DOMContentLoaded', function() {
   // Sync the toggle button with the persisted preference (markup defaults to on).
   document.getElementById('levelsToggle').classList.toggle('active', _showLevels);
+  syncSrControls();
   refreshAll();
   // 2s poll — faster than the EA's own 5s signal-check timer, so a new/closed
   // signal shows up here within a couple seconds of being written.
