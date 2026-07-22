@@ -4925,8 +4925,10 @@ def list_active_signals(status: str = "ACTIVE") -> list:
 
 # Planned reward:risk of a setup, by direction. NULLIF guards a zero/malformed
 # risk (→ NULL, excluded by any `>= min_rr`). level=None → the EA framing
-# (reward to tp_price, risk to sl_price); level=N → the S/R framing (BUY: target
-# resistance_N / stop support_N, SELL inverted). Mirrors the JS effLevels()+R:R.
+# (reward to tp_price, risk to sl_price); level=N → the S/R framing: target is
+# the selected level (resistance_N BUY / support_N SELL) but the STOP is always
+# the nearest level (support_1 BUY / resistance_1 SELL), so switching levels
+# moves only the target. Mirrors the JS effLevels()+R:R.
 def _planned_rr_sql(level=None):
     if level is None:
         reward = "(CASE WHEN direction='BUY' THEN (tp_price-entry_price) ELSE (entry_price-tp_price) END)"
@@ -4934,7 +4936,7 @@ def _planned_rr_sql(level=None):
     else:
         r, s = f"resistance_{int(level)}", f"support_{int(level)}"
         reward = f"(CASE WHEN direction='BUY' THEN ({r}-entry_price) ELSE (entry_price-{s}) END)"
-        risk   = f"(CASE WHEN direction='BUY' THEN (entry_price-{s}) ELSE ({r}-entry_price) END)"
+        risk   = "(CASE WHEN direction='BUY' THEN (entry_price-support_1) ELSE (resistance_1-entry_price) END)"
     return f"{reward} / NULLIF({risk}, 0)"
 
 _PLANNED_RR_SQL = _planned_rr_sql()  # EA framing (kept for reference)
@@ -4963,20 +4965,23 @@ def _signal_where(symbol=None, timeframe=None, direction=None, status=None, outc
     return where_sql, params
 
 
-_SR_HORIZON_DAYS = 120  # don't backtest signals older than this (bounds the tick fetch)
+_SR_HORIZON_DAYS = 190  # ~6 months: win rate is a backtested trailing-6mo average
 _SR_TTL = 180           # cache the backtest ~3 min (it costs a few seconds)
 _sr_lock = threading.Lock()  # serialize the backtest so the 2s poll can't stampede it
 
 
 def _sr_target_stop(row, level):
-    """(target, stop) prices for a signal at S/R level N, or (None, None) if the
-    level's columns are missing. BUY: target=resistance_N (up), stop=support_N
-    (down). SELL: target=support_N (down), stop=resistance_N (up)."""
-    res = row.get(f"resistance_{level}")
-    sup = row.get(f"support_{level}")
-    if res is None or sup is None:
+    """(target, stop) prices for a signal at S/R level N, or (None, None) if a
+    needed level is missing. Target = the selected level N; stop = the NEAREST
+    level (1). BUY: target=resistance_N (up), stop=support_1 (down). SELL:
+    target=support_N (down), stop=resistance_1 (up)."""
+    if row["direction"] == "BUY":
+        target, stop = row.get(f"resistance_{level}"), row.get("support_1")
+    else:
+        target, stop = row.get(f"support_{level}"), row.get("resistance_1")
+    if target is None or stop is None:
         return None, None
-    return (res, sup) if row["direction"] == "BUY" else (sup, res)
+    return target, stop
 
 
 def sr_outcomes(level: int) -> dict:
@@ -5003,11 +5008,12 @@ def sr_outcomes(level: int) -> dict:
 
 def _compute_sr_outcomes(level: int, key: str) -> dict:
     with signals() as cur:
-        cur.execute("""
+        cur.execute(f"""
             SELECT id, symbol, direction, signal_time,
                    resistance_1, resistance_2, resistance_3,
                    support_1, support_2, support_3
             FROM signals
+            WHERE signal_time >= now() - interval '{_SR_HORIZON_DAYS} days'
         """)
         rows = [dict(r) for r in cur.fetchall()]
     for r in rows:
@@ -5103,7 +5109,8 @@ def get_signal_stats(symbol=None, timeframe=None, direction=None, min_rr=None, s
     if sr_level is not None:
         r_col, s_col = f"resistance_{int(sr_level)}", f"support_{int(sr_level)}"
         with signals() as cur:
-            cur.execute(f"SELECT id, direction, entry_price, {r_col} AS res, {s_col} AS sup "
+            cur.execute(f"SELECT id, direction, entry_price, {r_col} AS res, {s_col} AS sup, "
+                        f"resistance_1 AS res1, support_1 AS sup1 "
                         f"FROM signals {where_sql}", params)
             rows = [dict(r) for r in cur.fetchall()]
             cur.execute("SELECT DISTINCT symbol FROM signals ORDER BY symbol")
@@ -5115,11 +5122,16 @@ def get_signal_stats(symbol=None, timeframe=None, direction=None, min_rr=None, s
             oc = outcomes.get(r["id"])
             if oc is None:
                 continue
-            if r["res"] is not None and r["sup"] is not None:
+            # target = selected level; stop = nearest level (1). Mirrors effLevels().
+            if r["direction"] == "BUY":
+                tgt, stp = r["res"], r["sup1"]
+            else:
+                tgt, stp = r["sup"], r["res1"]
+            if tgt is not None and stp is not None:
                 if r["direction"] == "BUY":
-                    reward, risk = r["res"] - r["entry_price"], r["entry_price"] - r["sup"]
+                    reward, risk = tgt - r["entry_price"], r["entry_price"] - stp
                 else:
-                    reward, risk = r["entry_price"] - r["sup"], r["res"] - r["entry_price"]
+                    reward, risk = r["entry_price"] - tgt, stp - r["entry_price"]
                 rr = (reward / risk) if risk and risk > 0 else None
             else:
                 rr = None

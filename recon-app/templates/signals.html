@@ -273,7 +273,7 @@
   .sig-plot-band-sl { fill:rgba(248,113,113,.11); }
   .sig-plot-line-tp    { stroke:var(--green); stroke-width:1; stroke-dasharray:4 3; }
   .sig-plot-line-sl    { stroke:var(--red);   stroke-width:1; stroke-dasharray:4 3; }
-  .sig-plot-line-entry { stroke:var(--accent); stroke-width:1.5; }
+  .sig-plot-line-entry { stroke:rgba(255,255,255,.14); stroke-width:1; }
   .sig-plot-path      { fill:none; stroke:var(--text-2); stroke-width:1.75; stroke-dasharray:3 3; }
   .sig-plot-path.tp   { stroke:var(--green); }
   .sig-plot-path.sl   { stroke:var(--red); }
@@ -338,8 +338,6 @@
     <button class="filter-btn active" data-chart-type="candle" onclick="setChartType('candle',this)">Candles</button>
     <button class="filter-btn" data-chart-type="line" onclick="setChartType('line',this)">Line</button>
   </span>
-  <button class="filter-btn active" id="levelsToggle" onclick="toggleLevels(this)"
-          title="Show or hide the exact trade levels — SL / TP / Entry and the exit — across all views" style="margin-left:8px;">SL/TP/Entry</button>
   <span class="sig-sr" style="margin-left:8px;">
     <span class="sig-seg" role="group" aria-label="Level framing"
           title="EA: the signal's own SL/TP. S/R: derive stop &amp; target from the support/resistance levels; win rate is backtested.">
@@ -405,11 +403,6 @@ var _selectedSymbols = new Set(); // empty = all symbols (no filter)
 var _lastSymbolsKey = '';         // rebuild the symbol menu only when the list changes
 var _symApplyTimer = null;
 var _formRows = null; // cached recent-closed signals for the Recent Form strip
-// When off, the exact trade levels (SL / TP / Entry) are hidden everywhere they
-// appear — table bracket + detail, candle price-lines/flag, anatomy labels — so
-// the dashboard can be shown/screenshotted without revealing them. Persisted so
-// the choice survives a reload. R:R, outcome, and S/R levels are unaffected.
-var _showLevels = (localStorage.getItem('sigShowLevels') !== '0');
 // S/R-level framing. _srMode swaps the EA's sl/tp for support/resistance levels;
 // _srLevel (1/2/3) is the active level that drives SL/TP + KPIs; _srOverlay is
 // the set of levels drawn as extra guide lines (visual only). All persisted.
@@ -419,18 +412,21 @@ var _srOverlay = new Set((localStorage.getItem('sigSrOverlay') || '').split(',')
 
 // The effective entry / stop / target for a signal under the current framing —
 // the single source of truth every renderer routes through. EA framing uses the
-// stored sl/tp/close; S/R framing derives them from the support/resistance
-// levels by direction (BUY: target=resistance_N above, stop=support_N below;
-// SELL inverted) and uses the backtested sr_outcome (WIN/LOSS/PENDING).
+// stored sl/tp/close; S/R framing derives target from the selected level
+// (BUY resistance_N / SELL support_N) but pins the stop to the NEAREST level
+// (BUY support_1 / SELL resistance_1), so switching levels moves only the
+// target. Uses the backtested sr_outcome (WIN/LOSS/PENDING). `entry` stays on
+// the object because R:R is measured from it, but it is never displayed.
 function effLevels(r) {
   if (!_srMode) {
     return { entry:r.entry_price, sl:r.sl_price, tp:r.tp_price,
              outcome:r.outcome, closePrice:r.close_price, mode:'ea' };
   }
   var isBuy = r.direction === 'BUY';
-  var res = r['resistance_' + _srLevel], sup = r['support_' + _srLevel];
-  if (res == null || sup == null) return null; // level missing for this signal
-  return { entry:r.entry_price, sl:(isBuy ? sup : res), tp:(isBuy ? res : sup),
+  var tp = isBuy ? r['resistance_' + _srLevel] : r['support_' + _srLevel]; // target = selected level
+  var sl = isBuy ? r.support_1 : r.resistance_1;                            // stop = nearest level
+  if (tp == null || sl == null) return null; // level missing for this signal
+  return { entry:r.entry_price, sl:sl, tp:tp,
            outcome:r.sr_outcome, closePrice:null, mode:'sr', level:_srLevel };
 }
 
@@ -531,38 +527,38 @@ function tradeDurationText(r) {
 // (SELL, rsi>70) territory. The pick is deterministic per signal id so the
 // wording is stable across the 2s poll re-render (no flicker).
 var _descBuy = [
-  "Holding above {entry} keeps the upside in focus, with {resistance_1} and {resistance_2} as the levels overhead.",
-  "Above {entry}, the near-term path leans higher toward {resistance_1}, then {resistance_2}.",
-  "Buyers stay in control while {entry} holds; {resistance_1} and {resistance_2} sit above.",
-  "A base around {entry} opens room toward {resistance_1}, with {resistance_2} beyond it.",
-  "Price sits above {entry} — the next hurdles are {resistance_1} and {resistance_2}. Level to watch below: {stop}.",
-  "While {entry} isn't lost, the upside band runs {resistance_1} to {resistance_2}.",
-  "Support at {entry} frames a move toward {resistance_1}; a push through opens {resistance_2}.",
-  "Recovery from {entry} keeps {resistance_1} in reach, with {resistance_2} as the stretch level.",
-  "The structure favours strength above {entry}, mapping {resistance_1} and {resistance_2} as upside markers.",
-  "Firm above {entry}, attention turns to {resistance_1} first, {resistance_2} on continuation. Downside marker: {stop}."
+  "Holding above {support_1} keeps the upside in focus, with {resistance_1} and {resistance_2} as the levels overhead.",
+  "Above {support_1}, the near-term path leans higher toward {resistance_1}, then {resistance_2}.",
+  "Buyers stay in control while {support_1} holds; {resistance_1} and {resistance_2} sit above.",
+  "A base around {support_1} opens room toward {resistance_1}, with {resistance_2} beyond it.",
+  "With {support_1} holding, the next hurdles are {resistance_1} and {resistance_2}.",
+  "While {support_1} isn't lost, the upside band runs {resistance_1} to {resistance_2}.",
+  "Support at {support_1} frames a move toward {resistance_1}; a push through opens {resistance_2}.",
+  "Recovery off {support_1} keeps {resistance_1} in reach, with {resistance_2} as the stretch level.",
+  "The structure favours strength above {support_1}, mapping {resistance_1} and {resistance_2} as upside markers.",
+  "Firm above {support_1}, attention turns to {resistance_1} first, {resistance_2} on continuation."
 ];
 var _descBuyRsi = [
-  "With RSI at {rsi}, price looks stretched from {entry}; a snap back could reach {resistance_1} and {resistance_2}.",
-  "Oversold at RSI {rsi} — a recovery off {entry} has {resistance_1} and {resistance_2} overhead. Marker below: {stop}.",
-  "RSI {rsi} sits in oversold territory; a turn from {entry} points first at {resistance_1}."
+  "With RSI at {rsi}, price looks stretched toward {support_1}; a snap back could reach {resistance_1} and {resistance_2}.",
+  "Oversold at RSI {rsi} — a recovery off {support_1} has {resistance_1} and {resistance_2} overhead.",
+  "RSI {rsi} sits in oversold territory; a turn off {support_1} points first at {resistance_1}."
 ];
 var _descSell = [
-  "Capped below {entry}, the downside stays in focus toward {support_1} and {support_2}.",
-  "Below {entry}, the near-term path leans lower to {support_1}, then {support_2}.",
-  "Sellers hold the upper hand while {entry} caps price; {support_1} and {support_2} sit below.",
-  "A ceiling near {entry} exposes {support_1}, with {support_2} underneath.",
-  "Price trades under {entry} — the next floors are {support_1} and {support_2}. Level to watch above: {stop}.",
-  "While {entry} holds price back, the downside band runs {support_1} to {support_2}.",
-  "Resistance at {entry} frames a slide toward {support_1}; a break lower opens {support_2}.",
-  "Rejection from {entry} keeps {support_1} in reach, with {support_2} as the stretch level.",
-  "The structure favours weakness below {entry}, mapping {support_1} and {support_2} as downside markers.",
-  "Heavy under {entry}, attention turns to {support_1} first, {support_2} on continuation. Upside marker: {stop}."
+  "Capped below {resistance_1}, the downside stays in focus toward {support_1} and {support_2}.",
+  "Below {resistance_1}, the near-term path leans lower to {support_1}, then {support_2}.",
+  "Sellers hold the upper hand while {resistance_1} caps price; {support_1} and {support_2} sit below.",
+  "A ceiling near {resistance_1} exposes {support_1}, with {support_2} underneath.",
+  "With {resistance_1} capping, the next floors are {support_1} and {support_2}.",
+  "While {resistance_1} holds price back, the downside band runs {support_1} to {support_2}.",
+  "Resistance at {resistance_1} frames a slide toward {support_1}; a break lower opens {support_2}.",
+  "Rejection from {resistance_1} keeps {support_1} in reach, with {support_2} as the stretch level.",
+  "The structure favours weakness below {resistance_1}, mapping {support_1} and {support_2} as downside markers.",
+  "Heavy under {resistance_1}, attention turns to {support_1} first, {support_2} on continuation."
 ];
 var _descSellRsi = [
-  "With RSI at {rsi}, price looks stretched under {entry}; a fade could reach {support_1} and {support_2}.",
-  "Overbought at RSI {rsi} — a rejection from {entry} has {support_1} and {support_2} below. Marker above: {stop}.",
-  "RSI {rsi} sits in overbought territory; a turn from {entry} points first at {support_1}."
+  "With RSI at {rsi}, price looks stretched toward {resistance_1}; a fade could reach {support_1} and {support_2}.",
+  "Overbought at RSI {rsi} — a rejection from {resistance_1} has {support_1} and {support_2} below.",
+  "RSI {rsi} sits in overbought territory; a turn off {resistance_1} points first at {support_1}."
 ];
 
 // Returns { text, html } or null. `html` wraps each filled-in value in a
@@ -576,7 +572,6 @@ function signalDescription(r) {
   var dec = priceDecimals(r);
   function px(v) { return v == null ? null : Number(v).toFixed(dec); }
   var vals = {
-    entry: px(r.entry_price), stop: px(r.sl_price),
     resistance_1: px(r.resistance_1), resistance_2: px(r.resistance_2),
     support_1: px(r.support_1), support_2: px(r.support_2),
     rsi: r.rsi_value == null ? null : Number(r.rsi_value).toFixed(1)
@@ -588,8 +583,8 @@ function signalDescription(r) {
   });
   if (!eligible.length) return null;
   var tpl = eligible[Math.abs(r.id) % eligible.length];
-  // Colour-code each value by meaning (up/down/entry/stop/rsi).
-  var cls = { entry:'entry', stop:'stop', rsi:'rsi', resistance_1:'up', resistance_2:'up', support_1:'down', support_2:'down' };
+  // Colour-code each value by meaning (up = resistance, down = support, rsi).
+  var cls = { rsi:'rsi', resistance_1:'up', resistance_2:'up', support_1:'down', support_2:'down' };
   return {
     text: tpl.replace(/\{(\w+)\}/g, function(_, k) { return vals[k]; }),
     html: tpl.replace(/\{(\w+)\}/g, function(_, k) {
@@ -623,15 +618,6 @@ function setChartType(type, btn) {
     var cached = _chartCache[id];
     if (cached) renderChart(id, cached.data);
   });
-}
-function toggleLevels(btn) {
-  _showLevels = !_showLevels;
-  localStorage.setItem('sigShowLevels', _showLevels ? '1' : '0');
-  btn.classList.toggle('active', _showLevels);
-  // Force a full repaint of whichever view is active (reset the card-view
-  // signatures so the diffing rebuild fires).
-  _lastBoxSignature = ''; _lastAnatomySignature = '';
-  renderCurrentView();
 }
 // Shared query params for the list + stats + recent-form fetches, so they always
 // filter identically. Status is only sent to the list (it's a lifecycle view for
@@ -782,7 +768,7 @@ function loadStats() {
     var srResolved = (o.tp_count || 0) + (o.sl_count || 0);
     var srTotal = srResolved + (o.active_count || 0);
     var winSub = _srMode
-      ? '<div class="stat-sub">L' + _srLevel + ' · ' + srResolved + '/' + srTotal + ' resolved</div>'
+      ? '<div class="stat-sub" title="Backtested against the 30-min price feed over the trailing ~6 months of signals">L' + _srLevel + ' · ' + srResolved + '/' + srTotal + ' resolved · 6-mo</div>'
       : '';
     document.getElementById('sigStats').innerHTML =
       '<div class="stat-card compact"><div class="label">' + lblActive + '</div><div class="value">' + (o.active_count || 0) + '</div></div>' +
@@ -812,9 +798,9 @@ function loadStats() {
 function bracketHtml(r) {
   var L = effLevels(r);
   if (!L) return '<span class="muted" title="no level ' + _srLevel + ' for this signal">—</span>';
-  var vals = [L.sl, L.entry, L.tp];
+  var vals = [L.sl, L.tp];
   var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-  var pad = (hi - lo) * 0.2 || Math.abs(L.entry) * 0.01 || 1;
+  var pad = (hi - lo) * 0.2 || Math.abs(L.tp) * 0.01 || 1;
   lo -= pad; hi += pad;
   function pos(v) { return (((v - lo) / (hi - lo)) * 100).toFixed(1); }
   var exitDot = '';
@@ -822,13 +808,12 @@ function bracketHtml(r) {
     var cls = L.outcome === 'TP_HIT' ? 'tp' : (L.outcome === 'SL_HIT' ? 'sl' : '');
     exitDot = '<div class="dot exit ' + cls + '" style="left:' + pos(L.closePrice) + '%"></div>';
   }
-  var title = 'Stop ' + fmtNum(L.sl) + '  ·  Entry ' + fmtNum(L.entry) + '  ·  Target ' + fmtNum(L.tp) +
+  var title = 'Stop ' + fmtNum(L.sl) + '  ·  Target ' + fmtNum(L.tp) +
     (L.closePrice != null ? ('  ·  Exit ' + fmtNum(L.closePrice)) : '');
   return '<div class="bracket" title="' + title + '">' +
     '<div class="track"></div>' +
     '<div class="tick sl" style="left:' + pos(L.sl) + '%"></div>' +
     '<div class="tick tp" style="left:' + pos(L.tp) + '%"></div>' +
-    '<div class="dot entry" style="left:' + pos(L.entry) + '%"></div>' +
     exitDot +
     '</div>';
 }
@@ -880,25 +865,24 @@ function rowHtml(r, flashEnabled) {
     '<td class="num muted">' + r.id + '</td>' +
     '<td class="sig-instrument"><span class="sym">' + r.symbol + '</span><span class="tf">' + r.timeframe + '</span></td>' +
     '<td>' + directionBadgeHtml(r) + '</td>' +
-    '<td>' + (_showLevels ? bracketHtml(r) : '<span class="muted" title="SL/TP/Entry hidden">—</span>') + '</td>' +
+    '<td>' + bracketHtml(r) + '</td>' +
     '<td>' + rsiGaugeHtml(r.rsi_value) + '</td>' +
     '<td>' + resultBadgeHtml(r) + '</td>' +
     '<td class="num">' + rrHtml + '</td>' +
     '<td class="muted" title="' + fmtTs(r.signal_time) + '">' + relTime(r.signal_time) + '</td>' +
     '</tr>';
 
-  var desc = signalDescription(r); // stays regardless of the SL/TP/Entry toggle
+  var desc = signalDescription(r);
   var descHtml = desc ? '<div class="sig-detail-desc">' + desc.html + '</div>' : '';
   var detail = '<tr class="sig-detail-row" id="' + detailId + '" style="' + (expanded ? '' : 'display:none;') + '">' +
     '<td colspan="9">' + descHtml + '<div class="sig-detail-grid">' +
-      (_showLevels ? (function(){
+      (function(){
         var L = effLevels(r) || {};
-        return detailItem('Entry', fmtNum(L.entry)) +
-               detailItem(_srMode ? ('Stop · L' + _srLevel) : 'Stop Loss', fmtNum(L.sl)) +
+        return detailItem(_srMode ? ('Stop · S/R L1') : 'Stop Loss', fmtNum(L.sl)) +
                detailItem(_srMode ? ('Target · L' + _srLevel) : 'Take Profit', fmtNum(L.tp)) +
                (_srMode ? detailItem('S/R Outcome', r.sr_outcome || '—')
                         : detailItem('Close Price', fmtNum(r.close_price)));
-      })() : '') +
+      })() +
       detailItem('Signal Time', fmtTs(r.signal_time)) +
       detailItem('Close Time', fmtTs(r.close_time)) +
       detailItem('Created', fmtTs(r.created_at)) +
@@ -955,9 +939,8 @@ function stateClass(r) {
   return r.status === 'ACTIVE' ? 'st-active' : (r.outcome === 'TP_HIT' ? 'st-tp' : (r.outcome === 'SL_HIT' ? 'st-sl' : ''));
 }
 
-// Shared caption strip for card views — plain-English setup read. Shown
-// regardless of the SL/TP/Entry toggle (the narrative stays even when the
-// numeric levels / shape / exit are hidden).
+// Shared caption strip for card views — a plain-English read of the setup,
+// anchored on the support/resistance levels (never the entry price).
 function descCaptionHtml(r) {
   var desc = signalDescription(r);
   return desc ? '<div class="sig-box-desc" title="' + desc.text + '">' + desc.html + '</div>' : '';
@@ -1151,9 +1134,8 @@ function renderChart(id, data) {
   var exitPosition = entryPosition === 'belowBar' ? 'aboveBar' : 'belowBar';
   var entryBarTime = closestBarTime(data.signal_time);
   var markers = [];
-  // The exit marker is gated by the SL/TP/Entry toggle (it reveals where the
-  // trade closed) — same as the entry flag and the SL/TP lines.
-  if (_showLevels && data.close_time) {
+  // Exit marker — where the EA's own trade actually closed.
+  if (data.close_time) {
     var exitBarTime = closestBarTime(data.close_time);
     var exitText = 'Exit';
     if (exitBarTime === entryBarTime) {
@@ -1218,11 +1200,10 @@ function renderChart(id, data) {
     },
   });
 
-  if (_showLevels) {
-    series.createPriceLine({ price: effEntry, color: '#9aa9c2', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Entry' });
-    series.createPriceLine({ price: effSl,    color: '#f87171', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: _srMode ? 'Stop' : 'SL' });
-    series.createPriceLine({ price: effTp,    color: '#34d399', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: _srMode ? 'Target' : 'TP' });
-  }
+  // Stop & target lines are always drawn; entry is intentionally not shown
+  // (it's the signal-creation price, not any client's actual entry).
+  series.createPriceLine({ price: effSl, color: '#f87171', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: _srMode ? 'Stop' : 'SL' });
+  series.createPriceLine({ price: effTp, color: '#34d399', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: _srMode ? 'Target' : 'TP' });
   [['resistance_1','R1'], ['resistance_2','R2'], ['resistance_3','R3']].forEach(function(p) {
     if (data[p[0]] != null && (!_srMode || _srOverlay.has(parseInt(p[1].slice(1),10)))) series.createPriceLine({ price: data[p[0]], color: 'rgba(251,191,36,.55)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: p[1] });
   });
@@ -1252,18 +1233,16 @@ function renderChart(id, data) {
       label.textContent = 'Signal';
       overlay.appendChild(label);
     }
-    // Stop/target right-edge triangles — gated with the numeric levels.
-    if (_showLevels) {
-      [[effSl, 'sl'], [effTp, 'tp']].forEach(function(p) {
-        var y = p[0] == null ? null : series.priceToCoordinate(p[0]);
-        if (y != null) {
-          var tri = document.createElement('div');
-          tri.className = 'sig-tri sig-tri-' + p[1];
-          tri.style.top = y + 'px';
-          overlay.appendChild(tri);
-        }
-      });
-    }
+    // Stop/target right-edge triangles.
+    [[effSl, 'sl'], [effTp, 'tp']].forEach(function(p) {
+      var y = p[0] == null ? null : series.priceToCoordinate(p[0]);
+      if (y != null) {
+        var tri = document.createElement('div');
+        tri.className = 'sig-tri sig-tri-' + p[1];
+        tri.style.top = y + 'px';
+        overlay.appendChild(tri);
+      }
+    });
     // Resistance / support banner markers — shown regardless of the toggle (like
     // the S/R price lines): red flag at resistance_1, green flag at support_1.
     [['resistance_1', 'resistance'], ['support_1', 'support']].forEach(function(p) {
@@ -1284,8 +1263,8 @@ function renderChart(id, data) {
     // entryPosition (belowBar for BUY, aboveBar for SELL, same convention as
     // the exit marker below and the ▲/▼ table badges): a BUY signal sits
     // below the candle pointing up into it; SELL stays above pointing down.
-    // Always shown — the BUY/SELL signal marker stays visible regardless of the
-    // SL/TP/Entry toggle (only the exact SL/TP lines and exit are gated off).
+    // This is the directional signal marker (no price shown) — the entry price
+    // itself is deliberately never labelled.
     var entryX = chart.timeScale().timeToCoordinate(entryBarTime);
     var entryY = series.priceToCoordinate(effEntry);
     if (entryX != null && entryY != null) {
@@ -1334,8 +1313,7 @@ function ariaLabel(r) {
     ? (r.sr_outcome ? r.sr_outcome.toLowerCase() : 'pending')
     : (r.status === 'ACTIVE' ? 'active' : (r.outcome === 'TP_HIT' ? 'take-profit hit' : (r.outcome === 'SL_HIT' ? 'stop-loss hit' : 'closed')));
   return r.symbol + ' ' + r.timeframe + ' ' + r.direction +
-    ' — entry ' + L.entry.toFixed(dec) + ', target ' + L.tp.toFixed(dec) +
-    ', stop ' + L.sl.toFixed(dec) + ', ' + out;
+    ' — target ' + L.tp.toFixed(dec) + ', stop ' + L.sl.toFixed(dec) + ', ' + out;
 }
 
 // Draws the trade-anatomy panel for one signal into `el` (a .sig-box-plot), as
@@ -1353,7 +1331,6 @@ function renderAnatomy(r, el) {
   if (!L) { placeholder('No level ' + _srLevel); return; }
   var entry = L.entry, sl = L.sl, tp = L.tp;
   if (entry == null || sl == null || tp == null) { placeholder('No trade levels'); return; }
-  if (!_showLevels) { placeholder('Levels hidden'); return; }
 
   // Resolution: EA reads the actual close; S/R reads the backtested outcome —
   // a win resolves at the target, a loss at the stop, pending stays live.
@@ -1414,6 +1391,9 @@ function renderAnatomy(r, el) {
   p.push('<rect class="sig-plot-band-sl" x="' + pL + '" y="' + Math.min(entryY, slY) + '" width="' + pW + '" height="' + Math.abs(slY - entryY) + '"/>');
   p.push('<line class="sig-plot-line-tp" x1="' + pL + '" y1="' + tpY + '" x2="' + pR + '" y2="' + tpY + '"/>');
   p.push('<line class="sig-plot-line-sl" x1="' + pL + '" y1="' + slY + '" x2="' + pR + '" y2="' + slY + '"/>');
+  // The reward and risk zones meet at the signal level — drawn as a thin neutral
+  // divider (no price shown: entry is the signal-creation price, not any client's
+  // actual entry).
   p.push('<line class="sig-plot-line-entry" x1="' + pL + '" y1="' + entryY + '" x2="' + pR + '" y2="' + entryY + '"/>');
   var tpDy = (tpY < entryY) ? 12 : -4;
   var slDy = (slY < entryY) ? 12 : -4;
@@ -1423,7 +1403,6 @@ function renderAnatomy(r, el) {
   p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (tpY + tpDy) + '" text-anchor="end">' + fmtDelta(reward) + '</text>');
   p.push('<text class="sig-plot-label sl" x="' + (pL + 3) + '" y="' + (slY + slDy) + '">' + sLbl + ' ' + sl.toFixed(dec) + '</text>');
   p.push('<text class="sig-plot-delta" x="' + (pR - 3) + '" y="' + (slY + slDy) + '" text-anchor="end">' + fmtDelta(-risk) + '</text>');
-  p.push('<text class="sig-plot-label entry" x="' + (entryX + 9) + '" y="' + (entryY - 5) + '">ENTRY ' + entry.toFixed(dec) + '</text>');
 
   // Resolution path → close/target/stop, with the ✓/✕. Under the entry dot.
   if (closeVal != null) {
@@ -1480,8 +1459,6 @@ function refreshAll() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  // Sync the toggle button with the persisted preference (markup defaults to on).
-  document.getElementById('levelsToggle').classList.toggle('active', _showLevels);
   syncSrControls();
   refreshAll();
   // 2s poll — faster than the EA's own 5s signal-check timer, so a new/closed
