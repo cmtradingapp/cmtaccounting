@@ -3228,4 +3228,10 @@ def signals_api_chart(signal_id):
 
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(host="0.0.0.0", port=5050, debug=debug)
+    # threaded=True is essential: the Signals dashboard has slow endpoints (the
+    # S/R backtest can take several seconds on a cold cache) and the MT5 EA posts
+    # to /rest/v1/signals on every bar close. Single-threaded, one slow dashboard
+    # request blocks the EA's POST past its WebRequest timeout, so signals fail to
+    # ingest ("INSERT failed HTTP -1") whenever someone is viewing the dashboard.
+    # A thread per request keeps ingestion independent of dashboard load.
+    app.run(host="0.0.0.0", port=5050, debug=debug, threaded=True)
